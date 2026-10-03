@@ -1,7 +1,10 @@
-import { entityVertexIds, getVertex, vertexPoint, worldVertex, type Entity, type GeoDocument, type Vertex, type WorldPoint } from './model';
+import { entityVertexIds, getVertex, vertexPoint, worldVertex, type Entity, type GeoDocument, type Layer, type PointEntity, type Vertex, type WorldPoint } from './model';
+import { validateDocument } from '../persistence/documentSchema';
+import { assertDocumentSize } from '../persistence/serialization';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
+  | { type: 'import-points'; points: { entity: PointEntity; vertex: Vertex }[]; layer?: Layer }
   | { type: 'add-entity'; entity: Entity; vertices: Vertex[] }
   | { type: 'delete-entity'; entityId: string }
   | { type: 'update-vertex'; vertexId: string; position: WorldPoint }
@@ -37,6 +40,24 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity) {
 const referencedVertices = (entities: Entity[]) => new Set(entities.flatMap(entityVertexIds));
 
 export function applyCommand(document: GeoDocument, command: DocumentCommand): GeoDocument {
+  if (command.type === 'import-points') {
+    if (!command.points.length) throw new Error('Импорт не содержит точек');
+    if (command.layer && document.layers.some(layer => layer.id === command.layer!.id)) throw new Error('ID нового слоя уже используется');
+    const layers = command.layer ? [...document.layers, { ...command.layer }] : document.layers;
+    const vertices = { ...document.vertices };
+    const entities = [...document.entities];
+    const ids = new Set(entities.map(entity => entity.id));
+    for (const { entity, vertex } of command.points) {
+      const layer = layers.find(layer => layer.id === entity.layerId);
+      if (!layer || layer.locked) throw new Error('Целевой слой заблокирован или отсутствует');
+      if (ids.has(entity.id) || Object.hasOwn(vertices, vertex.id)) throw new Error('Импорт содержит повторяющийся внутренний ID');
+      if (entity.vertexId !== vertex.id) throw new Error('Точка импорта ссылается на другую вершину');
+      ids.add(entity.id); vertices[vertex.id] = { ...vertex }; entities.push({ ...entity });
+    }
+    const candidate = validateDocument({ ...document, layers, vertices, entities });
+    assertDocumentSize(JSON.stringify(candidate, null, 2));
+    return candidate;
+  }
   if (command.type === 'set-layer-visibility' || command.type === 'set-layer-lock') {
     if (!document.layers.some(layer => layer.id === command.layerId)) throw new Error('Слой не найден');
     return { ...document, layers: document.layers.map(layer => layer.id !== command.layerId ? layer : {

@@ -7,14 +7,15 @@ import { EntityView } from '../renderer/EntityView';
 import { Grid } from '../renderer/Grid';
 import type { EditorAction, EditorState, EditorTool } from '../store/editor';
 
-interface Props { state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void; onCursor: (point: ScreenPoint | null) => void }
+interface Props { state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void; onCursor: (point: ScreenPoint | null) => void; disabled?: boolean }
 type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex };
 const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const layerForTool = (tool: EditorTool) => tool === 'point' ? 'survey-points' : tool === 'text' ? 'annotations' : 'boundary';
 const entityName = (tool: Exclude<EditorTool, 'select' | 'pan'>, n: number) => ({ point: `Точка ${n}`, line: `Линия ${n}`, polyline: `Полилиния ${n}`, polygon: `Полигон ${n}`, text: `Текст ${n}` })[tool];
 function makeEntity(tool: Exclude<EditorTool, 'select' | 'pan'>, points: WorldPoint[], document: GeoDocument, content = ''): { entity: Entity; vertices: Vertex[] } {
   const vertices = points.map(point => worldVertex(newId('v'), point));
-  const base = { id: newId(tool), name: entityName(tool, document.entities.length + 1), layerId: layerForTool(tool) };
+  const layer = document.layers.find(layer => layer.id === layerForTool(tool)) ?? document.layers.find(layer => !layer.locked) ?? document.layers[0]!;
+  const base = { id: newId(tool), name: entityName(tool, document.entities.length + 1), layerId: layer.id };
   switch (tool) {
     case 'point': return { entity: { ...base, type: 'point', vertexId: vertices[0]!.id }, vertices };
     case 'line': return { entity: { ...base, type: 'line', startVertexId: vertices[0]!.id, endVertexId: vertices[1]!.id }, vertices };
@@ -24,7 +25,7 @@ function makeEntity(tool: Exclude<EditorTool, 'select' | 'pan'>, points: WorldPo
   }
 }
 
-export function Canvas({ state, dispatch, size, onResize, onCursor }: Props) {
+export function Canvas({ state, dispatch, size, onResize, onCursor, disabled = false }: Props) {
   const ref = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
   const [space, setSpace] = useState(false);
@@ -65,6 +66,7 @@ export function Canvas({ state, dispatch, size, onResize, onCursor }: Props) {
   useEffect(() => {
     const isInput = (target: EventTarget | null) => target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);
     const down = (event: KeyboardEvent) => {
+      if (disabled) return;
       if (!isInput(event.target) && event.code === 'Space') { event.preventDefault(); setSpace(true); }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); dispatch({ type: event.shiftKey ? 'redo' : 'undo' }); return; }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); dispatch({ type: 'redo' }); return; }
@@ -85,7 +87,7 @@ export function Canvas({ state, dispatch, size, onResize, onCursor }: Props) {
     const blur = () => { setSpace(false); if (drag.current?.kind === 'vertex') dispatch({ type: 'commit-transaction' }); drag.current = null; setDragging(false); };
     window.addEventListener('keydown', down); window.addEventListener('keyup', up); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
-  }, [dispatch, document, draft, finishPath, state.selectionId, textDraft, tool]);
+  }, [disabled, dispatch, document, draft, finishPath, state.selectionId, textDraft, tool]);
   const local = (event: PointerEvent<SVGSVGElement>): ScreenPoint => { const rect = event.currentTarget.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; };
   const down = (event: PointerEvent<SVGSVGElement>) => {
     if (![0, 1, 2].includes(event.button)) return;

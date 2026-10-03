@@ -54,7 +54,7 @@ export function fitToBounds(box: Bounds | null, size: ViewSize, padding = 64): V
   const availableWidth = Math.max(size.width - 2 * padding, size.width * 0.25);
   const availableHeight = Math.max(size.height - 2 * padding, size.height * 0.25);
   return {
-    center: { x: box.minX + (box.maxX - box.minX) / 2, y: box.minY + (box.maxY - box.minY) / 2 },
+    center: { x: box.minX / 2 + box.maxX / 2, y: box.minY / 2 + box.maxY / 2 },
     pixelsPerUnit: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM,
       availableWidth / Math.max(box.maxX - box.minX, 1), availableHeight / Math.max(box.maxY - box.minY, 1))),
   };

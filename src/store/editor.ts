@@ -1,13 +1,19 @@
 import type { GeoDocument, Viewport } from '../domain/model';
 import { applyCommand, type DocumentCommand } from '../domain/commands';
-import { panViewport, zoomAt, type ScreenPoint, type ViewSize } from '../geometry';
+import { fitToBounds, panViewport, zoomAt, type ScreenPoint, type ViewSize } from '../geometry';
+import { visibleBounds } from '../renderer/selectors';
+import { deserializeDocument, documentFingerprint } from '../persistence/serialization';
 
 export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text';
 export interface EditorState {
   document: GeoDocument; viewport: Viewport; selectionId: string | null; tool: EditorTool; gridVisible: boolean;
   past: GeoDocument[]; future: GeoDocument[]; transactionBefore: GeoDocument | null; error: string | null;
+  savedFingerprint: string; documentEpoch: number;
 }
 export type EditorAction =
+  | { type: 'load-json'; text: string; size: ViewSize }
+  | { type: 'replace-document'; document: GeoDocument; size: ViewSize }
+  | { type: 'mark-saved' }
   | { type: 'execute'; command: DocumentCommand }
   | { type: 'transient'; command: DocumentCommand }
   | { type: 'begin-transaction' } | { type: 'commit-transaction' } | { type: 'cancel-transaction' }
@@ -27,10 +33,18 @@ function reconcileSelection(document: GeoDocument, selectionId: string | null): 
 
 export function initialEditorState(document: GeoDocument): EditorState {
   return { document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, tool: 'select', gridVisible: true,
-    past: [], future: [], transactionBefore: null, error: null };
+    past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0 };
 }
+export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFingerprint'>) => documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case 'mark-saved': return { ...state, savedFingerprint: documentFingerprint(state.document) };
+    case 'load-json': {
+      try { return editorReducer(state, { type: 'replace-document', document: deserializeDocument(action.text), size: action.size }); }
+      catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось открыть документ' }; }
+    }
+    case 'replace-document': return { ...initialEditorState(action.document), documentEpoch: state.documentEpoch + 1,
+      viewport: fitToBounds(visibleBounds(action.document), action.size, 85) ?? action.document.viewport };
     case 'execute': {
       if (state.transactionBefore) return state;
       try {

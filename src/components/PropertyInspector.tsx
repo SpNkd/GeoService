@@ -74,6 +74,6 @@ export function PropertyInspector({ state, dispatch }: { state: EditorState; dis
       {!locked && <button className="delete-object-button" onClick={() => dispatch({ type: 'execute', command: { type: 'delete-entity', entityId: entity.id } })}><Icon name="trash" size={15} />Удалить объект <span>Del</span></button>}
       <div className="property-note"><span className="live-dot" /> Объект в мировой системе координат</div>
     </div> : <div className="empty-inspector"><div className="empty-symbol"><Icon name="cursor" size={30} /></div><h3>Выберите объект</h3><p>Нажмите на точку, линию, полигон или подпись на схеме.</p><div className="empty-preview"><span>X</span><i /><span>Y</span><i /><span>Z</span><i /></div><small>Свойства и координаты появятся здесь</small></div>}
-    <div className="inspector-footer"><span>Сохранение пока не подключено.</span><small>Изменения действуют до перезагрузки страницы.</small></div>
+    <div className="inspector-footer"><span>Изменения сохраняются в этом браузере.</span><small>Save экспортирует полный документ в JSON.</small></div>
   </aside>;
 }

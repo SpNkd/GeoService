@@ -83,7 +83,10 @@ test('dragging a shared point moves its parcel corner in one undoable action', a
   const point = page.locator('[data-entity-id="p1"]');
   const target = await point.locator('circle[r="14"]').boundingBox();
   await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2); await page.mouse.down();
-  await page.mouse.move(target!.x + target!.width / 2 + 52, target!.y + target!.height / 2 - 36, { steps: 12 }); await page.mouse.up();
+  await page.mouse.move(target!.x + target!.width / 2 + 52, target!.y + target!.height / 2 - 36, { steps: 12 });
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).vertices['v-p1'].x)).toBe(1000);
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).vertices['v-p1'].x)).not.toBe(1000);
   const after = await page.locator('[data-entity-id="boundary-01"] polygon').getAttribute('points');
   expect(after).not.toBe(before);
   await expect(page.getByRole('textbox', { name: 'X', exact: true })).not.toHaveValue('1000');

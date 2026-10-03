@@ -22,9 +22,9 @@ export function LayersPanel({ state, dispatch }: { state: EditorState; dispatch:
       })}
     </div>
     <div className="panel-section"><h3>Документ</h3>
-      <dl className="document-facts"><dt>Система координат</dt><dd>Локальная / декартова</dd><dt>Единицы</dt><dd>Метры (м)</dd><dt>Оси</dt><dd>X → восток · Y → север</dd><dt>Объекты</dt><dd>{document.entities.length} в модели</dd></dl>
+      <dl className="document-facts"><dt>Система координат</dt><dd>{document.coordinateSystem.name ?? ({ local: 'Локальная', projected: 'Проекция', unknown: 'Не указана' })[document.coordinateSystem.kind]}</dd><dt>Единицы</dt><dd>Метры (м)</dd><dt>Оси</dt><dd>X → восток · Y → север</dd><dt>Объекты</dt><dd>{document.entities.length} в модели</dd></dl>
     </div>
     <div className="sidebar-note"><Icon name="crosshair" size={20} /><p>Точность в модели<small>Координаты хранятся без округления. Масштаб влияет только на вид.</small></p></div>
-    <div className="panel-foot"><span className="live-dot" /> Локальный прототип <span className="version">v0.1</span></div>
+    <div className="panel-foot"><span className="live-dot" /> Локальный редактор <span className="version">v0.2</span></div>
   </aside>;
 }
