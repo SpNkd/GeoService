@@ -15,9 +15,9 @@ export function LayersPanel({ state, dispatch }: { state: EditorState; dispatch:
           <span className="layer-color" style={{ background: color }} />
           <div className="layer-name"><span>{layer.name}</span><small>{count} объектов{layer.locked ? ' · заблокирован' : ''}</small></div>
           <button className="icon-button small" aria-label={`${layer.visible ? 'Скрыть' : 'Показать'} слой ${layer.name}`} title={layer.visible ? 'Скрыть слой' : 'Показать слой'}
-            aria-pressed={layer.visible} onClick={() => dispatch({ type: 'command', command: { type: 'set-layer-visibility', layerId: layer.id, visible: !layer.visible } })}><Icon name={layer.visible ? 'eye' : 'eye-off'} size={16} /></button>
+          aria-pressed={layer.visible} onClick={() => dispatch({ type: 'execute', command: { type: 'set-layer-visibility', layerId: layer.id, visible: !layer.visible } })}><Icon name={layer.visible ? 'eye' : 'eye-off'} size={16} /></button>
           <button className="icon-button small" aria-label={`${layer.locked ? 'Разблокировать' : 'Заблокировать'} слой ${layer.name}`} title={layer.locked ? 'Разблокировать слой' : 'Заблокировать слой'}
-            aria-pressed={layer.locked} onClick={() => dispatch({ type: 'command', command: { type: 'set-layer-lock', layerId: layer.id, locked: !layer.locked } })}><Icon name={layer.locked ? 'lock' : 'unlock'} size={15} /></button>
+            aria-pressed={layer.locked} onClick={() => dispatch({ type: 'execute', command: { type: 'set-layer-lock', layerId: layer.id, locked: !layer.locked } })}><Icon name={layer.locked ? 'lock' : 'unlock'} size={15} /></button>
         </div>;
       })}
     </div>

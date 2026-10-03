@@ -1,4 +1,4 @@
-import { entityPoints, type Entity, type EntityStyle, type GeoDocument, type Layer } from '../domain/model';
+import { entityPoints, getVertex, type Entity, type EntityStyle, type GeoDocument, type Layer, type Vertex } from '../domain/model';
 import { bounds } from '../geometry';
 
 export interface RenderItem { entity: Entity; layer: Layer; style: EntityStyle }
@@ -13,5 +13,8 @@ export function renderItems(document: GeoDocument): RenderItem[] {
   );
 }
 export function visibleBounds(document: GeoDocument) {
-  return bounds(renderItems(document).flatMap(({ entity }) => entityPoints(entity)));
+  return bounds(renderItems(document).flatMap(({ entity }) => entityPoints(entity, document.vertices)));
+}
+export function vertexFor(document: GeoDocument, id: string): Vertex {
+  return getVertex(document.vertices, id);
 }

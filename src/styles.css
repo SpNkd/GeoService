@@ -22,10 +22,13 @@ h2, h3, p { margin: 0; }
 .toolbar { height: 49px; flex-shrink: 0; display: flex; align-items: center; gap: 13px; padding: 0 18px; border-bottom: 1px solid #dbe3e8; background: #fff; }
 .tool-group { display: flex; gap: 4px; }
 .tool-button { height: 32px; border: 1px solid transparent; border-radius: 5px; background: transparent; display: flex; align-items: center; gap: 8px; padding: 0 11px; font-size: 12px; white-space: nowrap; }
+.tool-button.compact { gap: 5px; padding: 0 8px; font-size: 11px; }
+.tool-button:disabled { opacity: .38; cursor: default; }
 .tool-button:hover, .icon-button:hover { background: #edf2f5; }
 .tool-button.active { color: #236956; background: #edf6f2; border-color: #d7e9df; }
 .tool-button.grid-active { color: #256c57; }
 .toolbar-divider { width: 1px; height: 22px; background: #e0e7eb; }
+.toolbar { overflow-x: auto; }
 .toolbar-context { margin-left: auto; color: #85929c; font-size: 11px; padding-right: 7px; }
 .toolbar-context > span { padding: 0 7px; }
 .workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 242px minmax(0, 1fr) 282px; }
@@ -96,6 +99,22 @@ h2, h3, p { margin: 0; }
 .layer-field select { width: 100%; height: 34px; padding: 0 9px; background: #fbfcfd; border: 1px solid #dde5ea; border-radius: 4px; font-size: 11px; color: #506675; }
 .coordinate-field { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .coordinate-field > span { width: 23px; color: #7f939f; font-family: monospace; font-size: 12px; }
+.vertex-id-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 12px; color: #82939d; font-size: 10px; }
+.vertex-id-row code { color: #5f7885; font-size: 10px; }
+.read-only-banner { margin-top: 10px; border-left: 2px solid #d2a870; padding: 6px 8px; color: #997d55; background: #fcf8f0; font-size: 10px; }
+.delete-object-button { width: calc(100% - 36px); margin: 12px 18px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; border: 1px solid #ecdeda; border-radius: 4px; background: #fff; color: #a56050; font-size: 11px; }
+.delete-object-button:hover { background: #fbf4f2; }
+.delete-object-button span { margin-left: auto; color: #b8a9a5; font-family: monospace; font-size: 10px; }
+.status-ready.status-error { color: #a65c4e; max-width: 420px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.error-dot { width: 6px; height: 6px; border-radius: 50%; background: #c97562; display: inline-block; flex-shrink: 0; }
+.drawing-canvas.tool-point { cursor: crosshair; }
+.drawing-canvas.tool-line, .drawing-canvas.tool-polyline, .drawing-canvas.tool-polygon, .drawing-canvas.tool-text { cursor: crosshair; }
+.drawing-canvas.tool-point .entity, .drawing-canvas.tool-line .entity, .drawing-canvas.tool-polyline .entity, .drawing-canvas.tool-polygon .entity, .drawing-canvas.tool-text .entity { cursor: crosshair; }
+.text-entry { position: absolute; z-index: 2; display: grid; grid-template-columns: minmax(145px, 220px) auto auto; align-items: end; gap: 5px; padding: 9px; background: #fff; border: 1px solid #d5e0e5; box-shadow: 0 5px 16px #1c323f18; border-radius: 5px; }
+.text-entry label { display: flex; flex-direction: column; gap: 5px; color: #73858f; font-size: 10px; }
+.text-entry input { height: 31px; padding: 5px 8px; border: 1px solid #dbe4e9; border-radius: 3px; color: #3d5562; font-size: 11px; }
+.text-entry button { height: 31px; padding: 0 9px; border: 1px solid #dbe4e9; border-radius: 3px; background: #fff; color: #637984; font-size: 10px; }
+.text-entry button[type="submit"] { background: #eef5f2; color: #347560; border-color: #d6e8df; }
 .coordinate-field > div { display: flex; align-items: center; width: 100%; background: #fbfcfd; border: 1px solid #dde5ea; border-radius: 4px; }
 .coordinate-field input { width: 100%; min-width: 0; border: 0; background: transparent; outline: none; padding: 9px 10px; font-size: 12px; color: #3e5a6b; }
 .coordinate-field > div:focus-within { border-color: #3f927b; box-shadow: 0 0 0 2px #3f927b10; }

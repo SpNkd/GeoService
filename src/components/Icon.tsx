@@ -1,4 +1,4 @@
-type IconName = 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus';
+type IconName = 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
 const paths: Record<IconName, string> = {
   cursor: 'M4 3l6 17 3-7 7-3L4 3z',
   hand: 'M8 12V6a2 2 0 014 0v5-7a2 2 0 014 0v7-5a2 2 0 014 0v8c0 5-3 8-7 8-3 0-5-2-7-5l-3-4a2 2 0 013-2l2 2',
@@ -15,6 +15,9 @@ const paths: Record<IconName, string> = {
   text: 'M4 5h16M12 5v15M8 20h8',
   crosshair: 'M12 2v4m0 12v4M2 12h4m12 0h4M18 12a6 6 0 11-12 0 6 6 0 0112 0z',
   plus: 'M12 5v14M5 12h14', minus: 'M5 12h14',
+  undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-2',
+  redo: 'M15 14l5-5-5-5m5 5H10a6 6 0 000 12h2',
+  trash: 'M3 6h18m-2 0-1 15H6L5 6m3 0V3h8v3m-6 4v7m4-7v7',
 };
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
