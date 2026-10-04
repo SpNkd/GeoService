@@ -75,6 +75,29 @@ test('dimension value follows shared drag and Undo, then Save/Open/reload preser
   await page.screenshot({ path: 'test-results/survey-dimension.png' });
 });
 
+test('dimension offset can be dragged or edited in Properties as one undoable change', async ({ page }) => {
+  await tool(page, 'Размер'); await clickPoint(page, 'P1'); await clickPoint(page, 'P2');
+  const a = await position(page, 'P1'), b = await position(page, 'P2'); await page.mouse.click((a.x + b.x) / 2, a.y + 45);
+  const readDocument = () => doc(page);
+  const initial = await readDocument(), dimension = initial.entities.find(entity => entity.type === 'dimension') as DimensionEntity;
+  const dragLine = page.locator('[data-entity-type="dimension"] .dimension-shape line').nth(2), box = (await dragLine.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 32, { steps: 6 }); await page.mouse.up();
+  const dragged = (await readDocument()).entities.find(entity => entity.type === 'dimension') as DimensionEntity;
+  expect(dragged.offset).not.toBe(dimension.offset);
+  expect((await readDocument()).vertices).toEqual(initial.vertices);
+  await page.getByRole('button', { name: 'Отменить', exact: true }).click();
+  expect(((await readDocument()).entities.find(entity => entity.type === 'dimension') as DimensionEntity).offset).toBe(dimension.offset);
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  expect(((await readDocument()).entities.find(entity => entity.type === 'dimension') as DimensionEntity).offset).toBe(dragged.offset);
+
+  const offset = page.getByRole('textbox', { name: 'Отступ размера', exact: true });
+  await offset.fill('2.25'); await offset.press('Tab');
+  await expect.poll(async () => ((await readDocument()).entities.find(entity => entity.type === 'dimension') as DimensionEntity).offset).toBe(2.25);
+  await page.getByRole('button', { name: 'Отменить', exact: true }).click();
+  expect(((await readDocument()).entities.find(entity => entity.type === 'dimension') as DimensionEntity).offset).toBe(dragged.offset);
+});
+
 test('Measure snaps and shows horizontal/deltas/North-clockwise azimuth/3D; Escape leaves history intact', async ({ page }) => {
   const before = await doc(page); await tool(page, 'Измерение'); await clickPoint(page, 'P1', 3); await clickPoint(page, 'P2', -3);
   const readout = page.getByTestId('measurement-readout');

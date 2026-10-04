@@ -102,7 +102,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if (!state.transactionBefore) return state;
       try {
         if (action.command.type !== 'update-vertex' && action.command.type !== 'move-vertex' && action.command.type !== 'move-text'
-          && !(action.command.type === 'update-entity' && action.command.patch.template === undefined && action.command.patch.content === undefined && action.command.patch.name === undefined && action.command.patch.fontSize === undefined)) throw new Error('Транзакция допускает только изменение координат и смещения подписи');
+          && !(action.command.type === 'update-entity' && action.command.patch.template === undefined && action.command.patch.content === undefined && action.command.patch.name === undefined && action.command.patch.fontSize === undefined)) throw new Error('Транзакция допускает только изменение координат и смещений');
         return { ...state, document: applyCommand(state.document, action.command), error: null };
       }
       catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось изменить документ' }; }

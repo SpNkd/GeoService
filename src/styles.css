@@ -70,6 +70,7 @@ h2, h3, p { margin: 0; }
 .drawing-canvas { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; outline: 0; }
 .drawing-canvas:focus-visible { box-shadow: inset 0 0 0 2px #277ec180; }
 .entity { cursor: pointer; }
+.entity[data-entity-type="dimension"] { cursor: move; }
 .entity.locked { cursor: default; }
 .drawing-canvas.panning, .drawing-canvas.panning .entity { cursor: grab; }
 .drawing-canvas.grabbing, .drawing-canvas.grabbing .entity { cursor: grabbing; }

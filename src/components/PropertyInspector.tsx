@@ -45,7 +45,7 @@ function PointProperties({ entity, document, dispatch }: { entity: PointEntity; 
     {disabled ? <p className="field-help lock-message">Вершина используется заблокированным слоем. Координаты доступны только для просмотра.</p> : <p className="field-help">Изменения применяются сразу. Полная точность доступна в поле ввода.</p>}
   </div>;
 }
-function GeometryProperties({ entity, document }: { entity: Exclude<Entity, PointEntity>; document: GeoDocument }) {
+function GeometryProperties({ entity, document, locked, dispatch }: { entity: Exclude<Entity, PointEntity>; document: GeoDocument; locked: boolean; dispatch: Dispatch<EditorAction> }) {
   if (entity.type === 'label') return <div className="property-section"><h3>Связанная подпись</h3><dl className="property-facts"><dt>Цель</dt><dd>{document.entities.find(item => item.id === entity.targetId)?.name ?? 'Не найдена'}</dd></dl></div>;
   const ids = entityVertexIds(entity);
   const points = ids.map(id => vertexFor(document, id));
@@ -53,12 +53,12 @@ function GeometryProperties({ entity, document }: { entity: Exclude<Entity, Poin
   return <div className="property-section"><h3>Геометрия</h3><dl className="property-facts">
     {entity.type === 'line' && <><dt>Длина</dt><dd>{formatMeasure(distance(worldPoints[0]!, worldPoints[1]!))} м</dd></>}
     {(entity.type === 'line' || entity.type === 'dimension') && <><dt>Азимут</dt><dd>{formatAzimuth(azimuth(worldPoints[0]!, worldPoints[1]!))}</dd></>}
-    {entity.type === 'dimension' && <><dt>Horizontal</dt><dd>{formatDistance(distance(worldPoints[0]!, worldPoints[1]!))}</dd><dt>Offset</dt><dd>{formatDistance(entity.offset)}</dd></>}
+    {entity.type === 'dimension' && <><dt>Horizontal</dt><dd>{formatDistance(distance(worldPoints[0]!, worldPoints[1]!))}</dd></>}
     {entity.type === 'polyline' && <><dt>Длина</dt><dd>{formatMeasure(pathLength(worldPoints))} м</dd></>}
     {entity.type === 'polygon' && <><dt>Площадь</dt><dd>{formatMeasure(polygonArea(worldPoints))} м²</dd><dt>Периметр</dt><dd>{formatMeasure(pathLength(worldPoints, true))} м</dd></>}
     {entity.type === 'text' && <><dt>Содержание</dt><dd className="text-content">{entity.content}</dd><dt>Размер текста</dt><dd>{entity.fontSize} px</dd></>}
     <dt>Вершины</dt><dd>{points.length}</dd>
-  </dl><div className="vertex-table"><table><thead><tr><th>Вершина</th><th>X, м</th><th>Y, м</th></tr></thead><tbody>
+  </dl>{entity.type === 'dimension' && <DimensionOffsetField entity={entity} locked={locked} dispatch={dispatch} />}<div className="vertex-table"><table><thead><tr><th>Вершина</th><th>X, м</th><th>Y, м</th></tr></thead><tbody>
     {points.map((vertex, i) => <tr key={`${vertex.id}:${i}`}><td title={vertex.id}>{vertex.id}</td><td>{formatCoordinate(vertex.x)}</td><td>{formatCoordinate(vertex.y)}</td></tr>)}
   </tbody></table></div>{entity.type === 'polygon' && polygonSelfIntersects(worldPoints) && <p className="geometry-warning">Граница самопересекается. Проверьте вершины.</p>}</div>;
 }
@@ -84,6 +84,19 @@ function TextContentField({ entity, locked, dispatch }: { entity: TextEntity; lo
     if (value.trim() && value !== entity.content) dispatch({ type: 'execute', command: { type: 'update-entity', entityId: entity.id, patch: { content: value } } });
     else setValue(entity.content);
   }} /></label>;
+}
+
+function DimensionOffsetField({ entity, locked, dispatch }: { entity: Extract<Entity, { type: 'dimension' }>; locked: boolean; dispatch: Dispatch<EditorAction> }) {
+  const [draft, setDraft] = useState(String(entity.offset));
+  useEffect(() => setDraft(String(entity.offset)), [entity.offset]);
+  const commit = () => {
+    if (draft.trim() && Number.isFinite(Number(draft))) {
+      const offset = Number(draft);
+      if (offset !== entity.offset) dispatch({ type: 'execute', command: { type: 'update-entity', entityId: entity.id, patch: { offset } } });
+    } else setDraft(String(entity.offset));
+  };
+  return <label className="coordinate-field"><span>Отступ размера</span><div><input aria-label="Отступ размера" type="text" inputMode="decimal" spellCheck={false} value={draft} disabled={locked}
+    onChange={event => setDraft(event.target.value)} onBlur={commit} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /><span>м</span></div></label>;
 }
 
 function LabelProperties({ entity, document, locked, dispatch }: { entity: LabelEntity; document: GeoDocument; locked: boolean; dispatch: Dispatch<EditorAction> }) {
@@ -125,7 +138,7 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
         </select></label>
         {locked && <p className="read-only-banner">Слой заблокирован · только просмотр</p>}
       </div>
-      {entity.type === 'point' ? <PointProperties key={entity.id} entity={entity} document={state.document} dispatch={dispatch} /> : entity.type === 'label' ? <LabelProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} /> : entity.type === 'text' ? <div className="property-section"><h3>Текст</h3><TextContentField entity={entity} locked={locked} dispatch={dispatch} /><TextCoordinates entity={entity} document={state.document} locked={locked} dispatch={dispatch} /></div> : <GeometryProperties entity={entity} document={state.document} />}
+      {entity.type === 'point' ? <PointProperties key={entity.id} entity={entity} document={state.document} dispatch={dispatch} /> : entity.type === 'label' ? <LabelProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} /> : entity.type === 'text' ? <div className="property-section"><h3>Текст</h3><TextContentField entity={entity} locked={locked} dispatch={dispatch} /><TextCoordinates entity={entity} document={state.document} locked={locked} dispatch={dispatch} /></div> : <GeometryProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} />}
       {entity.type !== 'label' && entity.type !== 'text' && <button onClick={() => { try { const command = createLabelCommand(state.document, entity.id); dispatch({ type: 'execute', command }); if (command.type === 'add-entity') dispatch({ type: 'select', entityId: command.entity.id }); } catch (error) { dispatch({ type: 'report-error', message: error instanceof Error ? error.message : 'Не удалось создать подпись' }); } }}>Добавить подпись</button>}
       {!locked && <button className="delete-object-button" onClick={() => dispatch({ type: 'execute', command: { type: 'delete-entity', entityId: entity.id } })}><Icon name="trash" size={15} />Удалить объект <span>Del</span></button>}
       <div className="property-note"><span className="live-dot" /> Объект в мировой системе координат</div>

@@ -14,7 +14,7 @@ export type DocumentCommand =
   | { type: 'update-vertex'; vertexId: string; position: WorldPoint }
   | { type: 'move-vertex'; vertexId: string; delta: WorldPoint }
   | { type: 'move-text'; entityId: string; vertexId: string; position: WorldPoint }
-  | { type: 'update-entity'; entityId: string; patch: { name?: string; content?: string; template?: string; fontSize?: number; dx?: number; dy?: number } }
+  | { type: 'update-entity'; entityId: string; patch: { name?: string; content?: string; template?: string; fontSize?: number; dx?: number; dy?: number; offset?: number } }
   | { type: 'set-entity-layer'; entityId: string; layerId: string }
   | { type: 'set-layer-visibility'; layerId: string; visible: boolean }
   | { type: 'set-layer-lock'; layerId: string; locked: boolean };
@@ -169,16 +169,18 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   if (command.patch.content !== undefined && entity.type !== 'text') throw new Error('Только у текстовой аннотации есть содержание');
   if (command.patch.template !== undefined && entity.type !== 'label') throw new Error('Шаблон доступен только у связанной подписи');
   if ((command.patch.dx !== undefined || command.patch.dy !== undefined) && entity.type !== 'label') throw new Error('Смещение доступно только у связанной подписи');
+  if (command.patch.offset !== undefined && entity.type !== 'dimension') throw new Error('Offset доступен только у размера');
   if (command.patch.fontSize !== undefined && (entity.type !== 'text' || !Number.isFinite(command.patch.fontSize) || command.patch.fontSize <= 0)) throw new Error('Размер текста должен быть положительным конечным числом');
   if (command.patch.name !== undefined && !command.patch.name.trim()) throw new Error('Имя объекта не может быть пустым');
   if (command.patch.template !== undefined && command.patch.template.length > 10000) throw new Error('Шаблон подписи слишком длинный');
-  if ((command.patch.dx !== undefined && !Number.isFinite(command.patch.dx)) || (command.patch.dy !== undefined && !Number.isFinite(command.patch.dy))) throw new Error('Смещение подписи должно быть конечным числом');
+  if ((command.patch.dx !== undefined && !Number.isFinite(command.patch.dx)) || (command.patch.dy !== undefined && !Number.isFinite(command.patch.dy)) || (command.patch.offset !== undefined && !Number.isFinite(command.patch.offset))) throw new Error('Смещение должно быть конечным числом');
   // Copy only mutable properties; runtime callers cannot replace type/IDs/references.
   const patch = { ...(command.patch.name === undefined ? {} : { name: command.patch.name }),
     ...(command.patch.content === undefined ? {} : { content: command.patch.content }),
     ...(command.patch.template === undefined ? {} : { template: command.patch.template }),
     ...(command.patch.fontSize === undefined ? {} : { fontSize: command.patch.fontSize }),
-    ...(command.patch.dx === undefined ? {} : { dx: command.patch.dx }), ...(command.patch.dy === undefined ? {} : { dy: command.patch.dy }) };
+    ...(command.patch.dx === undefined ? {} : { dx: command.patch.dx }), ...(command.patch.dy === undefined ? {} : { dy: command.patch.dy }),
+    ...(command.patch.offset === undefined ? {} : { offset: command.patch.offset }) };
   return { ...document, entities: document.entities.map(item => item.id === entity.id ? cloneEntity({ ...entity, ...patch } as Entity) : item) };
 }
 

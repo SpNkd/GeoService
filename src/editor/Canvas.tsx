@@ -19,7 +19,7 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number };
+type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint };
 type MoveInput = { point: ScreenPoint; pointerId: number };
 
 export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [] }: Props) {
@@ -117,6 +117,12 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         patch: { dx: active.dx + world.x - active.start.x, dy: active.dy + world.y - active.start.y } } });
       return;
     }
+    if (active?.kind === 'dimension' && active.pointerId === pointerId) {
+      const cursor = screenToWorld(point, viewport, size);
+      dispatch({ type: 'transient', command: { type: 'update-entity', entityId: active.entityId,
+        patch: { offset: dimensionOffset(active.a, active.b, cursor) } } });
+      return;
+    }
     if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text'].includes(tool)) setDrawCursor(anchorAt(point).position);
     else announceSnap(null);
   };
@@ -177,6 +183,12 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (entity.type === 'label' && !isLayerLocked(document, entity)) {
         dispatch({ type: 'begin-transaction' });
         drag.current = { kind: 'label', pointerId: event.pointerId, entityId, start: screenToWorld(point, viewport, size), dx: entity.dx, dy: entity.dy };
+        event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
+      }
+      if (entity.type === 'dimension' && !isLayerLocked(document, entity)) {
+        const a = document.vertices[entity.startVertexId]!, b = document.vertices[entity.endVertexId]!;
+        dispatch({ type: 'begin-transaction' });
+        drag.current = { kind: 'dimension', pointerId: event.pointerId, entityId, a, b };
         event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
       }
       const handle = event.target instanceof Element ? event.target.closest('[data-vertex-handle]') : null;
