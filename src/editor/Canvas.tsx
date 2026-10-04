@@ -17,12 +17,12 @@ import type { EditorAction, EditorState } from '../store/editor';
 
 interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
-  onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; aiPreview?: ReadyResolution | null;
+  onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; aiPreview?: { id: string; result: ReadyResolution }[];
 }
 type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex };
 type MoveInput = { point: ScreenPoint; pointerId: number };
 
-export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, aiPreview = null }: Props) {
+export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, aiPreview = [] }: Props) {
   const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
   const frame = useRef<number | null>(null), pending = useRef<MoveInput | null>(null);
   const [space, setSpace] = useState(false), [dragging, setDragging] = useState(false);
@@ -213,7 +213,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         selected={state.selectionId === item.entity.id || state.orderedPointIds.includes(item.entity.id)}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
         pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}
-      {aiPreview && <AiPreviewView result={aiPreview} viewport={viewport} size={size} />}
+      {aiPreview.map((action, index) => <AiPreviewView key={action.id} result={action.result} viewport={viewport} size={size} actionNumber={aiPreview.length > 1 ? index + 1 : undefined} />)}
       {draft.length > 0 && <g className="drawing-preview" pointerEvents="none" stroke="#21836e" strokeWidth={1.5} strokeDasharray="5 4" fill="#21836e20">
         {(tool === 'line' || tool === 'measure') && previewPoints.length > 1 && <MeasurementLine a={previewPoints[0]!} b={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!} />}
         {tool === 'polyline' && <GeometryPath points={previewPoints} closed={false} fill="none" />}

@@ -28,7 +28,7 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
   }, []);
   const generate = (event: FormEvent) => { event.preventDefault();
     void runner.run(text, event => dispatch({ type: 'ai-event', event })); };
-  const preview = ai.status === 'preview' || ai.status === 'stale' ? ai : null;
+  const preview = ai.status === 'preview' || ai.status === 'stale' ? ai : ai.status === 'applied' && ai.results ? { plan: ai.results, notice: null } : null;
   const resolution = preview?.plan.resolution;
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
   return <section className="ai-panel" aria-label="AI Assistant">
@@ -45,10 +45,10 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
     <div aria-live="polite" aria-atomic="false">
       {ai.status === 'parsing' && <p className="ai-message">Разбираем запрос… Можно отправить новый или отменить.</p>}
       {ai.status === 'error' && <p className="ai-error" role="alert">{ai.message}</p>}
-      {ai.status === 'applied' && <p className="ai-message">Объект создан. Undo отменит его одной операцией.</p>}
+      {ai.status === 'applied' && <p className="ai-message">Изменения применены. Undo отменит их одной операцией.</p>}
       {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>
-        <strong>Интерпретация: {operationLabels[preview.plan.kind]}</strong><p className="ai-request-summary">{preview.plan.text}</p>
-        <p>{preview.plan.intent.pointNames.join(' → ')}</p>
+        <strong>AI Plan · {preview.plan.actions.length} actions</strong><p className="ai-request-summary">{preview.plan.text}</p>
+        <p>Changes: {preview.plan.mutationCount} · Measurements: {preview.plan.readOnlyCount}</p>
         {preview.notice && <p className="ai-message" role="status">{preview.notice}</p>}
         {resolution?.status === 'invalid' && <p className="ai-error">{resolution.message}</p>}
         {resolution?.status === 'unresolved' && resolution.issues.map(issue => <div key={issue.name} className="ai-issue">
@@ -60,18 +60,26 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
             </select></label>
           </>}
         </div>)}
-        {resolution?.status === 'ready' && <>
-          <ol className="ai-points">{resolution.references.map((point, index) => <li key={point.entityId}><b>{resolution.kind === 'dimension' || resolution.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>
-          <dl className="ai-metrics"><AiPlanMetrics result={resolution} /></dl>
-          {resolution.warnings.map(warning => <p key={warning} className="ai-message">{warning}</p>)}
-        </>}
-        {preview.plan.kind === 'dimension' && <label>Offset (м)<input aria-label="Offset (м)" type="number" step="0.1" min={-MAX_DIMENSION_OFFSET} max={MAX_DIMENSION_OFFSET}
-          value={Number.isFinite(preview.plan.offsetOverride ?? (resolution?.status === 'ready' && resolution.kind === 'dimension' ? resolution.offset : 0))
-            ? preview.plan.offsetOverride ?? (resolution?.status === 'ready' && resolution.kind === 'dimension' ? resolution.offset : 0) : ''}
-          disabled={ai.status === 'stale' || transactionActive} onChange={event => dispatch({ type: 'ai-offset', offset: event.target.value === '' ? NaN : Number(event.target.value) })} /></label>}
+        {preview.plan.actions.map((action, index) => {
+          const result = action.resolution;
+          return <div key={action.id} className="ai-action" data-testid="ai-action" data-action-id={action.id}>
+            <strong>{index + 1}. Интерпретация: {operationLabels[action.kind]}</strong>
+            <p>{action.intent.pointNames.join(' → ')}</p>
+            {result.status === 'invalid' && <p className="ai-error">{result.message}</p>}
+            {result.status === 'ready' && <>
+              <ol className="ai-points">{result.references.map((point, index) => <li key={point.entityId}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>
+              <dl className="ai-metrics"><AiPlanMetrics result={result} /></dl>
+              {result.warnings.map(warning => <p key={warning} className="ai-message">{warning}</p>)}
+            </>}
+            {action.kind === 'dimension' && <label>Offset (м)<input aria-label="Offset (м)" type="number" step="0.1" min={-MAX_DIMENSION_OFFSET} max={MAX_DIMENSION_OFFSET}
+              value={Number.isFinite(action.offsetOverride ?? (result.status === 'ready' && result.kind === 'dimension' ? result.offset : 0))
+                ? action.offsetOverride ?? (result.status === 'ready' && result.kind === 'dimension' ? result.offset : 0) : ''}
+              disabled={ai.status === 'stale' || transactionActive} onChange={event => dispatch({ type: 'ai-offset', actionId: action.id, offset: event.target.value === '' ? NaN : Number(event.target.value) })} /></label>}
+          </div>;
+        })}
         {transactionActive && preview.plan.requiresConfirmation && <p className="ai-message">Завершите редактирование координат перед Apply.</p>}
         <div className="ai-actions">{preview.plan.requiresConfirmation ? <button className="primary-button" type="button" disabled={ai.status !== 'preview' || resolution?.status !== 'ready' || transactionActive}
-          onClick={() => dispatch({ type: 'ai-apply' })}>Apply</button> : <button type="button" className="tool-button compact" onClick={cancel}>Clear</button>}
+          onClick={() => dispatch({ type: 'ai-apply' })}>{preview.plan.mutationCount === 1 ? 'Apply' : `Apply ${preview.plan.mutationCount} changes`}</button> : <button type="button" className="tool-button compact" onClick={cancel}>Clear</button>}
           {ai.status === 'stale' && <button type="button" className="tool-button compact" disabled={transactionActive} onClick={() => dispatch({ type: 'ai-refresh' })}>Пересчитать план</button>}
         </div>
       </div>}

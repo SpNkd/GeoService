@@ -30,7 +30,7 @@ function idsFor(entities: GeoDocument['entities']) {
 export interface ResolvedReference { name: string; entityId: string; vertexId: string; position: WorldPoint; layer: string }
 export type ResolutionIssue = { kind: 'missing'; name: string } | { kind: 'ambiguous'; name: string; candidates: ResolvedReference[] };
 export type ResolutionFailure = { status: 'unresolved'; issues: ResolutionIssue[] } | { status: 'invalid'; message: string };
-interface References { references: ResolvedReference[]; geometry: WorldPoint[]; warnings: string[] }
+export interface References { references: ResolvedReference[]; geometry: WorldPoint[]; warnings: string[] }
 export type ReferenceResolution = ResolutionFailure | ({ status: 'resolved' } & References);
 export type BoundaryReady = { status: 'ready'; kind: 'boundary'; perimeter: number; area: number; targetLayer: 'boundary'; command: DocumentCommand } & References;
 export type PolylineReady = { status: 'ready'; kind: 'polyline'; length: number; segments: number; targetLayer: 'boundary'; command: DocumentCommand } & References;
@@ -43,7 +43,7 @@ export type ResolverOptions = { entityId?: string; index?: PointNameIndex; offse
 
 /** Exact, ordered and pure; every operation shares missing/ambiguous/hidden/locked semantics. */
 export function resolveNamedPointReferences(pointNames: readonly string[], document: GeoDocument,
-  choices: ExplicitResolutions = new Map(), index = buildPointNameIndex(document.entities)): ReferenceResolution {
+  choices: ExplicitResolutions = new Map(), index = buildPointNameIndex(document.entities), distinctVertices = true): ReferenceResolution {
   const names = pointNames.map(name => name.trim());
   if (new Set(names).size !== names.length) return { status: 'invalid', message: 'Имена точек в запросе повторяются' };
   const layers = new Map(document.layers.map(layer => [layer.id, layer]));
@@ -59,7 +59,7 @@ export function resolveNamedPointReferences(pointNames: readonly string[], docum
     else points.push(chosen ?? candidates[0]!);
   }
   if (issues.length) return { status: 'unresolved', issues };
-  if (new Set(points.map(point => point.vertexId)).size !== points.length) return { status: 'invalid', message: 'Точки ссылаются на повторяющиеся вершины' };
+  if (distinctVertices && new Set(points.map(point => point.vertexId)).size !== points.length) return { status: 'invalid', message: 'Точки ссылаются на повторяющиеся вершины' };
   const references = points.map(reference);
   const warnings = points.filter(point => !layers.get(point.layerId)?.visible).map(point => `«${point.name}»: исходный слой скрыт`);
   if (points.some(point => layers.get(point.layerId)?.locked)) warnings.push('Есть точки в заблокированных слоях: используем ссылки, координаты не изменяем.');
@@ -128,7 +128,12 @@ export function resolveIntent(raw: AiIntent, document: GeoDocument, choices: Exp
   if (!parsed.success) return { status: 'invalid', message: 'Неверный intent' };
   const refs = resolveNamedPointReferences(parsed.data.pointNames, document, choices, options.index);
   if (refs.status !== 'resolved') return refs;
-  switch (parsed.data.type) {
+  return resolveReferencedIntent(parsed.data, refs, document, options);
+}
+export function resolveReferencedIntent(intent: AiIntent, refs: References, document: GeoDocument, options: ResolverOptions = {}): Resolution {
+  if (new Set(refs.references.map(ref => ref.name)).size !== refs.references.length) return { status: 'invalid', message: 'Имена точек в запросе повторяются' };
+  if (new Set(refs.references.map(ref => ref.vertexId)).size !== refs.references.length) return { status: 'invalid', message: 'Точки ссылаются на повторяющиеся вершины' };
+  switch (intent.type) {
     case 'create_boundary_from_named_points': return boundary(refs, document, options);
     case 'create_polyline_from_named_points': return polyline(refs, document, options);
     case 'create_dimension_between_named_points': return dimension(refs, document, options);

@@ -21,10 +21,11 @@ function drawing(): GeoDocument {
 function state(doc = drawing()): ApplicationState { return { editor: initialEditorState(doc), ai: { status: 'idle' } }; }
 function preview(app = state(), names?: string[]): ApplicationState {
   return applicationReducer(applicationReducer(app, { type: 'ai-event', event: { type: 'start', id: 'request-1', text } }),
-    { type: 'ai-event', event: { type: 'result', id: 'request-1', result: intent(names) } });
+    { type: 'ai-event', event: { type: 'result', id: 'request-1', result: { actions: [intent(names)] } } });
 }
+function task(app: ApplicationState) { if (app.ai.status !== 'preview' && app.ai.status !== 'stale') throw Error('preview'); return app.ai.plan; }
 function plan(app: ApplicationState): Extract<AiPlan, {kind: 'boundary'}> {
-  if (app.ai.status !== 'preview' && app.ai.status !== 'stale') throw new Error('Expected preview'); if (app.ai.plan.kind !== 'boundary') throw new Error('Expected boundary'); return app.ai.plan;
+  if (app.ai.status !== 'preview' && app.ai.status !== 'stale') throw new Error('Expected preview'); if (app.ai.plan.actions[0]?.kind !== 'boundary') throw new Error('Expected boundary'); return app.ai.plan.actions[0];
 }
 function ready(doc = drawing(), names?: string[]) {
   const result = resolveCreateBoundaryIntent(intent(names), doc);
@@ -34,14 +35,14 @@ function ready(doc = drawing(), names?: string[]) {
 describe('AI intent trust boundary', () => {
   it('mock parses the Russian fixture and preserves order', async () => {
     const raw = await developmentMockProvider().parseIntent({ text, signal: new AbortController().signal });
-    expect(validateParserResult(raw, text)).toEqual(intent());
+    expect(validateParserResult(raw, text)).toEqual({ actions: [intent()] });
   });
   it.each([{ names: [] }, { names: ['P1'] }, { names: ['P1', 'P2'] }])('rejects fewer than three names: $names', ({ names }) => {
     expect(aiIntentSchema.safeParse({ type: 'create_boundary_from_named_points', pointNames: names }).success).toBe(false);
   });
   it('accepts trimmed Cyrillic, numeric and hyphenated names in exact order', () => {
     expect(intent([' Т1 ', 'КН-4', '123', 'A-12']).pointNames).toEqual(['Т1', 'КН-4', '123', 'A-12']);
-    expect(validateParserResult(intent(['Т1', 'КН-4', '123']), 'Создай границу Т1 КН-4 123')).toEqual(intent(['Т1', 'КН-4', '123']));
+    expect(validateParserResult(intent(['Т1', 'КН-4', '123']), 'Создай границу Т1 КН-4 123')).toEqual({ actions: [intent(['Т1', 'КН-4', '123'])] });
   });
   it.each([{ type: 'delete', pointNames: ['P1', 'P2', 'P3'] }, { ...intent(), vertexIds: ['a'] },
     { ...intent(), coordinates: [1, 2] }, { ...intent(), entityIds: ['p1'] }, { ...intent(), patch: {} },
@@ -156,7 +157,7 @@ describe('preview, gate and history', () => {
     expect(deserializeDocument(serializeDocument(redone.editor.document))).toEqual(redone.editor.document);
   });
   it('stale preview cannot execute; Apply refreshes and requires a second explicit confirmation', () => {
-    const generated = preview(), oldPlan = plan(generated);
+    const generated = preview(), oldPlan = task(generated);
     const moved = applicationReducer(generated, { type: 'execute', command: { type: 'move-vertex', vertexId: 'v-p1', delta: { x: 5, y: 0 } } });
     expect(moved.ai.status).toBe('stale'); expect(mutationExecutionGate(oldPlan, moved.editor).status).toBe('refreshed');
     const refreshed = applicationReducer(moved, { type: 'ai-apply' });
@@ -175,7 +176,7 @@ describe('preview, gate and history', () => {
   });
   it('gate and guarded existing execute reject active transactions or changed snapshot', () => {
     const generated = preview(), dragging = applicationReducer(generated, { type: 'begin-transaction' });
-    expect(mutationExecutionGate(plan(dragging), dragging.editor).status).toBe('blocked');
+    expect(mutationExecutionGate(task(dragging), dragging.editor).status).toBe('blocked');
     expect(applicationReducer(dragging, { type: 'ai-apply' }).editor).toBe(dragging.editor);
     const command = ready().command;
     expect(editorReducer(dragging.editor, { type: 'execute', command, expectedDocument: generated.editor.document }).error).toContain('транзакция');
@@ -186,13 +187,13 @@ describe('preview, gate and history', () => {
     const generated = preview(), valid = plan(generated);
     if (valid.resolution.status !== 'ready') throw new Error('ready');
     const corrupt = { ...valid, resolution: { ...valid.resolution, command: { ...valid.resolution.command, injected: true } } };
-    expect(() => mutationExecutionGate(corrupt, generated.editor)).toThrow('Неверная команда');
+    expect(() => mutationExecutionGate({ ...task(generated), actions: [corrupt] }, generated.editor)).toThrow('Неверная команда');
     const applied = applicationReducer(generated, { type: 'ai-apply' }); expect(applicationReducer(applied, { type: 'ai-apply' })).toBe(applied);
   });
   it('replacement resets preview and ignores response from an obsolete request', () => {
     const generated = preview(); const replaced = applicationReducer(generated, { type: 'replace-document', document: drawing(), size: { width: 800, height: 600 } });
     expect(replaced.ai.status).toBe('idle');
-    expect(applicationReducer(replaced, { type: 'ai-event', event: { type: 'result', id: 'request-1', result: intent() } })).toBe(replaced);
+    expect(applicationReducer(replaced, { type: 'ai-event', event: { type: 'result', id: 'request-1', result: { actions: [intent()] } } })).toBe(replaced);
   });
 });
 
@@ -205,7 +206,7 @@ describe('providers and request lifecycle', () => {
   it('OpenAI uses structured output with server key/model, text only, no retention request; validates output', async () => {
     const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ status: 'completed', output: [
       { type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ intent: intent() }) }] } ] })));
-    expect(await new OpenAIIntentProvider('test-key', 'test-model', transport).parseIntent({ text, signal: new AbortController().signal })).toEqual(intent());
+    expect(await new OpenAIIntentProvider('test-key', 'test-model', transport).parseIntent({ text, signal: new AbortController().signal })).toEqual({ actions: [intent()] });
     const options = transport.mock.calls[0]?.[1], payload = JSON.parse(String(options?.body));
     expect(payload).toEqual({ model: 'test-model', store: false, instructions: PARSER_PROMPT, input: text, max_output_tokens: 12000,
       text: { format: { type: 'json_schema', name: 'boundary_intent', strict: true, schema: OPENAI_OUTPUT_SCHEMA } } });

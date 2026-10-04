@@ -19,9 +19,10 @@ const drawing = () => { const d = createSampleDocument(); return { ...d, entitie
 function preview(type: AiIntent['type'], doc = drawing(), pointNames = namesFor(type)): ApplicationState {
   const state: ApplicationState = { editor: initialEditorState(doc), ai: { status: 'idle' } };
   const started = applicationReducer(state, { type: 'ai-event', event: { type: 'start', id: 'test', text: pointNames.join(' ') } });
-  return applicationReducer(started, { type: 'ai-event', event: { type: 'result', id: 'test', result: intent(type, pointNames) } });
+  return applicationReducer(started, { type: 'ai-event', event: { type: 'result', id: 'test', result: { actions: [intent(type, pointNames)] } } });
 }
-function plan(state: ApplicationState) { if (state.ai.status !== 'preview' && state.ai.status !== 'stale') throw Error('preview'); return state.ai.plan; }
+function task(state: ApplicationState) { if (state.ai.status !== 'preview' && state.ai.status !== 'stale') throw Error('preview'); return state.ai.plan; }
+function plan(state: ApplicationState) { if (state.ai.status !== 'preview' && state.ai.status !== 'stale') throw Error('preview'); return state.ai.plan.actions[0]!; }
 it.each(types)('strict schema and common exact resolution: %s', type => {
   expect(aiIntentSchema.safeParse(intent(type)).success).toBe(true);
   expect(aiIntentSchema.safeParse({ ...intent(type), vertexIds: [] }).success).toBe(false);
@@ -33,7 +34,7 @@ it.each(types)('strict schema and common exact resolution: %s', type => {
 it.each([types[1], types[2], types[3]])('enforces cardinality and Unicode identifiers: %s', type => {
   for (const pointNames of [[], ['Т1']]) expect(aiIntentSchema.safeParse({ type, pointNames }).success).toBe(false);
   if (type !== types[1]) expect(aiIntentSchema.safeParse({ type, pointNames: ['Т1', 'Т2', 'Т3'] }).success).toBe(false);
-  expect(validateParserResult(intent(type, ['Т1', 'КН-2']), 'Т1 КН-2')).toEqual(intent(type, ['Т1', 'КН-2']));
+  expect(validateParserResult(intent(type, ['Т1', 'КН-2']), 'Т1 КН-2')).toEqual({ actions: [intent(type, ['Т1', 'КН-2'])] });
   expect(() => validateParserResult({ intents: [intent(type), intent(type)] }, 'Т1 КН-2')).toThrow();
 });
 it.each(types)('duplicate names/vertices and ambiguity share semantics: %s', type => {
@@ -48,7 +49,7 @@ it.each(types)('duplicate names/vertices and ambiguity share semantics: %s', typ
 it.each(types.slice(0, 3))('all mutation kinds use one gate, one history step, stable redo, persistence: %s', type => {
   const app = preview(type), p = plan(app); if (!p.requiresConfirmation) throw Error('mutation');
   const before = serializeDocument(app.editor.document); expect(isDocumentDirty(app.editor)).toBe(false); expect(app.editor.past).toHaveLength(0);
-  expect(mutationExecutionGate(p, app.editor).status).toBe('execute'); expect(serializeDocument(app.editor.document)).toBe(before);
+  expect(mutationExecutionGate(task(app), app.editor).status).toBe('execute'); expect(serializeDocument(app.editor.document)).toBe(before);
   const applied = applicationReducer(app, { type: 'ai-apply' }); expect(applied.editor.past).toHaveLength(1);
   const entity = applied.editor.document.entities.at(-1)!;
   expect(entity.type).toBe(type === types[0] ? 'polygon' : type === types[1] ? 'polyline' : 'dimension');
@@ -60,9 +61,9 @@ it.each(types.slice(0, 3))('all mutation kinds use one gate, one history step, s
 });
 it.each(types.slice(0, 3))('all mutation kinds reject transactions and stale Apply: %s', type => {
   const app = preview(type), p = plan(app); if (!p.requiresConfirmation) throw Error('mutation');
-  const dragging = applicationReducer(app, { type: 'begin-transaction' }); expect(mutationExecutionGate(p, dragging.editor).status).toBe('blocked');
+  const dragging = applicationReducer(app, { type: 'begin-transaction' }); expect(mutationExecutionGate(task(app), dragging.editor).status).toBe('blocked');
   const moved = applicationReducer(app, { type: 'execute', command: { type: 'move-vertex', vertexId: 'v-p1', delta: { x: 1, y: 0 } } });
-  expect(moved.ai.status).toBe('stale'); expect(mutationExecutionGate(p, moved.editor).status).toBe('refreshed');
+  expect(moved.ai.status).toBe('stale'); expect(mutationExecutionGate(task(app), moved.editor).status).toBe('refreshed');
   const refreshed = applicationReducer(moved, { type: 'ai-apply' }); expect(refreshed.editor).toBe(moved.editor);
   expect(applicationReducer(refreshed, { type: 'ai-apply' }).editor.past).toHaveLength(2);
 });
@@ -124,7 +125,7 @@ it.each([
   ['Поставь размер между P1 и P2', types[2]], ['Проставь расстояние размером между Т4 и Т8', types[2]],
   ['Какое расстояние между P1 и P7?', types[3]], ['Измерь от КН-1 до КН-4', types[3]],
 ])('Russian fixture: %s', async (text, type) => {
-  expect(validateParserResult(await developmentMockProvider().parseIntent({ text, signal: new AbortController().signal }), text)).toMatchObject({ type });
+  expect(validateParserResult(await developmentMockProvider().parseIntent({ text, signal: new AbortController().signal }), text)).toMatchObject({ actions: [{ type }] });
 });
 it.each(['Соедини P1 P2 P3 и поставь размер между P1 P2', 'Построй границу и подпиши высоты', 'Покажи размер между P1 и P2'])('unsupported/multi-action: %s', async text => {
   expect(await developmentMockProvider().parseIntent({ text, signal: new AbortController().signal })).toEqual({ status: 'unsupported' });
@@ -134,11 +135,11 @@ it('dimension A cannot replace later measure B when A finishes last', async () =
   const runner = new AiRequestRunner(new MockAiIntentProvider(() => new Promise(resolve => finish.push(resolve))));
   const a = runner.run('P1 P2', e => events.push(e)), b = runner.run('P1 P2', e => events.push(e));
   finish[1]!(intent(types[3])); await b; finish[0]!(intent(types[2])); await a;
-  expect(events.map(e => e.type)).toEqual(['start', 'start', 'result']); expect(events.at(-1)).toMatchObject({ result: { type: types[3] } });
+  expect(events.map(e => e.type)).toEqual(['start', 'start', 'result']); expect(events.at(-1)).toMatchObject({ result: { actions: [{ type: types[3] }] } });
 });
 it('OpenRouter contract is structured, bounded, fixed-model, text-only; local validation remains mandatory', async () => {
   const output = intent(types[2]), transport = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ intent: output }) } }] })));
-  expect(await new OpenRouterIntentProvider('fake-secret', 'qwen/test', transport).parseIntent({ text: 'P1 P2', signal: new AbortController().signal })).toEqual(output);
+  expect(await new OpenRouterIntentProvider('fake-secret', 'qwen/test', transport).parseIntent({ text: 'P1 P2', signal: new AbortController().signal })).toEqual({ actions: [output] });
   const body = JSON.parse(String(transport.mock.calls[0]?.[1]?.body));
   expect(body.model).toBe('qwen/test'); expect(body.messages[1]).toEqual({ role: 'user', content: 'P1 P2' });
   expect(body.provider).toEqual({ require_parameters: true }); expect(body.reasoning.enabled).toBe(false);

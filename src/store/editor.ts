@@ -1,5 +1,5 @@
 import type { GeoDocument, Viewport } from '../domain/model';
-import { applyCommand, type DocumentCommand } from '../domain/commands';
+import { applyCommand, applyCommandsAtomically, type DocumentCommand } from '../domain/commands';
 import { fitToBounds, panViewport, zoomAt, type ScreenPoint, type ViewSize } from '../geometry';
 import { visibleBounds } from '../renderer/selectors';
 import { deserializeDocument, documentFingerprint } from '../persistence/serialization';
@@ -20,6 +20,7 @@ export type EditorAction =
   | { type: 'replace-document'; document: GeoDocument; size: ViewSize }
   | { type: 'mark-saved' }
   | { type: 'execute'; command: DocumentCommand; expectedDocument?: GeoDocument }
+  | { type: 'execute-batch'; commands: readonly DocumentCommand[]; expectedDocument?: GeoDocument }
   | { type: 'transient'; command: DocumentCommand }
   | { type: 'begin-transaction' } | { type: 'commit-transaction' } | { type: 'cancel-transaction' }
   | { type: 'undo' } | { type: 'redo' } | { type: 'clear-error' }
@@ -72,15 +73,16 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           viewport: fitToBounds(visibleBounds(document), action.size, 85) ?? document.viewport };
       } catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось открыть документ' }; }
     }
+    case 'execute-batch':
     case 'execute': {
       if (action.expectedDocument && (state.transactionBefore || state.document !== action.expectedDocument)) {
         return { ...state, error: 'Документ изменился или активна транзакция. Пересчитайте план.' };
       }
       if (state.transactionBefore) return state;
       try {
-        const document = applyCommand(state.document, action.command);
+        const document = action.type === 'execute-batch' ? applyCommandsAtomically(state.document, action.commands) : applyCommand(state.document, action.command);
         if (document === state.document) return { ...state, error: null };
-        const hiddenSelection = action.command.type === 'set-layer-visibility' && !action.command.visible
+        const hiddenSelection = action.type === 'execute' && action.command.type === 'set-layer-visibility' && !action.command.visible
           && state.document.entities.find(item => item.id === state.selectionId)?.layerId === action.command.layerId;
         return { ...state, document, past: pushHistory(state.past, state.document), future: [],
           selectionId: hiddenSelection ? null : reconcileSelection(document, state.selectionId), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };

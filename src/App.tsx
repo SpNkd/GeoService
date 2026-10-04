@@ -26,8 +26,9 @@ export default function App() {
   const [application, dispatch] = useReducer(applicationReducer, startup.document, (document): ApplicationState => ({
     editor: { ...initialEditorState(document), ...(startup.dirty ? { savedFingerprint: '' } : {}) }, ai: { status: 'idle' } }));
   const state = application.editor;
-  const aiPreview = application.ai.status === 'preview' && application.ai.plan.resolution.status === 'ready' && !state.transactionBefore
-    ? application.ai.plan.resolution : null;
+  const aiTask = application.ai.status === 'preview' ? application.ai.plan : application.ai.status === 'applied' ? application.ai.results : null;
+  const aiPreview = aiTask?.resolution.status === 'ready' && !state.transactionBefore
+    ? aiTask.actions.flatMap(action => action.resolution.status === 'ready' ? [{ id: action.id, result: action.resolution }] : []) : [];
   const [notice, setNotice] = useState(startup.notice);
   const [fileError, setFileError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);

@@ -23,7 +23,7 @@ async function request(body: unknown, options: { mode?: string; host?: string; o
 const text = 'Создай границу по точкам P1, P2, P3 и P4';
 it('local dev endpoint accepts only text and returns validated mock intent', async () => {
   const response = await request({ text }); expect(response.status).toBe(200);
-  expect(JSON.parse(response.result)).toEqual({ type: 'create_boundary_from_named_points', pointNames: ['P1', 'P2', 'P3', 'P4'] });
+  expect(JSON.parse(response.result)).toEqual({ actions: [{ type: 'create_boundary_from_named_points', pointNames: ['P1', 'P2', 'P3', 'P4'] }] });
 });
 it('strict endpoint rejects document, commands, oversized and malformed requests', async () => {
   for (const body of [{ text, document: {} }, { text, command: { type: 'delete-entity' } }, { text: 'Я'.repeat(4097) }]) expect((await request(body)).status).toBe(400);

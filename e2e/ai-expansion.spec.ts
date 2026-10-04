@@ -72,8 +72,8 @@ test('ambiguous dimension uses shared local choice and has no partial effects', 
   await page.getByRole('combobox', { name: 'Разрешить P1', exact: true }).selectOption({ index: 1 }); await expect(page.getByTestId('dimension-preview-value')).toHaveText('60,000 м');
   expect(await snapshot(page)).toEqual(before); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.locator('[data-entity-type="dimension"]')).toHaveCount(1);
 });
-test('multi-action is unsupported with no partial mutation', async ({ page }) => {
-  await setup(page); const before = await snapshot(page); await generate(page, 'Соедини P1 P2 P3 и поставь размер между P1 P2');
+test('unsupported mixed request has no partial mutation', async ({ page }) => {
+  await setup(page); const before = await snapshot(page); await generate(page, 'Соедини P1 P2 P3 полилинией и удали P4');
   await expect(page.getByRole('alert')).toContainText('не поддерживается'); expect(await snapshot(page)).toEqual(before); await expect(page.getByTestId('ai-ghost')).toHaveCount(0);
 });
 test('stale dimension cannot Apply until local refresh and another confirmation', async ({ page }) => {

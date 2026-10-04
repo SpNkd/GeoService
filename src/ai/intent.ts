@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const AI_LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 96 * 1024, upstreamBytes: 256 * 1024,
-  pointNames: 500, nameLength: 128, timeoutMs: 30000 });
+  actions: 8, totalReferences: 1000, pointNames: 500, nameLength: 128, timeoutMs: 30000 });
 export const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
 export const aiRequestSchema = z.strictObject({ text: z.string().trim().min(1).max(AI_LIMITS.requestBytes)
   .refine(text => utf8Bytes(text) <= AI_LIMITS.requestBytes, 'Запрос превышает лимит 8 КБ') });
@@ -15,26 +15,42 @@ export const measureIntentSchema = z.strictObject({ type: z.literal('measure_bet
 export const aiIntentSchema = z.discriminatedUnion('type', [createBoundaryIntentSchema, createPolylineIntentSchema, createDimensionIntentSchema, measureIntentSchema]);
 export type AiIntent = z.infer<typeof aiIntentSchema>;
 export const unsupportedSchema = z.strictObject({ status: z.literal('unsupported') });
-export type ParserResult = AiIntent | z.infer<typeof unsupportedSchema>;
+export const aiTaskSchema = z.strictObject({ actions: z.array(aiIntentSchema).min(1).max(AI_LIMITS.actions) })
+  .superRefine((task, ctx) => {
+    if (task.actions.reduce((sum, action) => sum + action.pointNames.length, 0) > AI_LIMITS.totalReferences)
+      ctx.addIssue({ code: 'custom', message: 'Task превышает лимит ссылок' });
+    const signatures = task.actions.map(action => JSON.stringify(action));
+    if (new Set(signatures).size !== signatures.length) ctx.addIssue({ code: 'custom', message: 'Task содержит одинаковые actions' });
+  });
+export type AiTaskIntent = z.infer<typeof aiTaskSchema>;
+export type ParserResult = AiTaskIntent | z.infer<typeof unsupportedSchema>;
 
 /** Literal provenance/order check only; this does not interpret natural language or replace a provider. */
 export function validateParserResult(raw: unknown, text: string): ParserResult {
   if (utf8Bytes(JSON.stringify(raw) ?? '') > AI_LIMITS.responseBytes) throw new Error('Ответ AI превышает лимит');
   if (unsupportedSchema.safeParse(raw).success) return { status: 'unsupported' };
-  const parsed = aiIntentSchema.safeParse(raw);
-  if (!parsed.success) throw new Error('AI вернул неверный intent. Укажите одну операцию и явно перечислите имена точек.');
+  // Normalize legacy single fixtures at the input boundary; all downstream code uses actions[].
+  const parsed = aiTaskSchema.safeParse(aiIntentSchema.safeParse(raw).success ? { actions: [raw] } : raw);
+  if (!parsed.success) throw new Error('AI вернул неверный intent. Укажите поддерживаемые операции и явно перечислите имена точек.');
   let cursor = 0;
   const nameCharacter = /[\p{L}\p{N}_-]/u;
-  for (const name of parsed.data.pointNames) {
-    let at = text.indexOf(name, cursor);
-    while (at >= 0) {
-      const before = text.slice(0, at).match(/.$/u)?.[0] ?? '';
-      const after = text.slice(at + name.length).match(/^./u)?.[0] ?? '';
-      if (!nameCharacter.test(before) && !nameCharacter.test(after)) break;
-      at = text.indexOf(name, at + 1);
+  for (const action of parsed.data.actions) {
+    const pairText = action.pointNames.length === 2 ? action.pointNames.join('-') : null;
+    for (const name of action.pointNames) {
+      let at = text.indexOf(name, cursor);
+      while (at >= 0) {
+        const before = text.slice(0, at).match(/.$/u)?.[0] ?? '';
+        const after = text.slice(at + name.length).match(/^./u)?.[0] ?? '';
+        const pairAt = pairText ? text.indexOf(pairText, Math.max(0, at - action.pointNames[0]!.length - 1)) : -1;
+        const inPair = pairAt >= 0 && (at === pairAt || at === pairAt + action.pointNames[0]!.length + 1)
+          && !nameCharacter.test(text.slice(0, pairAt).match(/.$/u)?.[0] ?? '')
+          && !nameCharacter.test(text.slice(pairAt + pairText!.length).match(/^./u)?.[0] ?? '');
+        if ((!nameCharacter.test(before) && !nameCharacter.test(after)) || inPair) break;
+        at = text.indexOf(name, at + 1);
+      }
+      if (at < 0) throw new Error(`Имя «${name}» отсутствует в запросе или нарушен порядок. Уточните запрос.`);
+      cursor = at + name.length;
     }
-    if (at < 0) throw new Error(`Имя «${name}» отсутствует в запросе или нарушен порядок. Уточните запрос.`);
-    cursor = at + name.length;
   }
   return parsed.data;
 }

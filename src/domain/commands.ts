@@ -150,3 +150,15 @@ export function entityPosition(document: GeoDocument, entity: Entity): WorldPoin
   const vertex = getVertex(document.vertices, id);
   return vertexPoint(vertex);
 }
+
+/** General transaction boundary: candidates remain private until every command and the final document validate. */
+export function applyCommandsAtomically(document: GeoDocument, commands: readonly unknown[]): GeoDocument {
+  if (!commands.length) return document;
+  if (commands.length > 1000) throw new Error('Слишком большой пакет команд');
+  const validated = commands.map(parseCommand);
+  let candidate = document;
+  for (const command of validated) candidate = applyCommand(candidate, command);
+  validateDocument(candidate);
+  encodeDocument(candidate);
+  return candidate;
+}
