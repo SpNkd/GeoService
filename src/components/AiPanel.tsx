@@ -1,0 +1,75 @@
+import { memo, useEffect, useMemo, useState, type Dispatch, type FormEvent } from 'react';
+import { AiRequestRunner, HttpAiIntentProvider, providerModeSchema, type AiIntentProvider, type ProviderMode } from '../ai/provider';
+import { AI_LIMITS, readBoundedJson, utf8Bytes } from '../ai/intent';
+import type { AiState, ApplicationAction } from '../ai/workflow';
+import type { ResolvedReference } from '../ai/resolver';
+import { formatDistance, formatMeasure } from '../geometry/format';
+
+const defaultProvider = new HttpAiIntentProvider();
+const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
+interface Props { ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
+export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, documentEpoch, provider = defaultProvider }: Props) {
+  const [text, setText] = useState('Создай границу по точкам P1, P2, P3 и P4');
+  const [mode, setMode] = useState<ProviderMode>('disabled');
+  const runner = useMemo(() => new AiRequestRunner(provider), [provider]);
+  useEffect(() => () => runner.cancel(), [runner]);
+  useEffect(() => { runner.cancel(); }, [runner, documentEpoch]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch('/api/ai/config', { signal: controller.signal }).then(async response => {
+      if (!response.ok) return;
+      const raw = await readBoundedJson(response, 1024);
+      const parsed = providerModeSchema.safeParse(raw && typeof raw === 'object' && 'mode' in raw ? raw.mode : null);
+      if (parsed.success && !controller.signal.aborted) setMode(parsed.data);
+    }).catch(() => {});
+    return () => controller.abort();
+  }, []);
+  const generate = (event: FormEvent) => { event.preventDefault();
+    void runner.run(text, event => dispatch({ type: 'ai-event', event })); };
+  const preview = ai.status === 'preview' || ai.status === 'stale' ? ai : null;
+  const resolution = preview?.plan.resolution;
+  const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
+  return <section className="ai-panel" aria-label="AI Assistant">
+    <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : 'Не подключён'}</span></div>
+    <p className="ai-caption">Граница по именам точек · всегда с подтверждением</p>
+    <form onSubmit={generate}>
+      <label htmlFor="ai-request">Запрос</label>
+      <textarea id="ai-request" value={text} maxLength={AI_LIMITS.requestBytes} onChange={event => setText(event.target.value)} rows={3} />
+      <div className="ai-actions"><button className="primary-button" type="submit" disabled={mode === 'disabled' || !text.trim() || utf8Bytes(text) > AI_LIMITS.requestBytes}>Generate plan</button>
+        <button type="button" className="tool-button compact" onClick={cancel}>Cancel</button></div>
+    </form>
+    <p className="ai-privacy">{mode === 'mock' ? 'Демо: фиксированные ответы, без LLM. ' : ''}Отправляется только текст запроса. Точки разрешаются локально.</p>
+    {mode === 'disabled' && <p className="ai-message">AI не подключён. Запустите mock demo или настройте серверный провайдер по README.</p>}
+    <div aria-live="polite" aria-atomic="false">
+      {ai.status === 'parsing' && <p className="ai-message">Разбираем запрос… Можно отправить новый или отменить.</p>}
+      {ai.status === 'error' && <p className="ai-error" role="alert">{ai.message}</p>}
+      {ai.status === 'applied' && <p className="ai-message">Граница создана. Undo отменит её одной операцией.</p>}
+      {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>
+        <strong>Интерпретация: создать границу</strong><p className="ai-request-summary">{preview.plan.text}</p>
+        <p>{preview.plan.intent.pointNames.join(' → ')}</p>
+        {preview.notice && <p className="ai-message" role="status">{preview.notice}</p>}
+        {resolution?.status === 'invalid' && <p className="ai-error">{resolution.message}</p>}
+        {resolution?.status === 'unresolved' && resolution.issues.map(issue => <div key={issue.name} className="ai-issue">
+          {issue.kind === 'missing' ? <p className="ai-error">{issue.name} — точка не найдена.</p> : <>
+            <p>{issue.name} найдено в {issue.candidates.length} экземплярах</p>
+            <label>Выберите точку<select aria-label={`Разрешить ${issue.name}`} value={preview.plan.choices.get(issue.name) ?? ''}
+              disabled={ai.status === 'stale' || transactionActive} onChange={event => dispatch({ type: 'ai-choose', name: issue.name, entityId: event.target.value })}>
+              <option value="" disabled>Не выбрана</option>{issue.candidates.map(point => <option key={point.entityId} value={point.entityId}>{coordinates(point)} · {point.layer} · {point.entityId}</option>)}
+            </select></label>
+          </>}
+        </div>)}
+        {resolution?.status === 'ready' && <>
+          <ol className="ai-points">{resolution.references.map(point => <li key={point.entityId}><b>{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>
+          <dl className="ai-metrics"><dt>Вершин</dt><dd>{resolution.references.length}</dd><dt>Perimeter</dt><dd>{formatDistance(resolution.perimeter)}</dd>
+            <dt>Area</dt><dd>{formatMeasure(resolution.area, 3)} м²</dd><dt>Целевой слой</dt><dd>boundary</dd></dl>
+          {resolution.warnings.map(warning => <p key={warning} className="ai-message">{warning}</p>)}
+        </>}
+        {transactionActive && <p className="ai-message">Завершите редактирование координат перед Apply.</p>}
+        <div className="ai-actions"><button className="primary-button" type="button" disabled={ai.status !== 'preview' || resolution?.status !== 'ready' || transactionActive}
+          onClick={() => dispatch({ type: 'ai-apply' })}>Apply</button>
+          {ai.status === 'stale' && <button type="button" className="tool-button compact" disabled={transactionActive} onClick={() => dispatch({ type: 'ai-refresh' })}>Пересчитать план</button>}
+        </div>
+      </div>}
+    </div>
+  </section>;
+});

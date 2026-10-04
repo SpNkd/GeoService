@@ -211,3 +211,30 @@ h2, h3, p { margin: 0; }
 .document-notice { pointer-events:none; }
 .document-notice button { pointer-events:auto; cursor:pointer; }
 .status-ready { min-width:0; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+
+.right-column { display:flex; flex-direction:column; min-height:0; border-left:1px solid #dbe3e8; background:white; }
+.right-column .right-panel { border-left:0; flex:1; overflow:auto; min-height:130px; }
+.right-column .empty-inspector { padding-top:25px; }
+.right-column .empty-preview { display:none; }
+.ai-panel { flex-shrink:0; max-height:62%; overflow:auto; padding:16px; border-top:1px solid #dbe3e8; font-size:11px; }
+.ai-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.ai-heading h2 { font-size:13px; }
+.ai-mode { color:#6279ba; font-size:9px; padding:3px 5px; border-radius:4px; background:#eef1fa; }
+.ai-caption, .ai-privacy { font-size:10px; color:#81949e; line-height:1.6; margin:7px 0 10px; }
+.ai-panel form > label { display:block; margin:9px 0 6px; color:#607987; }
+.ai-panel textarea { width:100%; resize:vertical; min-height:70px; max-height:150px; border:1px solid #d7e1e7; border-radius:5px; padding:9px; color:#405d6b; font-family:inherit; font-size:11px; line-height:1.6; background:#fbfcfe; }
+.ai-panel textarea:focus-visible { outline:2px solid #6279ba; outline-offset:2px; }
+.ai-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:9px; }
+.ai-panel .primary-button { font-size:11px; padding:7px 10px; }
+.ai-preview { border-top:1px solid #e4eaf0; padding-top:12px; display:grid; gap:8px; overflow-wrap:anywhere; }
+.ai-request-summary { color:#8b9ba5; font-size:10px; line-height:1.5; }
+.ai-message { color:#846b3f; background:#fbf7ed; padding:8px; border-radius:4px; font-size:10px; line-height:1.6; }
+.ai-error { color:#a45140; background:#fff4ef; padding:8px; border-radius:4px; line-height:1.6; }
+.ai-issue label { display:grid; gap:6px; margin-top:8px; }
+.ai-issue select { width:100%; min-width:0; padding:7px; border:1px solid #d7e1e7; background:white; font-size:10px; }
+.ai-points { padding-left:20px; margin:0; max-height:145px; overflow:auto; }
+.ai-points li { margin-bottom:9px; }
+.ai-points small { display:block; font:9px/1.6 ui-monospace,monospace; color:#81949e; }
+.ai-metrics { display:grid; grid-template-columns:1fr auto; gap:7px; margin:0; padding:10px; background:#f4f7fb; border-radius:5px; }
+.ai-metrics dt { color:#82949f; }
+.ai-metrics dd { margin:0; font-variant-numeric:tabular-nums; }

@@ -3,7 +3,7 @@ import { fitToBounds, gridStep, screenToWorld, type ScreenPoint, type ViewSize }
 import { formatCoordinate, formatMeasure } from './geometry/format';
 import { visibleBounds } from './renderer/selectors';
 import { Canvas } from './editor/Canvas';
-import { editorReducer, initialEditorState, isDocumentDirty } from './store/editor';
+import { initialEditorState, isDocumentDirty } from './store/editor';
 import { createSampleDocument } from './sample/document';
 import { LayersPanel } from './components/LayersPanel';
 import { PropertyInspector } from './components/PropertyInspector';
@@ -14,6 +14,8 @@ import { persistLocalDocument, restoreLocalDocument } from './persistence/local'
 import { deserializeDocument, MAX_DOCUMENT_BYTES, serializeDocument } from './persistence/serialization';
 import { applyCommand } from './domain/commands';
 import type { SnapResult } from './snapping';
+import { applicationReducer, type ApplicationState } from './ai/workflow';
+import { AiPanel } from './components/AiPanel';
 import type { PointLabelMode } from './store/editor';
 
 export default function App() {
@@ -21,8 +23,11 @@ export default function App() {
     try { return restoreLocalDocument(localStorage, createSampleDocument); }
     catch { return { document: createSampleDocument(), notice: 'Локальное сохранение недоступно. Используйте JSON Save.', dirty: false }; }
   });
-  const [state, dispatch] = useReducer(editorReducer, startup.document, document => ({ ...initialEditorState(document),
-    ...(startup.dirty ? { savedFingerprint: '' } : {}) }));
+  const [application, dispatch] = useReducer(applicationReducer, startup.document, (document): ApplicationState => ({
+    editor: { ...initialEditorState(document), ...(startup.dirty ? { savedFingerprint: '' } : {}) }, ai: { status: 'idle' } }));
+  const state = application.editor;
+  const aiPreview = application.ai.status === 'preview' && application.ai.plan.resolution.status === 'ready' && !state.transactionBefore
+    ? application.ai.plan.resolution.geometry : null;
   const [notice, setNotice] = useState(startup.notice);
   const [fileError, setFileError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -101,10 +106,10 @@ export default function App() {
       <span>Shift + клик: выбрать точки по порядку</span>
     </div>
     <main className="workspace"><LayersPanel state={state} dispatch={dispatch} /><div className="drawing-area">
-      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen} />
+      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen} aiPreview={aiPreview} />
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
-    </div><PropertyInspector state={state} dispatch={dispatch} /></main>
+    </div><div className="right-column"><PropertyInspector state={state} dispatch={dispatch} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
     <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>X <b data-testid="cursor-x">{cursorWorld ? formatCoordinate(cursorWorld.x) : '—'}</b></span><span>Y <b data-testid="cursor-y">{cursorWorld ? formatCoordinate(cursorWorld.y) : '—'}</b></span><span>м</span></div>
       <span className="status-grid">Шаг сетки: {formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>

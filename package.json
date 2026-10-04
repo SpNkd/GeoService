@@ -12,7 +12,9 @@
     "test:e2e": "playwright test",
     "check": "npm run lint && npm run test && npm run build && npm run test:e2e",
     "bench:audit": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts",
-    "bench:render": "node benchmarks/render.mjs"
+    "bench:render": "node benchmarks/render.mjs",
+    "dev:mock": "AI_PROVIDER=mock vite --host 127.0.0.1",
+    "bench:ai": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/ai.audit.ts"
   },
   "description": "Deterministic geodetic drawing editor prototype",
   "dependencies": {

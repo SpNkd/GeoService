@@ -19,7 +19,7 @@ export type EditorAction =
   | { type: 'load-json'; text: string; size: ViewSize }
   | { type: 'replace-document'; document: GeoDocument; size: ViewSize }
   | { type: 'mark-saved' }
-  | { type: 'execute'; command: DocumentCommand }
+  | { type: 'execute'; command: DocumentCommand; expectedDocument?: GeoDocument }
   | { type: 'transient'; command: DocumentCommand }
   | { type: 'begin-transaction' } | { type: 'commit-transaction' } | { type: 'cancel-transaction' }
   | { type: 'undo' } | { type: 'redo' } | { type: 'clear-error' }
@@ -73,6 +73,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       } catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось открыть документ' }; }
     }
     case 'execute': {
+      if (action.expectedDocument && (state.transactionBefore || state.document !== action.expectedDocument)) {
+        return { ...state, error: 'Документ изменился или активна транзакция. Пересчитайте план.' };
+      }
       if (state.transactionBefore) return state;
       try {
         const document = applyCommand(state.document, action.command);
