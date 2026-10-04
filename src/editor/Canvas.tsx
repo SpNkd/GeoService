@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
 import { canEditVertex, isLayerLocked } from '../domain/commands';
-import { type Vertex, type WorldPoint } from '../domain/model';
+import { entityVertexIds, type Vertex, type WorldPoint } from '../domain/model';
 import { createGeometryCommand, newGeometryId, type DrawingKind, type GeometryAnchor } from '../domain/geometryIntent';
 import { distance, screenToWorld, worldToScreen, type ScreenPoint, type ViewSize } from '../geometry';
+import { constrainAngle } from '../geometry/constraints';
 import { dimensionOffset, measurePair } from '../geometry/survey';
 import { formatAzimuth, formatDistance } from '../geometry/format';
 import { createSnapProvider, findSnapCandidate, type SnapResult } from '../snapping';
@@ -19,8 +20,8 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint };
-type MoveInput = { point: ScreenPoint; pointerId: number };
+type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number };
+type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
 export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [] }: Props) {
   const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
@@ -84,14 +85,18 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     };
     element.addEventListener('wheel', wheel, { passive: false }); return () => element.removeEventListener('wheel', wheel);
   }, [announceSnap, disabled, dispatch, onCursor, size]);
-  const anchorAt = (point: ScreenPoint, exclude?: string): GeometryAnchor => {
+  const anchorAt = (point: ScreenPoint, exclude?: string, shiftKey = false): GeometryAnchor => {
     const raw = screenToWorld(point, viewport, size);
     const result = findSnapCandidate(raw, provider, viewport, state.snapOptions, exclude);
+    const origin = draft.at(-1)?.position;
+    if (origin && ['line', 'polyline', 'polygon'].includes(tool) && (shiftKey || state.ortho) && result?.type !== 'vertex') {
+      announceSnap(null); return { position: constrainAngle(origin, raw, shiftKey ? 45 : 90) };
+    }
     announceSnap(result);
     return { position: result?.worldPosition ?? raw, ...(result?.sourceVertexId ? { vertexId: result.sourceVertexId } : {}) };
   };
   const processMove = (input: MoveInput) => {
-    const { point, pointerId } = input;
+    const { point, pointerId, shiftKey } = input;
     if (disabled) return;
     onCursor(point);
     const active = drag.current;
@@ -120,10 +125,17 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     if (active?.kind === 'dimension' && active.pointerId === pointerId) {
       const cursor = screenToWorld(point, viewport, size);
       dispatch({ type: 'transient', command: { type: 'update-entity', entityId: active.entityId,
-        patch: { offset: dimensionOffset(active.a, active.b, cursor) } } });
+        patch: { offset: active.offset + dimensionOffset(active.a, active.b, cursor) - active.pointerOffset } } });
       return;
     }
-    if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text'].includes(tool)) setDrawCursor(anchorAt(point).position);
+    if (active?.kind === 'dimension-text' && active.pointerId === pointerId) {
+      const cursor = screenToWorld(point, viewport, size), dx = active.b.x - active.a.x, dy = active.b.y - active.a.y;
+      const squaredLength = dx * dx + dy * dy;
+      if (!(squaredLength > 0) || !Number.isFinite(squaredLength)) return;
+      const t = ((cursor.x - active.a.x) * dx + (cursor.y - active.a.y) * dy) / squaredLength;
+      dispatch({ type: 'transient', command: { type: 'update-entity', entityId: active.entityId, patch: { textPosition: Math.max(0.05, Math.min(0.95, t)) } } }); return;
+    }
+    if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text'].includes(tool)) setDrawCursor(anchorAt(point, undefined, shiftKey).position);
     else announceSnap(null);
   };
   const flushMove = () => {
@@ -143,24 +155,35 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     }
     if (tool === 'point') { create('point', [anchorAt(point)]); return; }
     if (tool === 'line') {
-      const anchor = anchorAt(point);
+      const anchor = anchorAt(point, undefined, event.shiftKey);
       if (!draft.length) { setDraft([anchor]); setDrawCursor(anchor.position); } else create('line', [draft[0]!, anchor]);
       return;
     }
     if (tool === 'dimension') {
-      const anchor = anchorAt(point);
+      const anchor = anchorAt(point, undefined, event.shiftKey);
       if (draft.length < 2) { setDraft([...draft, anchor]); setDrawCursor(anchor.position); }
       else create('dimension', draft, dimensionOffset(draft[0]!.position, draft[1]!.position, anchor.position));
       return;
     }
     if (tool === 'measure') {
-      const anchor = anchorAt(point);
+      const anchor = anchorAt(point, undefined, event.shiftKey);
       const points = draft.length === 1 ? [...draft, anchor] : [anchor];
       setDraft(points); setDrawCursor(anchor.position);
       return;
     }
-    if (tool === 'polyline' || tool === 'polygon') { const anchor = anchorAt(point); setDraft(previous => [...previous, anchor]); setDrawCursor(anchor.position); return; }
+    if (tool === 'polyline' || tool === 'polygon') { const anchor = anchorAt(point, undefined, event.shiftKey); setDraft(previous => [...previous, anchor]); setDrawCursor(anchor.position); return; }
     if (tool === 'text') { setTextDraft({ anchor: anchorAt(point), screen: point, content: '' }); return; }
+    // Active geometry handles outrank wide annotation hit areas at the same screen position.
+    if (!event.shiftKey) for (const entity of document.entities) {
+      if (!state.selectedEntityIds.includes(entity.id) || !['line', 'polyline', 'polygon'].includes(entity.type) || isLayerLocked(document, entity)) continue;
+      for (const vertexId of entityVertexIds(entity)) {
+        const vertex = document.vertices[vertexId]!, screen = worldToScreen(vertex, viewport, size);
+        if (Math.abs(screen.x - point.x) > 6 || Math.abs(screen.y - point.y) > 6 || !canEditVertex(document, vertexId)) continue;
+        dispatch({ type: 'select', entityId: entity.id }); dispatch({ type: 'begin-transaction' });
+        drag.current = { kind: 'vertex', pointerId: event.pointerId, vertex };
+        event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
+      }
+    }
     if (hit) {
       const entityId = hit.getAttribute('data-entity-id')!;
       const entity = document.entities.find(item => item.id === entityId);
@@ -188,7 +211,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (entity.type === 'dimension' && !isLayerLocked(document, entity)) {
         const a = document.vertices[entity.startVertexId]!, b = document.vertices[entity.endVertexId]!;
         dispatch({ type: 'begin-transaction' });
-        drag.current = { kind: 'dimension', pointerId: event.pointerId, entityId, a, b };
+        drag.current = { kind: event.target instanceof Element && event.target.closest('[data-dimension-text-handle]') ? 'dimension-text' : 'dimension', pointerId: event.pointerId, entityId, a, b, offset: entity.offset, pointerOffset: dimensionOffset(a, b, screenToWorld(point, viewport, size)) };
         event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
       }
       const handle = event.target instanceof Element ? event.target.closest('[data-vertex-handle]') : null;
@@ -203,7 +226,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     event.currentTarget.setPointerCapture(event.pointerId); setDragging(true);
   };
   const move = (event: PointerEvent<SVGSVGElement>) => {
-    pending.current = { point: local(event), pointerId: event.pointerId };
+    pending.current = { point: local(event), pointerId: event.pointerId, shiftKey: event.shiftKey };
     if (frame.current === null) frame.current = requestAnimationFrame(() => { frame.current = null; const input = pending.current; pending.current = null; if (input) processMove(input); });
   };
   const end = (event: PointerEvent<SVGSVGElement>) => {
@@ -238,11 +261,11 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
           return;
         }
         if (tool !== 'polyline' && tool !== 'polygon') return;
-        const rect = event.currentTarget.getBoundingClientRect(); const last = anchorAt({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+        const rect = event.currentTarget.getBoundingClientRect(); const last = anchorAt({ x: event.clientX - rect.left, y: event.clientY - rect.top }, undefined, event.shiftKey);
         const points = draft.length > 1 && distance(draft[draft.length - 1]!.position, draft[draft.length - 2]!.position) < 1e-9 ? draft.slice(0, -1) : draft;
         finishPath(points.length && distance(last.position, points[points.length - 1]!.position) < 1e-9 ? points : [...points, last]);
       }} onContextMenu={event => event.preventDefault()}>
-      {state.gridVisible && <Grid viewport={viewport} size={size} />}
+      {state.gridVisible && <Grid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep ?? 1} />}
       {items.map(item => <EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
         selected={state.selectedEntityIds.includes(item.entity.id) || state.orderedPointIds.includes(item.entity.id)}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}

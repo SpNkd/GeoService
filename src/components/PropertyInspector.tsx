@@ -70,9 +70,9 @@ function LayerProperties({ layer, state, dispatch }: { layer: GeoDocument['layer
   return <div className="inspector-content">
     <div className="entity-heading"><span className="entity-icon"><Icon name="layers" size={23} /></span><div><h3>Слой</h3><span>{layer.id === state.currentLayerId ? 'Текущий слой' : 'Выбранный слой'}</span></div></div>
     <div className="property-section"><h3>Свойства слоя</h3>
-      <label className="coordinate-field"><span>Название</span><input aria-label="Название слоя" value={name} onChange={event => setName(event.target.value)} onBlur={() => { if (name.trim() && name !== layer.name) dispatch({ type: 'execute', command: { type: 'update-layer', layerId: layer.id, name: name.trim() } }); else setName(layer.name); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label>
+      <label className="layer-property-name"><span>Название</span><input aria-label="Название слоя" value={name} onChange={event => setName(event.target.value)} onBlur={() => { if (name.trim() && name !== layer.name) dispatch({ type: 'execute', command: { type: 'update-layer', layerId: layer.id, name: name.trim() } }); else setName(layer.name); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label>
       <dl className="property-facts"><dt>Объекты</dt><dd>{count}</dd><dt>Видимость</dt><dd>{layer.visible ? 'Виден' : 'Скрыт'}</dd><dt>Состояние</dt><dd>{layer.locked ? 'Заблокирован' : 'Доступен'}</dd></dl>
-      <button disabled={!count} onClick={() => dispatch({ type: 'select-layer-objects', layerId: layer.id })}>Выбрать все объекты слоя</button>
+      <button className="secondary-action" disabled={!count} onClick={() => dispatch({ type: 'select-layer-objects', layerId: layer.id })}>Выбрать все объекты слоя</button><button className="secondary-action" onClick={() => dispatch({ type: 'execute', command: { type: 'delete-layer', layerId: layer.id } })}>Удалить слой</button>
     </div>
   </div>;
 }
@@ -123,6 +123,15 @@ function TextCoordinates({ entity, document, locked, dispatch }: { entity: TextE
     <CoordinateField label="Y" value={vertex.y} disabled={locked} onChange={y => change('y', y)} onEditStart={() => dispatch({ type: 'begin-transaction' })} onEditEnd={() => dispatch({ type: 'commit-transaction' })} /></div>;
 }
 
+function LabelPresets({ entity, state, dispatch }: { entity: Entity; state: EditorState; dispatch: Dispatch<EditorAction> }) {
+  const presets = entity.type === 'point' ? [['Имя', '{name}'], ['Имя + Z', '{name} · Z={z}'], ['Координаты', 'X={x} · Y={y}']]
+    : entity.type === 'polygon' ? [['Название', '{name}'], ['Площадь', 'S={area} м²'], ['Периметр', 'P={perimeter} м'], ['Название + площадь', '{name} · S={area} м²']]
+    : [['Длина', 'L={length} м'], ['Название', '{name}'], ['Название + длина', '{name} · L={length} м']];
+  const [template, setTemplate] = useState(presets[0]![1]!);
+  return <div className="property-section"><h3>Подписи</h3><label className="layer-field">Preset<select aria-label="Вариант подписи" value={template} onChange={event => setTemplate(event.target.value)}>{presets.map(([name, value]) => <option key={value} value={value}>{name}</option>)}</select></label>
+    <button aria-label="Добавить подпись" className="secondary-action" onClick={() => { try { const command = createLabelCommand(state.document, entity.id, newGeometryId, template); dispatch({ type: 'execute', command }); if (command.type === 'add-entity') dispatch({ type: 'select', entityId: command.entity.id }); } catch (error) { dispatch({ type: 'report-error', message: error instanceof Error ? error.message : 'Не удалось создать подпись' }); } }}>+ Добавить подпись</button></div>;
+}
+
 export const PropertyInspector = memo(function PropertyInspector({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const entity = state.document.entities.find(item => item.id === state.selectionId);
   const selectedLayer = state.document.layers.find(layer => layer.id === state.selectedLayerId);
@@ -139,7 +148,7 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
         {locked && <p className="read-only-banner">Слой заблокирован · только просмотр</p>}
       </div>
       {entity.type === 'point' ? <PointProperties key={entity.id} entity={entity} document={state.document} dispatch={dispatch} /> : entity.type === 'label' ? <LabelProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} /> : entity.type === 'text' ? <div className="property-section"><h3>Текст</h3><TextContentField entity={entity} locked={locked} dispatch={dispatch} /><TextCoordinates entity={entity} document={state.document} locked={locked} dispatch={dispatch} /></div> : <GeometryProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} />}
-      {entity.type !== 'label' && entity.type !== 'text' && <button onClick={() => { try { const command = createLabelCommand(state.document, entity.id); dispatch({ type: 'execute', command }); if (command.type === 'add-entity') dispatch({ type: 'select', entityId: command.entity.id }); } catch (error) { dispatch({ type: 'report-error', message: error instanceof Error ? error.message : 'Не удалось создать подпись' }); } }}>Добавить подпись</button>}
+      {['point', 'line', 'polyline', 'polygon'].includes(entity.type) && <LabelPresets key={`labels:${entity.id}`} entity={entity} state={state} dispatch={dispatch} />}
       {!locked && <button className="delete-object-button" onClick={() => dispatch({ type: 'execute', command: { type: 'delete-entity', entityId: entity.id } })}><Icon name="trash" size={15} />Удалить объект <span>Del</span></button>}
       <div className="property-note"><span className="live-dot" /> Объект в мировой системе координат</div>
     </div> : <div className="empty-inspector"><div className="empty-symbol"><Icon name="cursor" size={30} /></div><h3>Выберите объект</h3><p>Нажмите на точку, линию, полигон или подпись на схеме.</p><div className="empty-preview"><span>X</span><i /><span>Y</span><i /><span>Z</span><i /></div><small>Свойства и координаты появятся здесь</small></div>}

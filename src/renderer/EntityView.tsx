@@ -59,7 +59,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
       break;
     }
     case 'dimension': {
-      shape = <DimensionView a={world[0]!} b={world[1]!} offset={entity.offset} viewport={viewport} size={size} color={stroke} />;
+      shape = <DimensionView a={world[0]!} b={world[1]!} offset={entity.offset} textPosition={entity.textPosition ?? 0.5} viewport={viewport} size={size} color={stroke} />;
       break;
     }
     case 'text': {

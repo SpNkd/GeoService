@@ -12,7 +12,7 @@ export interface PolylineEntity extends EntityBase { type: 'polyline'; vertexIds
 export interface PolygonEntity extends EntityBase { type: 'polygon'; vertexIds: [string, string, string, ...string[]] }
 export interface TextEntity extends EntityBase { type: 'text'; vertexId: string; content: string; fontSize: number }
 export interface LabelEntity extends EntityBase { type: 'label'; targetId: string; template: string; dx: number; dy: number }
-export interface DimensionEntity extends EntityBase { type: 'dimension'; startVertexId: string; endVertexId: string; offset: number }
+export interface DimensionEntity extends EntityBase { type: 'dimension'; startVertexId: string; endVertexId: string; offset: number; textPosition?: number }
 export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity;
 export interface GeoDocument {
   schemaVersion: 2;

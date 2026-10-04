@@ -1,5 +1,5 @@
 import type { WorldPoint } from '../domain/model';
-import { distance, midpoint } from './index';
+import { distance } from './index';
 
 export const distance2D = distance;
 export function delta(a: WorldPoint, b: WorldPoint): WorldPoint {
@@ -21,11 +21,11 @@ export function dimensionOffset(a: WorldPoint, b: WorldPoint, cursor: WorldPoint
   const length = distance(a, b);
   return length === 0 ? 0 : ((cursor.x - a.x) * -(b.y - a.y) + (cursor.y - a.y) * (b.x - a.x)) / length;
 }
-export function alignedDimension(a: WorldPoint, b: WorldPoint, offset: number) {
+export function alignedDimension(a: WorldPoint, b: WorldPoint, offset: number, textPosition = 0.5) {
   const length = distance(a, b), nx = length ? -(b.y - a.y) / length : 0, ny = length ? (b.x - a.x) / length : 1;
   const start = { x: a.x + nx * offset, y: a.y + ny * offset };
   const end = { x: b.x + nx * offset, y: b.y + ny * offset };
-  return { start, end, label: midpoint(start, end), length };
+  return { start, end, label: { x: start.x + (end.x - start.x) * textPosition, y: start.y + (end.y - start.y) * textPosition }, length };
 }
 
 const cross = (a: WorldPoint, b: WorldPoint) => a.x * b.y - a.y * b.x;

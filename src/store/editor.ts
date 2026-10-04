@@ -5,6 +5,7 @@ import { visibleBounds } from '../renderer/selectors';
 import { deserializeDocument, documentFingerprint } from '../persistence/serialization';
 import { commandFromOrderedPoints } from '../domain/geometryIntent';
 import { validateDocument } from '../persistence/documentSchema';
+import { newGeometryId } from '../domain/geometryIntent';
 import { DEFAULT_SNAP_OPTIONS, type SnapOptions } from '../snapping';
 
 export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure';
@@ -13,7 +14,7 @@ export interface EditorState {
   document: GeoDocument; viewport: Viewport; selectionId: string | null; selectedEntityIds: string[]; selectedLayerId: string | null; currentLayerId: string; tool: EditorTool; gridVisible: boolean;
   past: GeoDocument[]; future: GeoDocument[]; transactionBefore: GeoDocument | null; error: string | null;
   savedFingerprint: string; documentEpoch: number;
-  orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean;
+  orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean; ortho: boolean;
 }
 export type EditorAction =
   | { type: 'load-json'; text: string; size: ViewSize }
@@ -26,6 +27,7 @@ export type EditorAction =
   | { type: 'undo' } | { type: 'redo' } | { type: 'clear-error' }
   | { type: 'report-error'; message: string }
   | { type: 'select'; entityId: string | null; toggle?: boolean }
+  | { type: 'create-layer' } | { type: 'toggle-ortho' }
   | { type: 'select-layer'; layerId: string }
   | { type: 'select-layer-objects'; layerId: string }
   | { type: 'from-selected-points'; kind: 'polyline' | 'polygon' }
@@ -49,18 +51,31 @@ function reconcileSelection(document: GeoDocument, selectionId: string | null): 
 }
 const reconcileOrdered = (document: GeoDocument, ids: string[]) => ids.filter(id => document.entities.some(entity => entity.id === id && entity.type === 'point') && reconcileSelection(document, id));
 
+function reconcileLayers(document: GeoDocument, state: EditorState) {
+  return { currentLayerId: document.layers.some(layer => layer.id === state.currentLayerId) ? state.currentLayerId : document.layers.find(layer => layer.visible && !layer.locked)?.id ?? document.layers[0]!.id,
+    selectedLayerId: document.layers.some(layer => layer.id === state.selectedLayerId) ? state.selectedLayerId : null };
+}
+
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
   return { document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
-    orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false };
+    orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
 export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFingerprint'> & Partial<Pick<EditorState, 'transactionBefore'>>) =>
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case 'toggle-ortho': return { ...state, ortho: !state.ortho };
+    case 'create-layer': {
+      let name = 'Новый слой', suffix = 2;
+      while (state.document.layers.some(layer => layer.name === name)) name = `Новый слой ${suffix++}`;
+      const layer = { id: newGeometryId('layer'), name, visible: true, locked: false, order: Math.max(...state.document.layers.map(layer => layer.order)) + 1, styleId: state.document.styles[0]!.id };
+      const next = editorReducer(state, { type: 'execute', command: { type: 'create-layer', layer } });
+      return next.error ? next : editorReducer(next, { type: 'select-layer', layerId: layer.id });
+    }
     case 'mark-saved': return { ...state, savedFingerprint: documentFingerprint(state.document) };
-    case 'snap-options': return { ...state, snapOptions: { ...state.snapOptions, ...action.patch } };
+    case 'snap-options': return action.patch.gridStep !== undefined && (!Number.isFinite(action.patch.gridStep) || action.patch.gridStep <= 0) ? state : { ...state, snapOptions: { ...state.snapOptions, ...action.patch } };
     case 'point-labels': return { ...state, pointLabelMode: action.mode };
     case 'toggle-line-lengths': return { ...state, showLineLengths: !state.showLineLengths };
     case 'from-selected-points': {
@@ -92,7 +107,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         if (document === state.document) return { ...state, error: null };
         const hiddenSelection = action.type === 'execute' && action.command.type === 'set-layer-visibility' && !action.command.visible
           && state.document.entities.find(item => item.id === state.selectionId)?.layerId === action.command.layerId;
-        return { ...state, document, past: pushHistory(state.past, state.document), future: [],
+        return { ...state, ...reconcileLayers(document, state), document, past: pushHistory(state.past, state.document), future: [],
           selectionId: hiddenSelection ? null : reconcileSelection(document, state.selectionId), selectedEntityIds: hiddenSelection ? [] : state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
       } catch (error) {
         return { ...state, error: error instanceof Error ? error.message : 'Не удалось изменить документ' };
@@ -121,13 +136,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if (state.transactionBefore) return editorReducer({ ...state, transactionBefore: null }, action);
       if (!state.past.length) return state;
       const document = state.past[state.past.length - 1]!;
-      return { ...state, document, past: state.past.slice(0, -1), future: [...state.future, state.document],
+      return { ...state, ...reconcileLayers(document, state), document, past: state.past.slice(0, -1), future: [...state.future, state.document],
         selectionId: reconcileSelection(document, state.selectionId), selectedEntityIds: state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
     }
     case 'redo': {
       if (!state.future.length || state.transactionBefore) return state;
       const document = state.future[state.future.length - 1]!;
-      return { ...state, document, past: pushHistory(state.past, state.document), future: state.future.slice(0, -1),
+      return { ...state, ...reconcileLayers(document, state), document, past: pushHistory(state.past, state.document), future: state.future.slice(0, -1),
         selectionId: reconcileSelection(document, state.selectionId), selectedEntityIds: state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
     }
     case 'clear-error': return { ...state, error: null };

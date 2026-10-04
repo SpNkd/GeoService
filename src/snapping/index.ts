@@ -1,8 +1,8 @@
 import { entityVertexIds, getVertex, vertexPoint, type GeoDocument, type Viewport, type WorldPoint } from '../domain/model';
-import { gridStep, midpoint } from '../geometry';
+import { midpoint } from '../geometry';
 
-export interface SnapOptions { enabled: boolean; vertex: boolean; midpoint: boolean; grid: boolean; tolerancePx: number }
-export const DEFAULT_SNAP_OPTIONS: SnapOptions = { enabled: true, vertex: true, midpoint: true, grid: false, tolerancePx: 10 };
+export interface SnapOptions { enabled: boolean; vertex: boolean; midpoint: boolean; grid: boolean; tolerancePx: number; gridStep?: number }
+export const DEFAULT_SNAP_OPTIONS: SnapOptions = { enabled: true, vertex: true, midpoint: true, grid: false, tolerancePx: 10, gridStep: 1 };
 export interface SnapResult {
   type: 'vertex' | 'midpoint' | 'grid'; worldPosition: WorldPoint; sourceEntityId?: string; sourceVertexId?: string;
   distanceScreenPx: number; metadata: { label: string; key: string; vertexIds: string[] };
@@ -50,7 +50,7 @@ export function findSnapCandidate(cursor: WorldPoint, provider: SnapProvider, vi
   };
   for (const candidate of provider.query(cursor, toleranceWorld)) consider(candidate);
   if (options.grid) {
-    const step = gridStep(viewport.pixelsPerUnit);
+    const step = options.gridStep ?? 1;
     const position = { x: Math.round(cursor.x / step) * step, y: Math.round(cursor.y / step) * step };
     consider({ type: 'grid', worldPosition: position, metadata: { label: `Grid · ${step} м`, key: 'grid', vertexIds: [] } });
   }

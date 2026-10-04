@@ -21,6 +21,8 @@ function MeasureMetrics({ result }: { result: Extract<ReadyResolution, { kind: '
 export function AiPlanMetrics({ result }: { result: ReadyResolution | BulkDimensionsReady }) {
   switch (result.kind) {
     case 'bulk-dimensions': return <><dt>Dimensions</dt><dd>{result.dimensions.length}</dd><dt>Total edges</dt><dd>{result.references.length}</dd><dt>Offset</dt><dd>Auto · наружу</dd></>;
+    case 'points': return <><dt>Точек</dt><dd>{result.references.length}</dd><dt>Целевой слой</dt><dd>{result.targetLayer}</dd></>;
+    case 'rectangle': return <><dt>Width × Height</dt><dd>{result.width} × {result.height} м</dd><dt>Area</dt><dd>{formatMeasure(result.area, 3)} м²</dd><dt>Perimeter</dt><dd>{formatDistance(result.perimeter)}</dd></>;
     case 'boundary': return <BoundaryMetrics result={result} />;
     case 'polyline': return <PolylineMetrics result={result} />;
     case 'dimension': return <DimensionMetrics result={result} />;

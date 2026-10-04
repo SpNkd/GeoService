@@ -10,11 +10,14 @@ export type DocumentCommand =
   | { type: 'import-points'; points: { entity: PointEntity; vertex: Vertex }[]; layer?: Layer }
   | { type: 'add-entity'; entity: Entity; vertices: Vertex[]; layer?: Layer }
   | { type: 'delete-entity'; entityId: string }
+  | { type: 'create-layer'; layer: Layer }
+  | { type: 'delete-layer'; layerId: string }
+  | { type: 'move-layer'; layerId: string; direction: -1 | 1 }
   | { type: 'update-layer'; layerId: string; name: string }
   | { type: 'update-vertex'; vertexId: string; position: WorldPoint }
   | { type: 'move-vertex'; vertexId: string; delta: WorldPoint }
   | { type: 'move-text'; entityId: string; vertexId: string; position: WorldPoint }
-  | { type: 'update-entity'; entityId: string; patch: { name?: string; content?: string; template?: string; fontSize?: number; dx?: number; dy?: number; offset?: number } }
+  | { type: 'update-entity'; entityId: string; patch: { name?: string; content?: string; template?: string; fontSize?: number; dx?: number; dy?: number; offset?: number; textPosition?: number } }
   | { type: 'set-entity-layer'; entityId: string; layerId: string }
   | { type: 'set-layer-visibility'; layerId: string; visible: boolean }
   | { type: 'set-layer-lock'; layerId: string; locked: boolean };
@@ -102,6 +105,26 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     encodeDocument(candidate);
     return candidate;
   }
+  if (command.type === 'create-layer') {
+    if (document.layers.length >= 1000 || document.layers.some(layer => layer.id === command.layer.id)) throw new Error('Неверный ID или превышен лимит слоёв');
+    if (!document.styles.some(style => style.id === command.layer.styleId)) throw new Error('Стиль слоя не найден');
+    return { ...document, layers: [...document.layers, { ...command.layer }] };
+  }
+  if (command.type === 'delete-layer') {
+    if (!document.layers.some(layer => layer.id === command.layerId)) throw new Error('Слой не найден');
+    const count = document.entities.filter(entity => entity.layerId === command.layerId).length;
+    if (count) throw new Error(`Слой содержит ${count} объектов. Перед удалением переместите или удалите их.`);
+    if (document.layers.length === 1) throw new Error('Нельзя удалить последний слой');
+    return { ...document, layers: document.layers.filter(layer => layer.id !== command.layerId) };
+  }
+  if (command.type === 'move-layer') {
+    const layers = [...document.layers].sort((a, b) => a.order - b.order), index = layers.findIndex(layer => layer.id === command.layerId);
+    if (index < 0) throw new Error('Слой не найден');
+    const next = index + command.direction;
+    if (next < 0 || next >= layers.length) return document;
+    [layers[index], layers[next]] = [layers[next]!, layers[index]!];
+    return { ...document, layers: layers.map((layer, order) => ({ ...layer, order })) };
+  }
   if (command.type === 'set-layer-visibility' || command.type === 'set-layer-lock') {
     if (!document.layers.some(layer => layer.id === command.layerId)) throw new Error('Слой не найден');
     return { ...document, layers: document.layers.map(layer => layer.id !== command.layerId ? layer : {
@@ -169,6 +192,7 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   if (command.patch.content !== undefined && entity.type !== 'text') throw new Error('Только у текстовой аннотации есть содержание');
   if (command.patch.template !== undefined && entity.type !== 'label') throw new Error('Шаблон доступен только у связанной подписи');
   if ((command.patch.dx !== undefined || command.patch.dy !== undefined) && entity.type !== 'label') throw new Error('Смещение доступно только у связанной подписи');
+  if (command.patch.textPosition !== undefined && entity.type !== 'dimension') throw new Error('Положение числа доступно только у размера');
   if (command.patch.offset !== undefined && entity.type !== 'dimension') throw new Error('Offset доступен только у размера');
   if (command.patch.fontSize !== undefined && (entity.type !== 'text' || !Number.isFinite(command.patch.fontSize) || command.patch.fontSize <= 0)) throw new Error('Размер текста должен быть положительным конечным числом');
   if (command.patch.name !== undefined && !command.patch.name.trim()) throw new Error('Имя объекта не может быть пустым');
@@ -180,7 +204,7 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     ...(command.patch.template === undefined ? {} : { template: command.patch.template }),
     ...(command.patch.fontSize === undefined ? {} : { fontSize: command.patch.fontSize }),
     ...(command.patch.dx === undefined ? {} : { dx: command.patch.dx }), ...(command.patch.dy === undefined ? {} : { dy: command.patch.dy }),
-    ...(command.patch.offset === undefined ? {} : { offset: command.patch.offset }) };
+    ...(command.patch.textPosition === undefined ? {} : { textPosition: command.patch.textPosition }), ...(command.patch.offset === undefined ? {} : { offset: command.patch.offset }) };
   return { ...document, entities: document.entities.map(item => item.id === entity.id ? cloneEntity({ ...entity, ...patch } as Entity) : item) };
 }
 

@@ -10,12 +10,11 @@ export function renderItems(document: GeoDocument): RenderItem[] {
   const styles = new Map(document.styles.map(style => [style.id, style]));
   const visible = new Set(document.layers.filter(layer => layer.visible).map(layer => layer.id));
   const items = [...document.layers].sort((a, b) => a.order - b.order).flatMap(layer =>
-    layer.visible ? document.entities.filter(entity => entity.layerId === layer.id && (entity.type !== 'label' || visible.has(document.entities.find(target => target.id === entity.targetId)?.layerId ?? ''))).map(entity => ({
+    layer.visible ? document.entities.filter(entity => entity.layerId === layer.id && (entity.type !== 'label' || visible.has(document.entities.find(target => target.id === entity.targetId)?.layerId ?? ''))).sort((a, b) => Number(a.type === 'text' || a.type === 'label') - Number(b.type === 'text' || b.type === 'label')).map(entity => ({
       entity, layer, style: styles.get(entity.styleId ?? layer.styleId) ?? fallbackStyle,
     })) : [],
   );
-  // Text and linked labels remain above geometry so their view-level hit targets win overlaps.
-  return [...items.filter(item => item.entity.type !== 'text' && item.entity.type !== 'label'), ...items.filter(item => item.entity.type === 'text' || item.entity.type === 'label')];
+  return items;
 }
 export function visibleBounds(document: GeoDocument) {
   return bounds(renderItems(document).flatMap(({ entity }) => {

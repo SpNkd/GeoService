@@ -50,7 +50,7 @@ export function commandFromOrderedPoints(document: GeoDocument, pointIds: string
   return command;
 }
 
-export function createLabelCommand(document: GeoDocument, targetId: string, newId = newGeometryId): DocumentCommand {
+export function createLabelCommand(document: GeoDocument, targetId: string, newId = newGeometryId, template?: string): DocumentCommand {
   const target = document.entities.find(entity => entity.id === targetId);
   if (!target || !['point', 'line', 'polyline', 'polygon'].includes(target.type)) throw new Error('Сначала выберите точку, линию, полилинию или полигон');
   let layer = document.layers.find(item => item.id === 'annotations');
@@ -63,6 +63,6 @@ export function createLabelCommand(document: GeoDocument, targetId: string, newI
   }
   if (!layer.visible || layer.locked) throw new Error(`Слой «${layer.name}» скрыт или заблокирован`);
   const entity: Entity = { id: newId('label'), name: `Подпись ${document.entities.length + 1}`, type: 'label', layerId: layer.id,
-    targetId, template: defaultLabelTemplate(target), dx: 4, dy: 4 };
+    targetId, template: template ?? defaultLabelTemplate(target), dx: 4, dy: 4 };
   return { type: 'add-entity', entity, vertices: [], ...(addition ? { layer: addition } : {}) };
 }

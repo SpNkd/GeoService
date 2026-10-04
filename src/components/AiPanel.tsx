@@ -7,12 +7,13 @@ import { AiPlanMetrics } from './AiPlanMetrics';
 import { formatDistance } from '../geometry/format';
 import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
-const operationLabels = { 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
+const operationLabels = { points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
 const defaultProvider = new HttpAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
 interface Props { ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
 export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, documentEpoch, provider = defaultProvider }: Props) {
   const [text, setText] = useState('Создай границу по точкам P1, P2, P3 и P4');
+  const [clarificationAnswer, setClarificationAnswer] = useState('');
   const [mode, setMode] = useState<ProviderMode>('disabled');
   const runner = useMemo(() => new AiRequestRunner(provider), [provider]);
   useEffect(() => () => runner.cancel(), [runner]);
@@ -28,17 +29,20 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
     return () => controller.abort();
   }, []);
   const generate = (event: FormEvent) => { event.preventDefault();
-    void runner.run(text, event => dispatch({ type: 'ai-event', event })); };
+    const requestText = ai.status === 'needs_clarification' ? `${ai.originalText}\nУточнение пользователя: ${clarificationAnswer}` : text;
+    setClarificationAnswer('');
+    void runner.run(requestText, event => dispatch({ type: 'ai-event', event })); };
   const preview = ai.status === 'preview' || ai.status === 'stale' ? ai : ai.status === 'applied' && ai.results ? { plan: ai.results, notice: null } : null;
   const resolution = preview?.plan.resolution;
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
   return <section className="ai-panel" aria-label="AI Assistant">
     <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? 'OpenRouter' : 'Не подключён'}</span></div>
-    <p className="ai-caption">Граница · полилиния · размер · измерение</p>
+    <p className="ai-caption">Точки · прямоугольники · граница · размеры · измерение</p>
     <form onSubmit={generate}>
       <label htmlFor="ai-request">Запрос</label>
       <textarea id="ai-request" value={text} maxLength={AI_LIMITS.requestBytes} onChange={event => setText(event.target.value)} rows={3} />
-      <div className="ai-actions"><button className="primary-button" type="submit" disabled={mode === 'disabled' || !text.trim() || utf8Bytes(text) > AI_LIMITS.requestBytes}>Generate plan</button>
+      {ai.status === 'needs_clarification' && <div className="ai-clarification" data-testid="ai-clarification"><strong>Нужно уточнение</strong><ul>{ai.questions.map((question, index) => <li key={index}>{question}</li>)}</ul><label>Ответ на уточнение<textarea aria-label="Ответ на уточнение" value={clarificationAnswer} onChange={event => setClarificationAnswer(event.target.value)} rows={2} /></label></div>}
+      <div className="ai-actions"><button className="primary-button" type="submit" disabled={mode === 'disabled' || !(ai.status === 'needs_clarification' ? clarificationAnswer.trim() : text.trim()) || utf8Bytes(text) > AI_LIMITS.requestBytes}>Generate plan</button>
         <button type="button" className="tool-button compact" onClick={cancel}>Cancel</button></div>
     </form>
     <p className="ai-privacy">{mode === 'mock' ? 'Демо: фиксированные ответы, без LLM. ' : ''}Отправляется только текст запроса. Точки разрешаются локально.</p>
@@ -65,13 +69,14 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
           const result = action.resolution;
           return <div key={action.id} className="ai-action" data-testid="ai-action" data-action-id={action.id}>
             <strong>{index + 1}. Интерпретация: {operationLabels[action.kind]}</strong>
-            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.intent.pointNames.join(' → ')}</p>
+            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.kind === 'points' ? `${action.intent.points.length} точек с явно заданными координатами` : action.kind === 'rectangle' ? `${action.intent.name}: ${action.intent.width} × ${action.intent.height} м · ${action.intent.placement.type === 'centered_in_action_result' ? 'По центру Action ' + (action.intent.placement.polygonActionIndex + 1) : action.intent.placement.type}` : action.intent.pointNames.join(' → ')}</p>
             {(result.status === 'invalid' || result.status === 'blocked') && <p className="ai-error">{result.message}</p>}
             {result.status === 'ready' && <>
               {result.kind === 'bulk-dimensions' ? <ol className="ai-points" data-testid="ai-edge-list">{result.dimensions.map((edge, index) =>
                 <li key={index}>{edge.references[0]!.name} → {edge.references[1]!.name}: {formatDistance(edge.metrics.horizontal)}</li>)}</ol>
-                : <ol className="ai-points">{result.references.map((point, index) => <li key={point.entityId}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>}
+                : <ol className="ai-points">{result.references.map((point, index) => <li key={`${point.entityId}:${point.vertexId}:${index}`}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>}
               <dl className="ai-metrics"><AiPlanMetrics result={result} /></dl>
+              {result.kind === 'rectangle' && result.assumptions.length > 0 && <div className="ai-assumptions"><strong>Предположения</strong><ul>{result.assumptions.map(assumption => <li key={assumption}>{assumption}</li>)}</ul></div>}
               {result.warnings.map(warning => <p key={warning} className="ai-message">{warning}</p>)}
             </>}
             {action.kind === 'dimension' && <label>Offset (м)<input aria-label="Offset (м)" type="number" step="0.1" min={-MAX_DIMENSION_OFFSET} max={MAX_DIMENSION_OFFSET}

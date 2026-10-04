@@ -49,7 +49,7 @@ export function resolveLabelTemplate(document: GeoDocument, label: LabelEntity):
   const target = document.entities.find(entity => entity.id === label.targetId);
   if (!target || target.type === 'label' || target.type === 'dimension' || target.type === 'text') return label.template;
   const ids = entityVertexIds(target), points = ids.map(id => vertexPoint(getVertex(document.vertices, id)));
-  const allowed: Record<string, string> = {};
+  const allowed: Record<string, string> = { name: target.name };
   if (target.type === 'point') {
     const p = points[0]!;
     allowed.name = target.name; allowed.x = formatCoordinate(p.x); allowed.y = formatCoordinate(p.y);

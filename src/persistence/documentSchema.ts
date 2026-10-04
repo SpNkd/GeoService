@@ -10,7 +10,7 @@ const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.o
 export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('point'), vertexId: id }),
   z.object({ ...base, type: z.literal('line'), startVertexId: id, endVertexId: id }),
-  z.object({ ...base, type: z.literal('dimension'), startVertexId: id, endVertexId: id, offset: finiteNumber }),
+  z.object({ ...base, type: z.literal('dimension'), startVertexId: id, endVertexId: id, offset: finiteNumber, textPosition: finiteNumber.min(0.05).max(0.95).optional() }),
   z.object({ ...base, type: z.literal('polyline'), vertexIds: z.tuple([id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('polygon'), vertexIds: z.tuple([id, id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000) }),

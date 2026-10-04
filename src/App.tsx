@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { fitToBounds, gridStep, screenToWorld, type ScreenPoint, type ViewSize } from './geometry';
+import { bounds, fitToBounds, gridStep, screenToWorld, type ScreenPoint, type ViewSize } from './geometry';
 import { formatCoordinate, formatMeasure } from './geometry/format';
 import { visibleBounds } from './renderer/selectors';
 import { Canvas } from './editor/Canvas';
@@ -28,6 +28,8 @@ export default function App() {
   const [application, dispatch] = useReducer(applicationReducer, startup.document, (document): ApplicationState => ({
     editor: { ...initialEditorState(document), ...(startup.dirty ? { savedFingerprint: '' } : {}) }, ai: { status: 'idle' } }));
   const state = application.editor;
+  useEffect(() => { try { const step = Number(localStorage.getItem('geoservice.snap-step')); if (Number.isFinite(step) && step > 0) dispatch({ type: 'snap-options', patch: { gridStep: step } }); } catch { /* local preferences are optional */ } }, []);
+  useEffect(() => { try { localStorage.setItem('geoservice.snap-step', String(state.snapOptions.gridStep ?? 1)); } catch { /* optional */ } }, [state.snapOptions.gridStep]);
   const aiTask = application.ai.status === 'preview' ? application.ai.plan : application.ai.status === 'applied' ? application.ai.results : null;
   const aiPreview = aiTask?.resolution.status === 'ready' && !state.transactionBefore
     ? taskPreviews(aiTask) : [];
@@ -81,6 +83,7 @@ export default function App() {
     switch (id) {
       case 'select': case 'line': case 'point': case 'polyline': case 'polygon': case 'text': case 'dimension': case 'measure':
         dispatch({ type: 'tool', tool: id }); break;
+      case 'ortho': dispatch({ type: 'toggle-ortho' }); break;
       case 'fit': case 'fit-extents': fit(); break;
       case 'save': save(); break;
       case 'open': openInput.current?.click(); break;
@@ -113,6 +116,7 @@ export default function App() {
       }
       if (suppressed(event.target)) { clearSequence(); return; }
       if (event.altKey || event.repeat) return;
+      if (event.key === 'F8') { event.preventDefault(); clearSequence(); runShortcut('ortho'); return; }
       if (event.key === 'Escape') { clearSequence(); if (shortcutsOpen) setShortcutsOpen(false); else runShortcut('cancel'); event.preventDefault(); return; }
       if (event.key === 'Delete' || event.key === 'Backspace') { clearSequence(); event.preventDefault(); runShortcut('delete'); return; }
       const key = event.key === '?' ? '?' : /^[a-z]$/i.test(event.key) && !event.shiftKey ? event.key.toUpperCase() : null;
@@ -132,6 +136,12 @@ export default function App() {
     window.addEventListener('keydown', keydown); window.addEventListener('keyup', keyup); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup); window.removeEventListener('blur', blur); clearSequence(); };
   }, [state, shortcutsOpen, dirty, size, runShortcut]);
+  const fittedAiTask = useRef<string | null>(null);
+  useEffect(() => {
+    if (aiTask?.resolution.status !== 'ready' || aiTask.id === fittedAiTask.current || !aiTask.requiresConfirmation || size.width <= 1) return;
+    const viewport = fitToBounds(bounds(taskPreviews(aiTask).flatMap(preview => preview.result.geometry)), size, 100);
+    if (viewport) { dispatch({ type: 'viewport', viewport }); fittedAiTask.current = aiTask.id; }
+  }, [aiTask, size]);
   const zoom = (factor: number) => dispatch({ type: 'zoom', size, anchor: { x: size.width / 2, y: size.height / 2 }, factor });
   const step = gridStep(state.viewport.pixelsPerUnit);
   const selected = state.document.entities.find(entity => entity.id === state.selectionId);
@@ -167,6 +177,8 @@ export default function App() {
         {(['vertex', 'midpoint', 'grid'] as const).map(type => <label key={type}><input type="checkbox" checked={state.snapOptions[type]} onChange={event => dispatch({ type: 'snap-options', patch: { [type]: event.target.checked } })} />{type === 'vertex' ? 'Vertex' : type === 'midpoint' ? 'Midpoint' : 'Grid'}</label>)}
         <small>Допуск 10 px · скрытые слои исключены</small>
       </div></details>
+      <label>Сетка <input className="snap-step-input" aria-label="Шаг привязки сетки" type="number" min="0.000001" step="any" list="snap-steps" value={state.snapOptions.gridStep ?? 1} onChange={event => { const gridStep = Number(event.target.value); if (gridStep > 0 && Number.isFinite(gridStep)) dispatch({ type: 'snap-options', patch: { gridStep } }); }} /> м</label><datalist id="snap-steps">{[0.1, 0.25, 0.5, 1, 2, 5, 10, 20].map(step => <option key={step} value={step} />)}</datalist>
+      <button className={`tool-button compact ${state.ortho ? 'active' : ''}`} aria-label="Ортогональный режим" aria-pressed={state.ortho} title="ORTHO · F8" onClick={() => dispatch({ type: 'toggle-ortho' })}>ORTHO {state.ortho ? 'ON' : 'OFF'}</button>
       <label>Подписи точек <select aria-label="Подписи точек" value={state.pointLabelMode} onChange={event => dispatch({ type: 'point-labels', mode: event.target.value as PointLabelMode })}><option value="name">Имя</option><option value="name-z">Имя + Z</option><option value="z">Только Z</option></select></label>
       <label><input type="checkbox" checked={state.showLineLengths} onChange={() => dispatch({ type: 'toggle-line-lengths' })} />Длины линий</label>
       <span>Shift + клик: выбрать точки по порядку</span>
@@ -178,7 +190,7 @@ export default function App() {
     </div><div className="right-column"><PropertyInspector state={state} dispatch={dispatch} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
     <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>X <b data-testid="cursor-x">{cursorWorld ? formatCoordinate(cursorWorld.x) : '—'}</b></span><span>Y <b data-testid="cursor-y">{cursorWorld ? formatCoordinate(cursorWorld.y) : '—'}</b></span><span>м</span></div>
-      <span className="status-grid">Шаг сетки: {formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
+      <span className="status-grid">Привязка: {state.snapOptions.gridStep ?? 1} м · ORTHO {state.ortho ? 'ON' : 'OFF'}</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
     </footer>
     <input ref={openInput} type="file" accept=".json,application/json" aria-label="Файл GeoDocument" hidden onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;

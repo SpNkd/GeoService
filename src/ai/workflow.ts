@@ -6,7 +6,7 @@ import type { RequestEvent } from './provider';
 import { resolveAiTaskPlan, refreshTask, taskCommands, type ResolvedAiTaskPlan } from './task';
 export type { AiPlan, MutationPlan, ResolvedAiTaskPlan } from './task';
 
-export type AiState = { status: 'idle' } | { status: 'parsing'; id: string; text: string }
+export type AiState = { status: 'needs_clarification'; originalText: string; questions: string[] } | { status: 'idle' } | { status: 'parsing'; id: string; text: string }
   | { status: 'preview' | 'stale'; plan: ResolvedAiTaskPlan; notice: string | null }
   | { status: 'applied'; id: string; results: ResolvedAiTaskPlan | null } | { status: 'error'; message: string };
 export interface ApplicationState { editor: EditorState; ai: AiState }
@@ -35,6 +35,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       if (event.type === 'start') return { ...state, ai: { status: 'parsing', id: event.id, text: event.text } };
       if (state.ai.status !== 'parsing' || state.ai.id !== event.id) return state;
       if (event.type === 'failure') return { ...state, ai: { status: 'error', message: event.message } };
+      if ('status' in event.result && event.result.status === 'needs_clarification') return { ...state, ai: { status: 'needs_clarification', originalText: state.ai.text, questions: event.result.questions } };
       if ('status' in event.result) return { ...state, ai: { status: 'error', message: 'Эта команда пока не поддерживается.' } };
       return { ...state, ai: { status: 'preview', notice: null, plan: resolveAiTaskPlan(event.result,
         state.editor.transactionBefore ?? state.editor.document, new Map(), { id: event.id, text: state.ai.text }) } };

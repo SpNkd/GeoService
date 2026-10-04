@@ -1,3 +1,4 @@
+import type { PointsReady, RectangleReady } from './construction';
 import type { DocumentCommand } from '../domain/commands';
 import { parseCommand } from '../domain/commandSchema';
 import { getVertex, vertexPoint, type GeoDocument, type PointEntity, type WorldPoint } from '../domain/model';
@@ -32,13 +33,14 @@ export type ResolutionIssue = { kind: 'missing'; name: string } | { kind: 'ambig
 export type ResolutionFailure = { status: 'blocked'; dependencyIndex: number; message: string } | { status: 'unresolved'; issues: ResolutionIssue[] } | { status: 'invalid'; message: string };
 export interface References { references: ResolvedReference[]; geometry: WorldPoint[]; warnings: string[] }
 export type ReferenceResolution = ResolutionFailure | ({ status: 'resolved' } & References);
-export interface ResolvedBoundaryOutput { readonly kind: 'created_polygon'; readonly entityId: string;
+export interface ResolvedPolygonOutput { readonly kind: 'created_polygon'; readonly entityId: string;
   readonly vertexIds: readonly string[]; readonly references: readonly ResolvedReference[] }
+export type ResolvedBoundaryOutput = ResolvedPolygonOutput;
 export type BoundaryReady = { status: 'ready'; kind: 'boundary'; perimeter: number; area: number; output: ResolvedBoundaryOutput; targetLayer: 'boundary'; command: DocumentCommand } & References;
 export type PolylineReady = { status: 'ready'; kind: 'polyline'; length: number; segments: number; targetLayer: 'boundary'; command: DocumentCommand } & References;
 export type DimensionReady = { status: 'ready'; kind: 'dimension'; metrics: ReturnType<typeof measurePair>; offset: number; targetLayer: 'dimensions'; command: DocumentCommand } & References;
 export type MeasureReady = { status: 'ready'; kind: 'measure'; metrics: ReturnType<typeof measurePair> } & References;
-export type ReadyResolution = BoundaryReady | PolylineReady | DimensionReady | MeasureReady;
+export type ReadyResolution = BoundaryReady | PolylineReady | DimensionReady | MeasureReady | PointsReady | RectangleReady;
 export type Resolution = ResolutionFailure | ReadyResolution;
 export type BoundaryResolution = ResolutionFailure | BoundaryReady;
 export type ResolverOptions = { entityId?: string; index?: PointNameIndex; offset?: number };
