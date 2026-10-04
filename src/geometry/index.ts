@@ -24,7 +24,7 @@ export function bounds(points: readonly WorldPoint[]): Bounds | null {
   }
   return { minX, minY, maxX, maxY };
 }
-export function polygonArea(vertices: readonly WorldPoint[]): number {
+export function signedPolygonArea(vertices: readonly WorldPoint[]): number {
   const origin = vertices[0];
   if (!origin || vertices.length < 3) return 0;
   // Translate before the shoelace sum to avoid subtracting huge products.
@@ -33,8 +33,14 @@ export function polygonArea(vertices: readonly WorldPoint[]): number {
     const b = vertices[(index + 1) % vertices.length]!;
     sum += (a.x - origin.x) * (b.y - origin.y) - (b.x - origin.x) * (a.y - origin.y);
   });
-  return Math.abs(sum) / 2;
+  return sum / 2;
 }
+export const polygonArea = (vertices: readonly WorldPoint[]) => Math.abs(signedPolygonArea(vertices));
+/** In world XY, positive shoelace area is counterclockwise. */
+export const polygonOrientation = (vertices: readonly WorldPoint[]): 'cw' | 'ccw' | 'degenerate' => {
+  const area = signedPolygonArea(vertices);
+  return area > 0 ? 'ccw' : area < 0 ? 'cw' : 'degenerate';
+};
 export function pathLength(vertices: readonly WorldPoint[], closed = false): number {
   let length = 0;
   for (let i = 1; i < vertices.length; i++) length += distance(vertices[i - 1]!, vertices[i]!);

@@ -15,6 +15,7 @@ import { deserializeDocument, MAX_DOCUMENT_BYTES, serializeDocument } from './pe
 import { applyCommand } from './domain/commands';
 import type { SnapResult } from './snapping';
 import { applicationReducer, type ApplicationState } from './ai/workflow';
+import { taskPreviews } from './ai/task';
 import { AiPanel } from './components/AiPanel';
 import type { PointLabelMode } from './store/editor';
 
@@ -28,7 +29,7 @@ export default function App() {
   const state = application.editor;
   const aiTask = application.ai.status === 'preview' ? application.ai.plan : application.ai.status === 'applied' ? application.ai.results : null;
   const aiPreview = aiTask?.resolution.status === 'ready' && !state.transactionBefore
-    ? aiTask.actions.flatMap(action => action.resolution.status === 'ready' ? [{ id: action.id, result: action.resolution }] : []) : [];
+    ? taskPreviews(aiTask) : [];
   const [notice, setNotice] = useState(startup.notice);
   const [fileError, setFileError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);

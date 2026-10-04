@@ -28,12 +28,13 @@ function assertVertexEditable(document: GeoDocument, vertexId: string) {
     if (!layer || layer.locked) throw new Error(`Вершина принадлежит заблокированному слою «${layer?.name ?? entity.layerId}»`);
   }
 }
-function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity) {
-  if (!entity.id.trim() || document.entities.some(current => current.id === entity.id)) throw new Error('ID объекта пустой или уже используется');
-  const layer = document.layers.find(current => current.id === entity.layerId);
+interface AdditionIndex { ids: Set<string>; layers: Map<string, Layer>; styles: ReadonlySet<string> }
+function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity, index?: AdditionIndex) {
+  if (!entity.id.trim() || (index ? index.ids.has(entity.id) : document.entities.some(current => current.id === entity.id))) throw new Error('ID объекта пустой или уже используется');
+  const layer = index ? index.layers.get(entity.layerId) : document.layers.find(current => current.id === entity.layerId);
   if (!layer) throw new Error('Слой объекта не найден');
   if (layer.locked) throw new Error('Нельзя создать объект в заблокированном слое');
-  if (entity.styleId && !document.styles.some(style => style.id === entity.styleId)) throw new Error('Стиль объекта не найден');
+  if (entity.styleId && !(index ? index.styles.has(entity.styleId) : document.styles.some(style => style.id === entity.styleId))) throw new Error('Стиль объекта не найден');
   const ids = entityVertexIds(entity);
   const minimum = entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
   if (ids.length < minimum) throw new Error(`Для объекта типа «${entity.type}» требуется не менее ${minimum} вершин`);
@@ -43,6 +44,35 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity) {
   if (entity.type === 'text' && (!entity.content.trim() || !Number.isFinite(entity.fontSize) || entity.fontSize <= 0)) throw new Error('Текст должен иметь содержание и положительный размер');
 }
 const referencedVertices = (entities: Entity[]) => new Set(entities.flatMap(entityVertexIds));
+
+
+/** Addition runs allocate/index the document once, rather than once per generated entity. */
+function applyEntityAdditions(document: GeoDocument, commands: readonly Extract<DocumentCommand, { type: 'add-entity' }>[]): GeoDocument {
+  const entities = [...document.entities], layers = [...document.layers];
+  let vertices = document.vertices;
+  const index: AdditionIndex = { ids: new Set(entities.map(entity => entity.id)), layers: new Map(layers.map(layer => [layer.id, layer])), styles: new Set(document.styles.map(style => style.id)) };
+  for (const command of commands) {
+    if (entities.length >= 50000) throw new Error('Документ превышает лимит 50 000 объектов');
+    if (command.layer && layers.length >= 1000) throw new Error('Документ превышает лимит 1000 слоёв');
+    if (command.layer && (command.layer.id !== command.entity.layerId || index.layers.has(command.layer.id))) throw new Error('Неверный или повторяющийся слой нового объекта');
+    if (command.layer && (!index.styles.has(command.layer.styleId) || command.layer.locked)) throw new Error('Новый слой должен иметь существующий стиль и быть доступен для редактирования');
+    const requiredNewIds = new Set(entityVertexIds(command.entity).filter(id => !Object.hasOwn(vertices, id)));
+    const additions = new Map<string, Vertex>();
+    for (const vertex of command.vertices) {
+      if (!vertex.id.trim() || vertices[vertex.id] || additions.has(vertex.id)) throw new Error(`ID вершины ${vertex.id} пустой или уже используется`);
+      if (!finitePoint(vertexPoint(vertex))) throw new Error(`Координаты вершины ${vertex.id} должны быть конечными числами`);
+      additions.set(vertex.id, { ...vertex });
+    }
+    for (const id of requiredNewIds) if (!additions.has(id)) throw new Error(`Для новой вершины ${id} не заданы координаты`);
+    for (const id of additions.keys()) if (!requiredNewIds.has(id)) throw new Error(`Новая вершина ${id} не используется объектом`);
+    if (command.layer) { const layer = { ...command.layer }; layers.push(layer); index.layers.set(layer.id, layer); }
+    if (additions.size) { if (vertices === document.vertices) vertices = { ...vertices }; for (const [id, vertex] of additions) vertices[id] = vertex; }
+    const candidate = { ...document, layers, vertices, entities };
+    assertUniqueDocumentEntity(candidate, command.entity, index);
+    entities.push(cloneEntity(command.entity)); index.ids.add(command.entity.id);
+  }
+  return { ...document, entities, layers: layers.length === document.layers.length ? document.layers : layers, vertices };
+}
 
 export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   const command = parseCommand(raw);
@@ -72,23 +102,7 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
       ...layer, ...(command.type === 'set-layer-visibility' ? { visible: command.visible } : { locked: command.locked }),
     }) };
   }
-  if (command.type === 'add-entity') {
-    if (command.layer && (command.layer.id !== command.entity.layerId || document.layers.some(layer => layer.id === command.layer!.id))) throw new Error('Неверный или повторяющийся слой нового объекта');
-    if (command.layer && (!document.styles.some(style => style.id === command.layer!.styleId) || command.layer.locked)) throw new Error('Новый слой должен иметь существующий стиль и быть доступен для редактирования');
-    const requiredNewIds = new Set(entityVertexIds(command.entity).filter(id => !Object.hasOwn(document.vertices, id)));
-    const additions = new Map<string, Vertex>();
-    for (const vertex of command.vertices) {
-      if (!vertex.id.trim() || document.vertices[vertex.id] || additions.has(vertex.id)) throw new Error(`ID вершины ${vertex.id} пустой или уже используется`);
-      if (!finitePoint(vertexPoint(vertex))) throw new Error(`Координаты вершины ${vertex.id} должны быть конечными числами`);
-      additions.set(vertex.id, { ...vertex });
-    }
-    for (const id of requiredNewIds) if (!additions.has(id)) throw new Error(`Для новой вершины ${id} не заданы координаты`);
-    for (const id of additions.keys()) if (!requiredNewIds.has(id)) throw new Error(`Новая вершина ${id} не используется объектом`);
-    const candidate = { ...document, layers: command.layer ? [...document.layers, { ...command.layer }] : document.layers,
-      vertices: { ...document.vertices, ...Object.fromEntries(additions) } };
-    assertUniqueDocumentEntity(candidate, command.entity);
-    return { ...candidate, entities: [...document.entities, cloneEntity(command.entity)] };
-  }
+  if (command.type === 'add-entity') return applyEntityAdditions(document, [command]);
   if (command.type === 'delete-entity') {
     const entity = document.entities.find(item => item.id === command.entityId);
     if (!entity) throw new Error('Объект не найден');
@@ -157,7 +171,12 @@ export function applyCommandsAtomically(document: GeoDocument, commands: readonl
   if (commands.length > 1000) throw new Error('Слишком большой пакет команд');
   const validated = commands.map(parseCommand);
   let candidate = document;
-  for (const command of validated) candidate = applyCommand(candidate, command);
+  for (let index = 0; index < validated.length;) {
+    const additions: Extract<DocumentCommand, { type: 'add-entity' }>[] = [];
+    while (validated[index]?.type === 'add-entity') additions.push(validated[index++]! as Extract<DocumentCommand, { type: 'add-entity' }>);
+    if (additions.length) candidate = applyEntityAdditions(candidate, additions);
+    else candidate = applyCommand(candidate, validated[index++]!);
+  }
   validateDocument(candidate);
   encodeDocument(candidate);
   return candidate;

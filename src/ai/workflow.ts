@@ -1,9 +1,9 @@
 import type { GeoDocument } from '../domain/model';
 import { parseCommand } from '../domain/commandSchema';
 import { editorReducer, type EditorAction, type EditorState } from '../store/editor';
-import { aiTaskSchema } from './intent';
+import { AI_LIMITS, aiTaskSchema } from './intent';
 import type { RequestEvent } from './provider';
-import { resolveAiTaskPlan, refreshTask, type ResolvedAiTaskPlan } from './task';
+import { resolveAiTaskPlan, refreshTask, taskCommands, type ResolvedAiTaskPlan } from './task';
 export type { AiPlan, MutationPlan, ResolvedAiTaskPlan } from './task';
 
 export type AiState = { status: 'idle' } | { status: 'parsing'; id: string; text: string }
@@ -22,9 +22,9 @@ export function mutationExecutionGate(plan: ResolvedAiTaskPlan, editor: EditorSt
   if (!aiTaskSchema.safeParse(plan.task).success || plan.resolution.status !== 'ready' || !plan.mutationCount
     || plan.actions.length !== plan.task.actions.length || plan.actions.some(action => action.resolution.status !== 'ready'))
     return { status: 'blocked', message: 'Сначала разрешите все точки и ошибки плана.' };
-  const commands = plan.actions.flatMap(action => action.requiresConfirmation && action.resolution.status === 'ready'
-    ? [parseCommand(action.resolution.command)] : []);
-  if (commands.length !== plan.mutationCount) return { status: 'blocked', message: 'Неверный пакет команд' };
+  const commands = taskCommands(plan).map(parseCommand);
+  if (commands.length !== plan.generatedCommandCount || commands.length > AI_LIMITS.generatedCommands || !plan.projectedDocument)
+    return { status: 'blocked', message: 'Неверный пакет команд' };
   return { status: 'execute', commands, expectedDocument: editor.document };
 }
 export function applicationReducer(state: ApplicationState, action: ApplicationAction): ApplicationState {

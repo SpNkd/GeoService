@@ -124,7 +124,7 @@ it('per-action dimension offsets and Cancel preserve the editor; whole-task stal
   expect(ready(refreshed, 1)).toMatchObject({ metrics: { horizontal: 65 }, offset: 6.5 }); expect(ready(refreshed, 2)).toMatchObject({ offset: -2.5 });
   expect(applicationReducer(refreshed, { type: 'ai-apply' }).editor.past).toHaveLength(2);
 });
-it.each(['Создай границу P1 P2 P3 и удали P4', 'Построй границу P1 P2 P3 и проставь размеры всех сторон', 'Измерь P1-P2 и экспортируй PDF', 'Поставь размер P1-P2 и сделай его красным'])('unsupported whole request: %s', async text => {
+it.each(['Создай границу P1 P2 P3 и удали P4', 'Построй границу P1 P2 P3 и проставь размеры всех сторон и удали P4', 'Измерь P1-P2 и экспортируй PDF', 'Поставь размер P1-P2 и сделай его красным'])('unsupported whole request: %s', async text => {
   const provider = developmentMockProvider(); expect(await provider.parseIntent({ text, signal: new AbortController().signal })).toEqual({ status: 'unsupported' });
   const state = preview([boundary]); const started = applicationReducer(state, { type: 'ai-event', event: { type: 'start', id: 'unsupported', text } });
   const blocked = applicationReducer(started, { type: 'ai-event', event: { type: 'result', id: 'unsupported', result: { status: 'unsupported' } } });

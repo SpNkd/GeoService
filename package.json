@@ -14,7 +14,8 @@
     "bench:audit": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts",
     "bench:render": "node benchmarks/render.mjs",
     "dev:mock": "AI_PROVIDER=mock vite --host 127.0.0.1",
-    "bench:ai": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/ai.audit.ts"
+    "bench:ai": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/ai.audit.ts",
+    "bench:ai-dependent": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/ai-dependent.audit.ts"
   },
   "description": "Deterministic geodetic drawing editor prototype",
   "dependencies": {

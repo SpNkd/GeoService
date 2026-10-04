@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const AI_LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 96 * 1024, upstreamBytes: 256 * 1024,
-  actions: 8, totalReferences: 1000, pointNames: 500, nameLength: 128, timeoutMs: 30000 });
+  actions: 8, totalReferences: 1000, generatedCommands: 128, bulkDimensions: 100, pointNames: 500, nameLength: 128, timeoutMs: 30000 });
 export const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
 export const aiRequestSchema = z.strictObject({ text: z.string().trim().min(1).max(AI_LIMITS.requestBytes)
   .refine(text => utf8Bytes(text) <= AI_LIMITS.requestBytes, 'Запрос превышает лимит 8 КБ') });
@@ -14,11 +14,21 @@ export const createDimensionIntentSchema = z.strictObject({ type: z.literal('cre
 export const measureIntentSchema = z.strictObject({ type: z.literal('measure_between_named_points'), pointNames: z.array(names).length(2) });
 export const aiIntentSchema = z.discriminatedUnion('type', [createBoundaryIntentSchema, createPolylineIntentSchema, createDimensionIntentSchema, measureIntentSchema]);
 export type AiIntent = z.infer<typeof aiIntentSchema>;
+export const bulkDimensionsIntentSchema = z.strictObject({ type: z.literal('create_dimensions_for_boundary_edges'),
+  boundaryActionIndex: z.number().int().min(0).max(AI_LIMITS.actions - 1) });
+export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema]);
+export type AiAction = z.infer<typeof aiActionSchema>;
+export const requestedPointNames = (action: AiAction): readonly string[] => 'pointNames' in action ? action.pointNames : [];
 export const unsupportedSchema = z.strictObject({ status: z.literal('unsupported') });
-export const aiTaskSchema = z.strictObject({ actions: z.array(aiIntentSchema).min(1).max(AI_LIMITS.actions) })
+export const aiTaskSchema = z.strictObject({ actions: z.array(aiActionSchema).min(1).max(AI_LIMITS.actions) })
   .superRefine((task, ctx) => {
-    if (task.actions.reduce((sum, action) => sum + action.pointNames.length, 0) > AI_LIMITS.totalReferences)
+    if (task.actions.reduce((sum, action) => sum + requestedPointNames(action).length, 0) > AI_LIMITS.totalReferences)
       ctx.addIssue({ code: 'custom', message: 'Task превышает лимит ссылок' });
+    task.actions.forEach((action, index) => {
+      if (action.type === 'create_dimensions_for_boundary_edges' && (action.boundaryActionIndex >= index
+        || task.actions[action.boundaryActionIndex]?.type !== 'create_boundary_from_named_points'))
+        ctx.addIssue({ code: 'custom', path: ['actions', index, 'boundaryActionIndex'], message: 'Размеры сторон требуют ссылку на предыдущую boundary action' });
+    });
     const signatures = task.actions.map(action => JSON.stringify(action));
     if (new Set(signatures).size !== signatures.length) ctx.addIssue({ code: 'custom', message: 'Task содержит одинаковые actions' });
   });
@@ -35,6 +45,7 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
   let cursor = 0;
   const nameCharacter = /[\p{L}\p{N}_-]/u;
   for (const action of parsed.data.actions) {
+    if (!('pointNames' in action)) continue;
     const pairText = action.pointNames.length === 2 ? action.pointNames.join('-') : null;
     for (const name of action.pointNames) {
       let at = text.indexOf(name, cursor);

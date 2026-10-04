@@ -29,10 +29,12 @@ function idsFor(entities: GeoDocument['entities']) {
 }
 export interface ResolvedReference { name: string; entityId: string; vertexId: string; position: WorldPoint; layer: string }
 export type ResolutionIssue = { kind: 'missing'; name: string } | { kind: 'ambiguous'; name: string; candidates: ResolvedReference[] };
-export type ResolutionFailure = { status: 'unresolved'; issues: ResolutionIssue[] } | { status: 'invalid'; message: string };
+export type ResolutionFailure = { status: 'blocked'; dependencyIndex: number; message: string } | { status: 'unresolved'; issues: ResolutionIssue[] } | { status: 'invalid'; message: string };
 export interface References { references: ResolvedReference[]; geometry: WorldPoint[]; warnings: string[] }
 export type ReferenceResolution = ResolutionFailure | ({ status: 'resolved' } & References);
-export type BoundaryReady = { status: 'ready'; kind: 'boundary'; perimeter: number; area: number; targetLayer: 'boundary'; command: DocumentCommand } & References;
+export interface ResolvedBoundaryOutput { readonly kind: 'created_polygon'; readonly entityId: string;
+  readonly vertexIds: readonly string[]; readonly references: readonly ResolvedReference[] }
+export type BoundaryReady = { status: 'ready'; kind: 'boundary'; perimeter: number; area: number; output: ResolvedBoundaryOutput; targetLayer: 'boundary'; command: DocumentCommand } & References;
 export type PolylineReady = { status: 'ready'; kind: 'polyline'; length: number; segments: number; targetLayer: 'boundary'; command: DocumentCommand } & References;
 export type DimensionReady = { status: 'ready'; kind: 'dimension'; metrics: ReturnType<typeof measurePair>; offset: number; targetLayer: 'dimensions'; command: DocumentCommand } & References;
 export type MeasureReady = { status: 'ready'; kind: 'measure'; metrics: ReturnType<typeof measurePair> } & References;
@@ -95,7 +97,10 @@ function boundary(refs: References, document: GeoDocument, options: ResolverOpti
   if (!Number.isFinite(area) || !Number.isFinite(perimeter) || area <= 0) return { status: 'invalid', message: 'Граница имеет нулевую площадь или неконечные метрики' };
   const mutation = mutationCommand(document, 'boundary', refs, options);
   if ('message' in mutation) return { status: 'invalid', message: mutation.message };
-  return { ...refs, ...mutation, status: 'ready', kind: 'boundary', area, perimeter, targetLayer: 'boundary' };
+  if (mutation.command.type !== 'add-entity') throw new Error('Boundary output/command mismatch');
+  const output: ResolvedBoundaryOutput = { kind: 'created_polygon', entityId: mutation.command.entity.id,
+    vertexIds: refs.references.map(ref => ref.vertexId), references: refs.references };
+  return { ...refs, ...mutation, status: 'ready', kind: 'boundary', area, perimeter, output, targetLayer: 'boundary' };
 }
 function polyline(refs: References, document: GeoDocument, options: ResolverOptions): ResolutionFailure | PolylineReady {
   const length = pathLength(refs.geometry);

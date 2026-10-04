@@ -4,9 +4,10 @@ import { AI_LIMITS, readBoundedJson, utf8Bytes } from '../ai/intent';
 import type { AiState, ApplicationAction } from '../ai/workflow';
 import type { ResolvedReference } from '../ai/resolver';
 import { AiPlanMetrics } from './AiPlanMetrics';
+import { formatDistance } from '../geometry/format';
 import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
-const operationLabels = { boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
+const operationLabels = { 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
 const defaultProvider = new HttpAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
 interface Props { ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
@@ -48,7 +49,7 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
       {ai.status === 'applied' && <p className="ai-message">Изменения применены. Undo отменит их одной операцией.</p>}
       {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>
         <strong>AI Plan · {preview.plan.actions.length} actions</strong><p className="ai-request-summary">{preview.plan.text}</p>
-        <p>Changes: {preview.plan.mutationCount} · Measurements: {preview.plan.readOnlyCount}</p>
+        <p>Changes: {preview.plan.generatedCommandCount} · Measurements: {preview.plan.readOnlyCount}</p>
         {preview.notice && <p className="ai-message" role="status">{preview.notice}</p>}
         {resolution?.status === 'invalid' && <p className="ai-error">{resolution.message}</p>}
         {resolution?.status === 'unresolved' && resolution.issues.map(issue => <div key={issue.name} className="ai-issue">
@@ -64,10 +65,12 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
           const result = action.resolution;
           return <div key={action.id} className="ai-action" data-testid="ai-action" data-action-id={action.id}>
             <strong>{index + 1}. Интерпретация: {operationLabels[action.kind]}</strong>
-            <p>{action.intent.pointNames.join(' → ')}</p>
-            {result.status === 'invalid' && <p className="ai-error">{result.message}</p>}
+            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.intent.pointNames.join(' → ')}</p>
+            {(result.status === 'invalid' || result.status === 'blocked') && <p className="ai-error">{result.message}</p>}
             {result.status === 'ready' && <>
-              <ol className="ai-points">{result.references.map((point, index) => <li key={point.entityId}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>
+              {result.kind === 'bulk-dimensions' ? <ol className="ai-points" data-testid="ai-edge-list">{result.dimensions.map((edge, index) =>
+                <li key={index}>{edge.references[0]!.name} → {edge.references[1]!.name}: {formatDistance(edge.metrics.horizontal)}</li>)}</ol>
+                : <ol className="ai-points">{result.references.map((point, index) => <li key={point.entityId}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>}
               <dl className="ai-metrics"><AiPlanMetrics result={result} /></dl>
               {result.warnings.map(warning => <p key={warning} className="ai-message">{warning}</p>)}
             </>}
@@ -79,7 +82,7 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
         })}
         {transactionActive && preview.plan.requiresConfirmation && <p className="ai-message">Завершите редактирование координат перед Apply.</p>}
         <div className="ai-actions">{preview.plan.requiresConfirmation ? <button className="primary-button" type="button" disabled={ai.status !== 'preview' || resolution?.status !== 'ready' || transactionActive}
-          onClick={() => dispatch({ type: 'ai-apply' })}>{preview.plan.mutationCount === 1 ? 'Apply' : `Apply ${preview.plan.mutationCount} changes`}</button> : <button type="button" className="tool-button compact" onClick={cancel}>Clear</button>}
+          onClick={() => dispatch({ type: 'ai-apply' })}>{preview.plan.generatedCommandCount <= 1 ? 'Apply' : `Apply ${preview.plan.generatedCommandCount} changes`}</button> : <button type="button" className="tool-button compact" onClick={cancel}>Clear</button>}
           {ai.status === 'stale' && <button type="button" className="tool-button compact" disabled={transactionActive} onClick={() => dispatch({ type: 'ai-refresh' })}>Пересчитать план</button>}
         </div>
       </div>}

@@ -1,3 +1,4 @@
+import type { BulkDimensionsReady } from '../ai/dependent';
 import type { ReadyResolution } from '../ai/resolver';
 import { formatAzimuth, formatDistance, formatMeasure } from '../geometry/format';
 
@@ -17,8 +18,9 @@ function MeasureMetrics({ result }: { result: Extract<ReadyResolution, { kind: '
     <dt>ΔY</dt><dd>{formatDistance(m.delta.y)}</dd><dt>Azimuth</dt><dd>{formatAzimuth(m.azimuth)}</dd>
     {m.delta.z !== undefined && <><dt>ΔZ</dt><dd>{formatDistance(m.delta.z)}</dd><dt>3D distance</dt><dd>{formatDistance(m.spatial!)}</dd></>}</>;
 }
-export function AiPlanMetrics({ result }: { result: ReadyResolution }) {
+export function AiPlanMetrics({ result }: { result: ReadyResolution | BulkDimensionsReady }) {
   switch (result.kind) {
+    case 'bulk-dimensions': return <><dt>Dimensions</dt><dd>{result.dimensions.length}</dd><dt>Total edges</dt><dd>{result.references.length}</dd><dt>Offset</dt><dd>Auto · наружу</dd></>;
     case 'boundary': return <BoundaryMetrics result={result} />;
     case 'polyline': return <PolylineMetrics result={result} />;
     case 'dimension': return <DimensionMetrics result={result} />;
