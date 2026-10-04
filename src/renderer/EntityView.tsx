@@ -5,6 +5,7 @@ import { worldToScreen, type ViewSize } from '../geometry';
 import { formatHeight, formatDistance } from '../geometry/format';
 import { lockedVertexIds } from '../domain/commands';
 import { distance } from '../geometry';
+import { resolvedLabelPosition, resolveLabelTemplate } from '../geometry/labels';
 import type { PointLabelMode } from '../store/editor';
 import { GeometryPath } from './PreviewPrimitives';
 import { DimensionView } from './DimensionView';
@@ -64,8 +65,19 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
     case 'text': {
       const p = screen[0]!;
       shape = <>
-        {selected && <rect x={p.x - 4} y={p.y - entity.fontSize - 3} width={entity.content.length * entity.fontSize * 0.66 + 8} height={entity.fontSize + 10} fill="#277ec110" stroke={selectionColor} strokeDasharray="3 3" pointerEvents="none" />}
+        <rect x={p.x - 7} y={p.y - entity.fontSize - 7} width={Math.max(28, entity.content.length * entity.fontSize * 0.66 + 14)} height={entity.fontSize + 14} fill={selected ? '#277ec110' : 'transparent'} stroke={selected ? selectionColor : 'transparent'} strokeDasharray="3 3" pointerEvents="all" />
         <text x={p.x} y={p.y} fill={stroke} fontSize={entity.fontSize} className="annotation-label" pointerEvents="none">{entity.content}</text>
+      </>;
+      break;
+    }
+    case 'label': {
+      const position = resolvedLabelPosition(document, entity);
+      const p = position && worldToScreen(position, viewport, size), content = resolveLabelTemplate(document, entity);
+      if (!p) { shape = null; break; }
+      const width = Math.max(32, content.length * 7.4 + 16);
+      shape = <>
+        <rect x={p.x - 6} y={p.y - 17} width={width} height={24} rx={3} fill={selected ? '#277ec120' : 'transparent'} stroke={selected ? selectionColor : 'transparent'} strokeDasharray="3 3" pointerEvents="all" />
+        <text x={p.x} y={p.y} fill={stroke} className="annotation-label" pointerEvents="none">{content}</text>
       </>;
       break;
     }
@@ -73,7 +85,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   }
   return <g data-entity-id={entity.id} data-entity-type={entity.type} data-selected={selected} data-vertex-id={entity.type === 'point' ? entity.vertexId : undefined}
     className={layer.locked ? 'entity locked' : 'entity'} aria-label={entity.name}>
-    <title>{entity.name}{layer.locked ? ' · заблокирован, только просмотр' : ''}</title>{shape}
+    <title>{`${entity.name}${layer.locked ? ' · заблокирован, только просмотр' : ''}`}</title>{shape}
   </g>;
 }, (previous, next) => {
   if (previous.item.entity !== next.item.entity || previous.item.layer !== next.item.layer || previous.item.style !== next.item.style
@@ -81,5 +93,12 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
     || previous.pointLabelMode !== next.pointLabelMode || previous.showLineLengths !== next.showLineLengths) return false;
   // Handle availability depends on every consumer's layer, not just this entity.
   if (previous.document.entities !== next.document.entities || previous.document.layers !== next.document.layers) return false;
-  return entityVertexIds(next.item.entity).every(id => previous.document.vertices[id] === next.document.vertices[id]);
+  if (!entityVertexIds(next.item.entity).every(id => previous.document.vertices[id] === next.document.vertices[id])) return false;
+  if (next.item.entity.type === 'label') {
+    const targetId = next.item.entity.targetId;
+    const beforeTarget = previous.document.entities.find(entity => entity.id === targetId);
+    const afterTarget = next.document.entities.find(entity => entity.id === targetId);
+    return beforeTarget === afterTarget && (!afterTarget || entityVertexIds(afterTarget).every(id => previous.document.vertices[id] === next.document.vertices[id]));
+  }
+  return true;
 });

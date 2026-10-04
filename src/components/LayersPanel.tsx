@@ -4,20 +4,19 @@ import { Icon } from './Icon';
 
 export const LayersPanel = memo(function LayersPanel({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const { document } = state;
-  const selected = document.entities.find(entity => entity.id === state.selectionId);
   return <aside className="left-panel" aria-label="Слои документа">
     <div className="panel-heading"><Icon name="layers" size={16} /><h2>Слои</h2><span className="badge">{document.layers.length}</span></div>
     <div className="layer-list">
       {[...document.layers].sort((a, b) => a.order - b.order).map(layer => {
         const count = document.entities.filter(entity => entity.layerId === layer.id).length;
         const color = document.styles.find(style => style.id === layer.styleId)?.stroke;
-        return <div key={layer.id} className={`layer-row ${!layer.visible ? 'hidden-layer' : ''} ${selected?.layerId === layer.id ? 'active-layer' : ''}`}>
+        return <div key={layer.id} className={`layer-row ${!layer.visible ? 'hidden-layer' : ''} ${state.selectedLayerId === layer.id ? 'active-layer' : ''}`}>
           <span className="layer-color" style={{ background: color }} />
-          <div className="layer-name"><span>{layer.name}</span><small>{count} объектов{layer.locked ? ' · заблокирован' : ''}</small></div>
+          <button type="button" className="layer-name" aria-label={`Выбрать слой ${layer.name}`} aria-pressed={state.selectedLayerId === layer.id} onClick={() => dispatch({ type: 'select-layer', layerId: layer.id })}><span>{layer.name}</span><small>{count} объектов{layer.locked ? ' · заблокирован' : ''}</small></button>
           <button className="icon-button small" aria-label={`${layer.visible ? 'Скрыть' : 'Показать'} слой ${layer.name}`} title={layer.visible ? 'Скрыть слой' : 'Показать слой'}
-          aria-pressed={layer.visible} onClick={() => dispatch({ type: 'execute', command: { type: 'set-layer-visibility', layerId: layer.id, visible: !layer.visible } })}><Icon name={layer.visible ? 'eye' : 'eye-off'} size={16} /></button>
+          aria-pressed={layer.visible} onClick={event => { event.stopPropagation(); dispatch({ type: 'execute', command: { type: 'set-layer-visibility', layerId: layer.id, visible: !layer.visible } }); }}><Icon name={layer.visible ? 'eye' : 'eye-off'} size={16} /></button>
           <button className="icon-button small" aria-label={`${layer.locked ? 'Разблокировать' : 'Заблокировать'} слой ${layer.name}`} title={layer.locked ? 'Разблокировать слой' : 'Заблокировать слой'}
-            aria-pressed={layer.locked} onClick={() => dispatch({ type: 'execute', command: { type: 'set-layer-lock', layerId: layer.id, locked: !layer.locked } })}><Icon name={layer.locked ? 'lock' : 'unlock'} size={15} /></button>
+            aria-pressed={layer.locked} onClick={event => { event.stopPropagation(); dispatch({ type: 'execute', command: { type: 'set-layer-lock', layerId: layer.id, locked: !layer.locked } }); }}><Icon name={layer.locked ? 'lock' : 'unlock'} size={15} /></button>
         </div>;
       })}
     </div>

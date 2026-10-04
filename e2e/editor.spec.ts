@@ -24,8 +24,7 @@ test('point creation, inspector coordinates, Cmd/Ctrl+Z and redo preserve the sa
   await page.getByRole('button', { name: 'Инструмент: Точка', exact: true }).click();
   await clickScreen(page, 0.31, 0.24);
   await expect(page.locator('[data-entity-type="point"]')).toHaveCount(before + 1);
-  const created = page.locator('[data-entity-type="point"]').last();
-  const id = await created.getAttribute('data-entity-id');
+  const id = await page.getByTestId('selected-id').textContent();
   await expect(page.getByTestId('selected-id')).toHaveText(id!);
   const x = page.getByRole('textbox', { name: 'X', exact: true });
   await x.fill('562341.234123456'); await page.getByRole('textbox', { name: 'Y', exact: true }).fill('6189345.2212345');

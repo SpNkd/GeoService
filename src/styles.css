@@ -42,7 +42,10 @@ h2, h3, p { margin: 0; }
 .subtle { color: #91a0aa; font-size: 10px; margin-left: auto; }
 .layer-list { padding: 10px 6px 17px; }
 .layer-row { display: flex; align-items: center; gap: 8px; min-height: 57px; padding: 6px 9px; border-radius: 5px; }
-.layer-row.active-layer { background: #f0f6f3; }
+.layer-row:hover { background: #f5f8f9; }
+.layer-row.active-layer { background: #eaf3ef; box-shadow: inset 2px 0 #438b73; }
+.layer-name { cursor: pointer; text-align: left; border: 0; padding: 0; background: transparent; color: inherit; }
+.layer-name:focus-visible { outline: 2px solid #438b73; outline-offset: 2px; }
 .layer-row.hidden-layer .layer-name, .hidden-layer .layer-color { opacity: .4; }
 .layer-color { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .layer-name { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 6px; }
@@ -115,6 +118,13 @@ h2, h3, p { margin: 0; }
 .text-entry input { height: 31px; padding: 5px 8px; border: 1px solid #dbe4e9; border-radius: 3px; color: #3d5562; font-size: 11px; }
 .text-entry button { height: 31px; padding: 0 9px; border: 1px solid #dbe4e9; border-radius: 3px; background: #fff; color: #637984; font-size: 10px; }
 .text-entry button[type="submit"] { background: #eef5f2; color: #347560; border-color: #d6e8df; }
+.coordinate-field textarea { width: 100%; min-height: 62px; border: 1px solid #dde5ea; border-radius: 4px; padding: 8px; resize: vertical; font: inherit; color: #3e5a6b; }
+.shortcuts-dialog { width: min(520px, 100%); max-height: min(80vh, 760px); overflow: auto; padding: 24px 28px; border: 1px solid #d5e0e5; border-radius: 8px; background: #fff; box-shadow: 0 18px 60px #10293835; }
+.shortcuts-dialog h2 { margin: 0 0 16px; color: #314f5e; font-size: 18px; }
+.shortcuts-dialog h3 { margin: 14px 0 6px; color: #64808d; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+.shortcuts-dialog dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 18px; margin: 0; font-size: 12px; }
+.shortcuts-dialog dd { margin: 0; color: #375d6c; font-family: ui-monospace, monospace; }
+.shortcuts-dialog button { margin-top: 18px; }
 .coordinate-field > div { display: flex; align-items: center; width: 100%; background: #fbfcfd; border: 1px solid #dde5ea; border-radius: 4px; }
 .coordinate-field input { width: 100%; min-width: 0; border: 0; background: transparent; outline: none; padding: 9px 10px; font-size: 12px; color: #3e5a6b; }
 .coordinate-field > div:focus-within { border-color: #3f927b; box-shadow: 0 0 0 2px #3f927b10; }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { fitToBounds, gridStep, screenToWorld, type ScreenPoint, type ViewSize } from './geometry';
 import { formatCoordinate, formatMeasure } from './geometry/format';
 import { visibleBounds } from './renderer/selectors';
@@ -18,6 +18,7 @@ import { applicationReducer, type ApplicationState } from './ai/workflow';
 import { taskPreviews } from './ai/task';
 import { AiPanel } from './components/AiPanel';
 import type { PointLabelMode } from './store/editor';
+import { resolveShortcut, shortcutNeedsWait, shortcutRegistry, shortcutMatchesPrefix } from './editor/shortcuts';
 
 export default function App() {
   const [startup] = useState(() => {
@@ -35,6 +36,10 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [snapStatus, setSnapStatus] = useState<SnapResult | null>(null);
   const [measurementStatus, setMeasurementStatus] = useState<string | null>(null);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [sequenceHint, setSequenceHint] = useState('');
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const keyBuffer = useRef<string[]>([]), sequenceTimer = useRef<number | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const committed = state.transactionBefore ?? state.document;
   const committedDirty = useMemo(() => isDocumentDirty({ document: committed, savedFingerprint: state.savedFingerprint }), [committed, state.savedFingerprint]);
@@ -54,11 +59,11 @@ export default function App() {
       if (viewport) { dispatch({ type: 'viewport', viewport }); fitted.current = true; }
     }
   }, [committed]);
-  const fit = () => {
+  const fit = useCallback(() => {
     const viewport = fitToBounds(visibleBounds(state.document), size, 85);
     if (viewport) dispatch({ type: 'viewport', viewport });
-  };
-  const save = () => {
+  }, [dispatch, size, state.document]);
+  const save = useCallback(() => {
     try {
       const text = serializeDocument(state.document);
       const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -67,7 +72,66 @@ export default function App() {
       link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       dispatch({ type: 'mark-saved' }); setFileError(null); setNotice('JSON сохранён.');
     } catch (error) { setFileError(error instanceof Error ? error.message : 'Не удалось сохранить JSON'); }
-  };
+  }, [dispatch, state.document]);
+  const startNew = useCallback(() => {
+    if (dirty && !window.confirm('Создать новую схему? Изменения текущего документа не сохранены в JSON.')) return;
+    dispatch({ type: 'replace-document', document: createNewDocument(), size }); setFileError(null); setNotice('Создана пустая схема.');
+  }, [dirty, dispatch, size]);
+  const runShortcut = useCallback((id: string) => {
+    switch (id) {
+      case 'select': case 'line': case 'point': case 'polyline': case 'polygon': case 'text': case 'dimension': case 'measure':
+        dispatch({ type: 'tool', tool: id }); break;
+      case 'fit': case 'fit-extents': fit(); break;
+      case 'save': save(); break;
+      case 'open': openInput.current?.click(); break;
+      case 'new': startNew(); break;
+      case 'undo': dispatch({ type: 'undo' }); break;
+      case 'redo': case 'redo-y': dispatch({ type: 'redo' }); break;
+      case 'delete': {
+        const ids = state.selectedEntityIds.length ? state.selectedEntityIds : state.selectionId ? [state.selectionId] : [];
+        const selected = new Set(ids);
+        const deletions = state.document.entities.filter(entity => selected.has(entity.id) && !(entity.type === 'label' && selected.has(entity.targetId))).map(entity => ({ type: 'delete-entity' as const, entityId: entity.id }));
+        if (deletions.length) { dispatch({ type: 'execute-batch', commands: deletions }); dispatch({ type: 'select', entityId: null }); }
+        break;
+      }
+      case 'cancel': window.dispatchEvent(new Event('geoservice:escape')); dispatch({ type: 'tool', tool: 'select' }); dispatch({ type: 'select', entityId: null }); break;
+      case 'help': setShortcutsOpen(true); break;
+    }
+  }, [dispatch, fit, save, startNew, state]);
+  useEffect(() => {
+    const clearSequence = () => { keyBuffer.current = []; setSequenceHint(''); if (sequenceTimer.current !== null) window.clearTimeout(sequenceTimer.current); sequenceTimer.current = null; };
+    const executeBuffer = () => { const match = resolveShortcut(keyBuffer.current); clearSequence(); if (match) runShortcut(match.id); };
+    const suppressed = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"], [data-shortcut-suppressed]'));
+    const keydown = (event: KeyboardEvent) => {
+      if (event.code === 'Space' && !suppressed(event.target) && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); setSpaceHeld(true); return; }
+      if (event.metaKey || event.ctrlKey) {
+        clearSequence(); const key = event.key.toLowerCase();
+        if (key === 's' || key === 'o' || key === 'n' || key === 'z' || key === 'y') {
+          event.preventDefault(); runShortcut(key === 's' ? 'save' : key === 'o' ? 'open' : key === 'n' ? 'new' : key === 'y' ? 'redo-y' : event.shiftKey ? 'redo' : 'undo');
+        }
+        return;
+      }
+      if (suppressed(event.target)) { clearSequence(); return; }
+      if (event.altKey || event.repeat) return;
+      if (event.key === 'Escape') { clearSequence(); if (shortcutsOpen) setShortcutsOpen(false); else runShortcut('cancel'); event.preventDefault(); return; }
+      if (event.key === 'Delete' || event.key === 'Backspace') { clearSequence(); event.preventDefault(); runShortcut('delete'); return; }
+      const key = event.key === '?' ? '?' : /^[a-z]$/i.test(event.key) && !event.shiftKey ? event.key.toUpperCase() : null;
+      if (!key) return;
+      const candidate = [...keyBuffer.current, key];
+      if (!shortcutMatchesPrefix(candidate)) {
+        const fallback = resolveShortcut(keyBuffer.current); clearSequence(); if (fallback) runShortcut(fallback.id);
+        const fresh = [key]; if (shortcutMatchesPrefix(fresh)) { keyBuffer.current = fresh; setSequenceHint(key); sequenceTimer.current = window.setTimeout(executeBuffer, 900); }
+        return;
+      }
+      keyBuffer.current = candidate; setSequenceHint(candidate.join(''));
+      if (sequenceTimer.current !== null) window.clearTimeout(sequenceTimer.current);
+      if (shortcutNeedsWait(candidate)) sequenceTimer.current = window.setTimeout(executeBuffer, 900); else executeBuffer();
+    };
+    const keyup = (event: KeyboardEvent) => { if (event.code === 'Space') setSpaceHeld(false); };
+    const blur = () => { setSpaceHeld(false); clearSequence(); };
+    window.addEventListener('keydown', keydown); window.addEventListener('keyup', keyup); window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup); window.removeEventListener('blur', blur); clearSequence(); };
+  }, [state, shortcutsOpen, dirty, size, runShortcut]);
   const zoom = (factor: number) => dispatch({ type: 'zoom', size, anchor: { x: size.width / 2, y: size.height / 2 }, factor });
   const step = gridStep(state.viewport.pixelsPerUnit);
   const selected = state.document.entities.find(entity => entity.id === state.selectionId);
@@ -78,24 +142,24 @@ export default function App() {
     </header>
     <nav className="toolbar" aria-label="Инструменты редактора">
       <div className="tool-group document-tools">
-        <button className="tool-button compact" aria-label="Новый документ" onClick={() => {
-          if (dirty && !window.confirm('Создать новую схему? Изменения текущего документа не сохранены в JSON.')) return;
-          dispatch({ type: 'replace-document', document: createNewDocument(), size }); setFileError(null); setNotice('Создана пустая схема.');
-        }}>New</button>
-        <button className="tool-button compact" aria-label="Открыть JSON" onClick={() => openInput.current?.click()}>Open</button>
-        <button className="tool-button compact" aria-label="Сохранить JSON" onClick={save}>Save</button>
+        <button className="tool-button compact" aria-label="Новый документ" title="Новый документ · Ctrl/Cmd+N" onClick={startNew}>New</button>
+        <button className="tool-button compact" aria-label="Открыть JSON" title="Открыть JSON · Ctrl/Cmd+O" onClick={() => openInput.current?.click()}>Open</button>
+        <button className="tool-button compact" aria-label="Сохранить JSON" title="Сохранить JSON · Ctrl/Cmd+S" onClick={save}>Save</button>
         <button className="tool-button compact import-button" aria-label="Импорт координат" onClick={() => { dispatch({ type: 'tool', tool: 'select' }); setImportOpen(true); }}>Import</button>
       </div><div className="toolbar-divider" />
       <div className="tool-group">
-        {([['select', 'cursor', 'Выбор'], ['point', 'point', 'Точка'], ['line', 'line', 'Линия'], ['polyline', 'line', 'Полилиния'], ['polygon', 'polygon', 'Полигон'], ['text', 'text', 'Текст'], ['dimension', 'dimension', 'Размер'], ['measure', 'measure', 'Измерение'], ['pan', 'hand', 'Панорама']] as const).map(([tool, icon, label]) =>
-          <button key={tool} className={`tool-button compact ${state.tool === tool ? 'active' : ''}`} aria-label={`Инструмент: ${label}`} aria-pressed={state.tool === tool} title={`${label} · ${tool === 'point' ? 'один клик' : tool === 'line' ? 'два клика' : tool === 'polyline' || tool === 'polygon' ? 'Enter завершает' : 'Выбрать объект'}`} onClick={() => dispatch({ type: 'tool', tool })}><Icon name={icon} size={16} />{label}</button>)
-        }
+        {([['select', 'cursor', 'Выбор'], ['point', 'point', 'Точка'], ['line', 'line', 'Линия'], ['polyline', 'line', 'Полилиния'], ['polygon', 'polygon', 'Полигон'], ['text', 'text', 'Текст'], ['dimension', 'dimension', 'Размер'], ['measure', 'measure', 'Измерение'], ['pan', 'hand', 'Панорама']] as const).map(([tool, icon, label]) => {
+          const shortcutId = tool;
+          const shortcut = shortcutRegistry.find(entry => entry.id === shortcutId)?.label;
+          return <button key={tool} className={`tool-button compact ${state.tool === tool ? 'active' : ''}`} aria-label={`Инструмент: ${label}`} aria-pressed={state.tool === tool} title={`${label}${shortcut ? ` · ${shortcut}` : ''}`} onClick={() => dispatch({ type: 'tool', tool })}><Icon name={icon} size={16} />{label}</button>;
+        })}
       </div><div className="toolbar-divider" />
       <button className="tool-button compact" aria-label="Отменить" title="Отменить · ⌘/Ctrl+Z" disabled={!state.past.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'undo' })}><Icon name="undo" size={16} />Undo</button>
       <button className="tool-button compact" aria-label="Повторить" title="Повторить · ⌘/Ctrl+Shift+Z" disabled={!state.future.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'redo' })}><Icon name="redo" size={16} />Redo</button>
-      <div className="toolbar-divider" /><button className="tool-button compact" onClick={fit}><Icon name="fit" size={16} />Вписать</button>
+      <div className="toolbar-divider" /><button className="tool-button compact" title="Вписать · F / ZE" onClick={fit}><Icon name="fit" size={16} />Вписать</button>
+      <button className="icon-button" aria-label="Горячие клавиши" title="Горячие клавиши · ?" onClick={() => setShortcutsOpen(true)}>?</button>
       <button className={`icon-button ${state.gridVisible ? 'grid-active' : ''}`} aria-label="Сетка" aria-pressed={state.gridVisible} onClick={() => dispatch({ type: 'toggle-grid' })}><Icon name="grid" size={16} /></button>
-      <span className="toolbar-context">{state.document.coordinateSystem.name ?? 'Система координат'} · м</span>
+      <span className="toolbar-context">Слой: {state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'} · {state.document.coordinateSystem.name ?? 'Система координат'} · м</span>
     </nav>
     <div className="survey-controls" aria-label="Привязки и подписи">
       <button className={`tool-button compact ${state.snapOptions.enabled ? 'active' : ''}`} aria-label="Привязки" aria-pressed={state.snapOptions.enabled} onClick={() => dispatch({ type: 'snap-options', patch: { enabled: !state.snapOptions.enabled } })}>SNAP {state.snapOptions.enabled ? 'ON' : 'OFF'}</button>
@@ -108,11 +172,11 @@ export default function App() {
       <span>Shift + клик: выбрать точки по порядку</span>
     </div>
     <main className="workspace"><LayersPanel state={state} dispatch={dispatch} /><div className="drawing-area">
-      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen} aiPreview={aiPreview} />
+      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} />
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
     </div><div className="right-column"><PropertyInspector state={state} dispatch={dispatch} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
-    <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
+    <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>X <b data-testid="cursor-x">{cursorWorld ? formatCoordinate(cursorWorld.x) : '—'}</b></span><span>Y <b data-testid="cursor-y">{cursorWorld ? formatCoordinate(cursorWorld.y) : '—'}</b></span><span>м</span></div>
       <span className="status-grid">Шаг сетки: {formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
     </footer>
@@ -126,6 +190,7 @@ export default function App() {
       } catch (error) { setFileError(error instanceof Error ? error.message : 'Не удалось прочитать JSON'); }
     }} />
     {(fileError || notice) && <div className={`document-notice ${fileError ? 'error' : ''}`} role={fileError ? 'alert' : 'status'}><span>{fileError ?? notice}</span><button aria-label="Закрыть сообщение" onClick={() => { setFileError(null); setNotice(null); }}>×</button></div>}
+    {shortcutsOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setShortcutsOpen(false); }}><section className="shortcuts-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><h2 id="shortcuts-title">Keyboard shortcuts</h2>{(['Tools', 'Navigation', 'File', 'Edit'] as const).map(group => <div key={group}><h3>{group}</h3><dl>{shortcutRegistry.filter(entry => entry.group === group).map(entry => <Fragment key={entry.id}><dt>{entry.description}</dt><dd>{entry.label}</dd></Fragment>)}</dl></div>)}<button onClick={() => setShortcutsOpen(false)}>Закрыть · Esc</button></section></div>}
     {importOpen && <ImportDialog document={state.document} onClose={() => setImportOpen(false)} onImport={command => {
       // Preflight keeps validation errors in the open import dialog; the reducer owns the actual mutation.
       const candidate = applyCommand(state.document, command);

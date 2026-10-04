@@ -11,8 +11,9 @@ export interface LineEntity extends EntityBase { type: 'line'; startVertexId: st
 export interface PolylineEntity extends EntityBase { type: 'polyline'; vertexIds: [string, string, ...string[]] }
 export interface PolygonEntity extends EntityBase { type: 'polygon'; vertexIds: [string, string, string, ...string[]] }
 export interface TextEntity extends EntityBase { type: 'text'; vertexId: string; content: string; fontSize: number }
+export interface LabelEntity extends EntityBase { type: 'label'; targetId: string; template: string; dx: number; dy: number }
 export interface DimensionEntity extends EntityBase { type: 'dimension'; startVertexId: string; endVertexId: string; offset: number }
-export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | DimensionEntity;
+export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity;
 export interface GeoDocument {
   schemaVersion: 2;
   metadata: { id: string; title: string; description: string };
@@ -28,6 +29,7 @@ export interface GeoDocument {
 export function entityVertexIds(entity: Entity): string[] {
   switch (entity.type) {
     case 'point': case 'text': return [entity.vertexId];
+    case 'label': return [];
     case 'line': case 'dimension': return [entity.startVertexId, entity.endVertexId];
     case 'polyline': case 'polygon': return entity.vertexIds;
   }

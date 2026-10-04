@@ -14,6 +14,7 @@ export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('polyline'), vertexIds: z.tuple([id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('polygon'), vertexIds: z.tuple([id, id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000) }),
+  z.object({ ...base, type: z.literal('label'), targetId: id, template: z.string().max(10000), dx: finiteNumber, dy: finiteNumber }),
 ]);
 
 export const vertexSchema = worldPointSchema.extend({ id });
@@ -55,6 +56,10 @@ export function validateDocument(raw: unknown): GeoDocument {
     if (!layers.has(entity.layerId)) throw new Error(`Entity ${entity.id} references missing layer ${entity.layerId}`);
     if (entity.styleId && !styles.has(entity.styleId)) throw new Error(`Entity ${entity.id} references missing style ${entity.styleId}`);
     for (const id of entityVertexIds(entity)) if (!Object.hasOwn(document.vertices, id)) throw new Error(`Entity ${entity.id} references missing vertex ${id}`);
+    if (entity.type === 'label') {
+      const target = document.entities.find(candidate => candidate.id === entity.targetId);
+      if (!target || !['point', 'line', 'polyline', 'polygon'].includes(target.type)) throw new Error(`Label ${entity.id} references missing or unsupported target ${entity.targetId}`);
+    }
   }
   return document;
 }
