@@ -13,9 +13,15 @@ export function deserializeDocument(text: string): GeoDocument {
   catch { throw new Error('Не удалось открыть JSON: повреждённый синтаксис'); }
   return validateDocument(migrateToCurrent(raw));
 }
+// The same byte budget applies to import and Save. Whitespace must not make a readable file unsaveable.
+export function encodeDocument(document: GeoDocument): string {
+  const pretty = JSON.stringify(document, null, 2);
+  if (new TextEncoder().encode(pretty).length <= MAX_DOCUMENT_BYTES) return pretty;
+  const compact = JSON.stringify(document);
+  assertDocumentSize(compact);
+  return compact;
+}
 export function serializeDocument(document: GeoDocument): string {
-  const text = JSON.stringify(validateDocument(document), null, 2);
-  assertDocumentSize(text);
-  return text;
+  return encodeDocument(validateDocument(document));
 }
 export const documentFingerprint = (document: GeoDocument) => JSON.stringify(document);

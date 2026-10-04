@@ -1,18 +1,23 @@
 import { z } from 'zod';
 import { entityVertexIds, type GeoDocument } from '../domain/model';
 
-const id = z.string().min(1).max(256).refine(value => value === value.trim() && !['__proto__', 'constructor', 'prototype'].includes(value), 'Unsafe or padded ID');
-const number = z.number().finite();
-const point = z.object({ x: number, y: number, z: number.optional() });
+export const id = z.string().min(1).max(256).refine(value => value === value.trim() && !['__proto__', 'constructor', 'prototype'].includes(value), 'Unsafe or padded ID');
+export const finiteNumber = z.number().finite();
+export const worldPointSchema = z.object({ x: finiteNumber, y: finiteNumber, z: finiteNumber.optional() });
+// Literal paint colours only: the layer swatch also uses this value in CSS background.
+const paintColour = z.string().max(100).refine(value => /^(?:[a-z]*|#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})|(?:rgb|hsl)a?\([\d\s.,%+\-/]+\))$/i.test(value.trim()), 'Ожидается цвет без URL, CSS variables или внешних ресурсов');
 const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional() };
-const entity = z.discriminatedUnion('type', [
+export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('point'), vertexId: id }),
   z.object({ ...base, type: z.literal('line'), startVertexId: id, endVertexId: id }),
-  z.object({ ...base, type: z.literal('dimension'), startVertexId: id, endVertexId: id, offset: number }),
+  z.object({ ...base, type: z.literal('dimension'), startVertexId: id, endVertexId: id, offset: finiteNumber }),
   z.object({ ...base, type: z.literal('polyline'), vertexIds: z.tuple([id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('polygon'), vertexIds: z.tuple([id, id, id]).rest(id) }),
-  z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: number.positive().max(1000) }),
+  z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000) }),
 ]);
+
+export const vertexSchema = worldPointSchema.extend({ id });
+export const layerSchema = z.object({ id, name: z.string().min(1).max(1000), visible: z.boolean(), locked: z.boolean(), order: finiteNumber.int(), styleId: id });
 
 /** Structure first; referential integrity is checked separately below. Unknown UI fields are stripped. */
 export const documentSchema = z.object({
@@ -20,12 +25,12 @@ export const documentSchema = z.object({
   metadata: z.object({ id, title: z.string().min(1).max(1000), description: z.string().max(10000) }),
   units: z.object({ length: z.literal('m'), area: z.literal('m2') }),
   coordinateSystem: z.object({ kind: z.enum(['local', 'projected', 'unknown']), name: z.string().max(1000).optional(),
-    epsg: number.int().positive().optional(), xAxis: z.literal('east'), yAxis: z.literal('north'), zAxis: z.literal('up') }),
-  vertices: z.record(id, point.extend({ id })),
-  layers: z.array(z.object({ id, name: z.string().min(1).max(1000), visible: z.boolean(), locked: z.boolean(), order: number.int(), styleId: id })).min(1).max(1000),
-  entities: z.array(entity).max(50000),
-  styles: z.array(z.object({ id, stroke: z.string().max(100), fill: z.string().max(100), lineWeight: number.positive().max(100), dash: z.string().max(100).optional() })).min(1).max(1000),
-  viewport: z.object({ center: point, pixelsPerUnit: number.min(0.00001).max(100000) }),
+    epsg: finiteNumber.int().positive().optional(), xAxis: z.literal('east'), yAxis: z.literal('north'), zAxis: z.literal('up') }),
+  vertices: z.record(id, vertexSchema),
+  layers: z.array(layerSchema).min(1).max(1000),
+  entities: z.array(entitySchema).max(50000),
+  styles: z.array(z.object({ id, stroke: paintColour, fill: paintColour, lineWeight: finiteNumber.positive().max(100), dash: z.string().max(100).optional() })).min(1).max(1000),
+  viewport: z.object({ center: worldPointSchema, pixelsPerUnit: finiteNumber.min(0.00001).max(100000) }),
 });
 
 export function validateDocument(raw: unknown): GeoDocument {

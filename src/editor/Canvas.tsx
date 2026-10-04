@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
 import { canEditVertex, isLayerLocked } from '../domain/commands';
 import { type Vertex, type WorldPoint } from '../domain/model';
 import { createGeometryCommand, type DrawingKind, type GeometryAnchor } from '../domain/geometryIntent';
@@ -19,7 +19,7 @@ interface Props {
 type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex };
 type MoveInput = { point: ScreenPoint; pointerId: number };
 
-export function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false }: Props) {
+export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false }: Props) {
   const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
   const frame = useRef<number | null>(null), pending = useRef<MoveInput | null>(null);
   const [space, setSpace] = useState(false), [dragging, setDragging] = useState(false);
@@ -233,4 +233,4 @@ export function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMe
     <div className="north-arrow" aria-label="Север в направлении положительной оси Y"><b>N</b><svg width="26" height="38" viewBox="0 0 26 38" aria-hidden="true"><path d="M13 3L4 29l9-5 9 5-9-26z" fill="#405d6b" /><path d="M13 3v21l9 5z" fill="#c7d4dc" /></svg></div>
     <div className="canvas-help">{tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : 'Shift + клик — точки по порядку · Колесо — масштаб · Space + drag — вид'}</div>
   </div>;
-}
+});

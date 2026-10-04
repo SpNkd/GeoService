@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch } from 'react';
+import { memo, useEffect, useState, type Dispatch } from 'react';
 import { entityVertexIds, type Entity, type GeoDocument, type PointEntity } from '../domain/model';
 import { distance, pathLength, polygonArea } from '../geometry';
 import { formatAzimuth, formatCoordinate, formatDistance, formatMeasure } from '../geometry/format';
@@ -60,7 +60,7 @@ function GeometryProperties({ entity, document }: { entity: Exclude<Entity, Poin
   </tbody></table></div>{entity.type === 'polygon' && polygonSelfIntersects(worldPoints) && <p className="geometry-warning">Граница самопересекается. Проверьте вершины.</p>}</div>;
 }
 
-export function PropertyInspector({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
+export const PropertyInspector = memo(function PropertyInspector({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const entity = state.document.entities.find(item => item.id === state.selectionId);
   const locked = entity ? isLayerLocked(state.document, entity) : false;
   return <aside className="right-panel" aria-label="Свойства объекта">
@@ -80,4 +80,4 @@ export function PropertyInspector({ state, dispatch }: { state: EditorState; dis
     </div> : <div className="empty-inspector"><div className="empty-symbol"><Icon name="cursor" size={30} /></div><h3>Выберите объект</h3><p>Нажмите на точку, линию, полигон или подпись на схеме.</p><div className="empty-preview"><span>X</span><i /><span>Y</span><i /><span>Z</span><i /></div><small>Свойства и координаты появятся здесь</small></div>}
     <div className="inspector-footer"><span>Изменения сохраняются в этом браузере.</span><small>Save экспортирует полный документ в JSON.</small></div>
   </aside>;
-}
+});

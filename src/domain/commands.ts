@@ -1,8 +1,9 @@
 import { entityVertexIds, getVertex, vertexPoint, worldVertex, type Entity, type GeoDocument, type Layer, type PointEntity, type Vertex, type WorldPoint } from './model';
 import { validateDocument } from '../persistence/documentSchema';
-import { assertDocumentSize } from '../persistence/serialization';
+import { encodeDocument } from '../persistence/serialization';
 import { distance } from '../geometry';
 import { polygonSelfIntersects } from '../geometry/survey';
+import { parseCommand } from './commandSchema';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
@@ -43,7 +44,10 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity) {
 }
 const referencedVertices = (entities: Entity[]) => new Set(entities.flatMap(entityVertexIds));
 
-export function applyCommand(document: GeoDocument, command: DocumentCommand): GeoDocument {
+export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
+  const command = parseCommand(raw);
+  if ((command.type === 'add-entity' || command.type === 'import-points') && document.entities.length + (command.type === 'add-entity' ? 1 : command.points.length) > 50000) throw new Error('Документ превышает лимит 50 000 объектов');
+  if ((command.type === 'add-entity' || command.type === 'import-points') && command.layer && document.layers.length >= 1000) throw new Error('Документ превышает лимит 1000 слоёв');
   if (command.type === 'import-points') {
     if (!command.points.length) throw new Error('Импорт не содержит точек');
     if (command.layer && document.layers.some(layer => layer.id === command.layer!.id)) throw new Error('ID нового слоя уже используется');
@@ -59,7 +63,7 @@ export function applyCommand(document: GeoDocument, command: DocumentCommand): G
       ids.add(entity.id); vertices[vertex.id] = { ...vertex }; entities.push({ ...entity });
     }
     const candidate = validateDocument({ ...document, layers, vertices, entities });
-    assertDocumentSize(JSON.stringify(candidate, null, 2));
+    encodeDocument(candidate);
     return candidate;
   }
   if (command.type === 'set-layer-visibility' || command.type === 'set-layer-lock') {
@@ -116,14 +120,26 @@ export function applyCommand(document: GeoDocument, command: DocumentCommand): G
     if (!destination || destination.locked) throw new Error('Целевой слой заблокирован или отсутствует');
     return { ...document, entities: document.entities.map(item => item.id === entity.id ? { ...cloneEntity(entity), layerId: destination.id } : item) };
   }
+  if (command.type !== 'update-entity') { const exhaustive: never = command; throw new Error(`Неизвестная команда: ${String(exhaustive)}`); }
   if (command.patch.content !== undefined && entity.type !== 'text') throw new Error('Только у текстовой аннотации есть содержание');
   if (command.patch.fontSize !== undefined && (entity.type !== 'text' || !Number.isFinite(command.patch.fontSize) || command.patch.fontSize <= 0)) throw new Error('Размер текста должен быть положительным конечным числом');
   if (command.patch.name !== undefined && !command.patch.name.trim()) throw new Error('Имя объекта не может быть пустым');
-  return { ...document, entities: document.entities.map(item => item.id === entity.id ? cloneEntity({ ...entity, ...command.patch } as Entity) : item) };
+  // Copy only mutable properties; runtime callers cannot replace type/IDs/references.
+  const patch = { ...(command.patch.name === undefined ? {} : { name: command.patch.name }),
+    ...(command.patch.content === undefined ? {} : { content: command.patch.content }),
+    ...(command.patch.fontSize === undefined ? {} : { fontSize: command.patch.fontSize }) };
+  return { ...document, entities: document.entities.map(item => item.id === entity.id ? cloneEntity({ ...entity, ...patch } as Entity) : item) };
 }
 
 export function isLayerLocked(document: GeoDocument, entity: Entity): boolean {
   return document.layers.find(layer => layer.id === entity.layerId)?.locked ?? true;
+}
+/** Bulk read policy for selected path handles; missing layers are locked as in isLayerLocked. */
+export function lockedVertexIds(document: GeoDocument): ReadonlySet<string> {
+  const editableLayers = new Set(document.layers.filter(layer => !layer.locked).map(layer => layer.id));
+  const locked = new Set<string>();
+  for (const entity of document.entities) if (!editableLayers.has(entity.layerId)) for (const id of entityVertexIds(entity)) locked.add(id);
+  return locked;
 }
 export function canEditVertex(document: GeoDocument, vertexId: string): boolean {
   return Object.hasOwn(document.vertices, vertexId) && document.entities.filter(entity => entityVertexIds(entity).includes(vertexId))

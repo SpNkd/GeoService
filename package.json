@@ -10,7 +10,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "check": "npm run lint && npm run test && npm run build && npm run test:e2e"
+    "check": "npm run lint && npm run test && npm run build && npm run test:e2e",
+    "bench:audit": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts",
+    "bench:render": "node benchmarks/render.mjs"
   },
   "description": "Deterministic geodetic drawing editor prototype",
   "dependencies": {

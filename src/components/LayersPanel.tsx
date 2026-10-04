@@ -1,8 +1,8 @@
-import type { Dispatch } from 'react';
+import { memo, type Dispatch } from 'react';
 import type { EditorAction, EditorState } from '../store/editor';
 import { Icon } from './Icon';
 
-export function LayersPanel({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
+export const LayersPanel = memo(function LayersPanel({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const { document } = state;
   const selected = document.entities.find(entity => entity.id === state.selectionId);
   return <aside className="left-panel" aria-label="Слои документа">
@@ -27,4 +27,4 @@ export function LayersPanel({ state, dispatch }: { state: EditorState; dispatch:
     <div className="sidebar-note"><Icon name="crosshair" size={20} /><p>Точность в модели<small>Координаты хранятся без округления. Масштаб влияет только на вид.</small></p></div>
     <div className="panel-foot"><span className="live-dot" /> Локальный редактор <span className="version">v0.3</span></div>
   </aside>;
-}
+});

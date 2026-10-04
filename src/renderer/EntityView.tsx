@@ -1,8 +1,9 @@
+import { memo } from 'react';
 import type { GeoDocument, Viewport } from '../domain/model';
 import { entityPoints, entityVertexIds } from '../domain/model';
 import { worldToScreen, type ViewSize } from '../geometry';
 import { formatHeight, formatDistance } from '../geometry/format';
-import { canEditVertex } from '../domain/commands';
+import { lockedVertexIds } from '../domain/commands';
 import { distance } from '../geometry';
 import type { PointLabelMode } from '../store/editor';
 import { DimensionView } from './DimensionView';
@@ -11,12 +12,13 @@ import type { RenderItem } from './selectors';
 interface Props { item: RenderItem; document: GeoDocument; viewport: Viewport; size: ViewSize; selected: boolean; order?: number; pointLabelMode?: PointLabelMode; showLineLengths?: boolean }
 const selectionColor = '#277ec1';
 
-export function EntityView({ item: { entity, layer, style }, document, viewport, size, selected, order, pointLabelMode = 'name-z', showLineLengths = false }: Props) {
+export const EntityView = memo(function EntityView({ item: { entity, layer, style }, document, viewport, size, selected, order, pointLabelMode = 'name-z', showLineLengths = false }: Props) {
   const ids = entityVertexIds(entity);
   const world = entityPoints(entity, document.vertices);
   const screen = world.map(point => worldToScreen(point, viewport, size));
   const stroke = selected ? selectionColor : style.stroke;
   const editable = selected && !layer.locked;
+  const locked = editable && (entity.type === 'line' || entity.type === 'polyline' || entity.type === 'polygon') ? lockedVertexIds(document) : null;
   const attributes = { stroke, strokeWidth: selected ? 2.2 : style.lineWeight, strokeDasharray: style.dash };
   let shape: React.ReactNode;
   switch (entity.type) {
@@ -41,7 +43,7 @@ export function EntityView({ item: { entity, layer, style }, document, viewport,
         <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={14} />
         <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...attributes} pointerEvents="none" />
         {showLineLengths && <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 7} textAnchor="middle" fill={stroke} className="dimension-label" pointerEvents="none">{formatDistance(distance(world[0]!, world[1]!))}</text>}
-        {editable && screen.map((p, i) => canEditVertex(document, ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
+        {editable && screen.map((p, i) => locked && !locked.has(ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
       </>;
       break;
     }
@@ -51,7 +53,7 @@ export function EntityView({ item: { entity, layer, style }, document, viewport,
         {entity.type === 'polygon'
           ? <polygon points={points} fill={selected ? '#277ec110' : style.fill} {...attributes} />
           : <><polyline points={points} fill="none" stroke="transparent" strokeWidth={14} /><polyline points={points} fill="none" {...attributes} pointerEvents="none" /></>}
-        {editable && screen.map((p, i) => canEditVertex(document, ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
+        {editable && screen.map((p, i) => locked && !locked.has(ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
       </>;
       break;
     }
@@ -67,9 +69,17 @@ export function EntityView({ item: { entity, layer, style }, document, viewport,
       </>;
       break;
     }
+    default: { const unsupported: never = entity; throw new Error(`Unsupported entity: ${String(unsupported)}`); }
   }
   return <g data-entity-id={entity.id} data-entity-type={entity.type} data-selected={selected} data-vertex-id={entity.type === 'point' ? entity.vertexId : undefined}
     className={layer.locked ? 'entity locked' : 'entity'} aria-label={entity.name}>
     <title>{entity.name}{layer.locked ? ' · заблокирован, только просмотр' : ''}</title>{shape}
   </g>;
-}
+}, (previous, next) => {
+  if (previous.item.entity !== next.item.entity || previous.item.layer !== next.item.layer || previous.item.style !== next.item.style
+    || previous.viewport !== next.viewport || previous.size !== next.size || previous.selected !== next.selected || previous.order !== next.order
+    || previous.pointLabelMode !== next.pointLabelMode || previous.showLineLengths !== next.showLineLengths) return false;
+  // Handle availability depends on every consumer's layer, not just this entity.
+  if (previous.document.entities !== next.document.entities || previous.document.layers !== next.document.layers) return false;
+  return entityVertexIds(next.item.entity).every(id => previous.document.vertices[id] === next.document.vertices[id]);
+});

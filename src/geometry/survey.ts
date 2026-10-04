@@ -46,9 +46,21 @@ function onSegment(a: WorldPoint, b: WorldPoint, p: WorldPoint): boolean {
     && p.y >= Math.min(a.y, b.y) && p.y <= Math.max(a.y, b.y);
 }
 export function polygonSelfIntersects(points: readonly WorldPoint[]): boolean {
-  for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) {
-    if (j === i + 1 || (i === 0 && j === points.length - 1)) continue;
-    const a = points[i]!, b = points[(i + 1) % points.length]!, c = points[j]!, d = points[(j + 1) % points.length]!;
+  if (points.length < 3) return false;
+  const edges = points.map((a, i) => {
+    const b = points[(i + 1) % points.length]!;
+    return { a, b, minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minY: Math.min(a.y, b.y), maxY: Math.max(a.y, b.y) };
+  });
+  // Adjacent edges may share an endpoint, but cannot retrace an interval or have zero XY length.
+  for (let i = 0; i < edges.length; i++) {
+    const { a, b } = edges[i]!, c = edges[(i + 1) % edges.length]!.b;
+    if ((a.x === b.x && a.y === b.y) || onSegment(a, b, c) || onSegment(b, c, a)) return true;
+  }
+  for (let i = 0; i < edges.length; i++) for (let j = i + 1; j < edges.length; j++) {
+    if (j === i + 1 || (i === 0 && j === edges.length - 1)) continue;
+    const first = edges[i]!, second = edges[j]!;
+    if (first.maxX < second.minX || second.maxX < first.minX || first.maxY < second.minY || second.maxY < first.minY) continue;
+    const { a, b } = first, { a: c, b: d } = second;
     if (segmentIntersection(a, b, c, d) || onSegment(a, b, c) || onSegment(a, b, d) || onSegment(c, d, a) || onSegment(c, d, b)) return true;
   }
   return false;

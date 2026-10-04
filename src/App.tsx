@@ -30,8 +30,8 @@ export default function App() {
   const [measurementStatus, setMeasurementStatus] = useState<string | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const committed = state.transactionBefore ?? state.document;
-  const dirty = useMemo(() => isDocumentDirty({ document: state.document, savedFingerprint: state.savedFingerprint }), [state.document, state.savedFingerprint]);
   const committedDirty = useMemo(() => isDocumentDirty({ document: committed, savedFingerprint: state.savedFingerprint }), [committed, state.savedFingerprint]);
+  const dirty = committedDirty || Boolean(state.transactionBefore && state.document !== committed);
   useEffect(() => {
     try { const error = persistLocalDocument(localStorage, committed, committedDirty); if (error) setNotice(error); }
     catch { setNotice('Локальное сохранение недоступно. Сохраните JSON вручную.'); }
@@ -41,12 +41,12 @@ export default function App() {
   const cursorWorld = cursor ? screenToWorld(cursor, state.viewport, size) : null;
   const fitted = useRef(false);
   const onResize = useCallback((next: ViewSize) => {
-    setSize(next);
+    setSize(previous => previous.width === next.width && previous.height === next.height ? previous : next);
     if (!fitted.current && next.width > 0 && next.height > 0) {
-      const viewport = fitToBounds(visibleBounds(state.document), next, 85);
+      const viewport = fitToBounds(visibleBounds(committed), next, 85);
       if (viewport) { dispatch({ type: 'viewport', viewport }); fitted.current = true; }
     }
-  }, [state.document]);
+  }, [committed]);
   const fit = () => {
     const viewport = fitToBounds(visibleBounds(state.document), size, 85);
     if (viewport) dispatch({ type: 'viewport', viewport });
@@ -120,7 +120,7 @@ export default function App() {
     }} />
     {(fileError || notice) && <div className={`document-notice ${fileError ? 'error' : ''}`} role={fileError ? 'alert' : 'status'}><span>{fileError ?? notice}</span><button aria-label="Закрыть сообщение" onClick={() => { setFileError(null); setNotice(null); }}>×</button></div>}
     {importOpen && <ImportDialog document={state.document} onClose={() => setImportOpen(false)} onImport={command => {
-      // The reducer is the mutation boundary. Calculate bounds without modifying the current document.
+      // Preflight keeps validation errors in the open import dialog; the reducer owns the actual mutation.
       const candidate = applyCommand(state.document, command);
       dispatch({ type: 'execute', command });
       const viewport = fitToBounds(visibleBounds(candidate), size, 85);

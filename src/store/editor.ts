@@ -4,6 +4,7 @@ import { fitToBounds, panViewport, zoomAt, type ScreenPoint, type ViewSize } fro
 import { visibleBounds } from '../renderer/selectors';
 import { deserializeDocument, documentFingerprint } from '../persistence/serialization';
 import { commandFromOrderedPoints } from '../domain/geometryIntent';
+import { validateDocument } from '../persistence/documentSchema';
 import { DEFAULT_SNAP_OPTIONS, type SnapOptions } from '../snapping';
 
 export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure';
@@ -45,7 +46,8 @@ export function initialEditorState(document: GeoDocument): EditorState {
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false };
 }
-export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFingerprint'>) => documentFingerprint(state.document) !== state.savedFingerprint;
+export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFingerprint'> & Partial<Pick<EditorState, 'transactionBefore'>>) =>
+  Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case 'mark-saved': return { ...state, savedFingerprint: documentFingerprint(state.document) };
@@ -63,8 +65,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       try { return editorReducer(state, { type: 'replace-document', document: deserializeDocument(action.text), size: action.size }); }
       catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось открыть документ' }; }
     }
-    case 'replace-document': return { ...initialEditorState(action.document), documentEpoch: state.documentEpoch + 1,
-      viewport: fitToBounds(visibleBounds(action.document), action.size, 85) ?? action.document.viewport };
+    case 'replace-document': {
+      try {
+        const document = validateDocument(action.document); // Own the validated data; do not retain caller payload references.
+        return { ...initialEditorState(document), documentEpoch: state.documentEpoch + 1,
+          viewport: fitToBounds(visibleBounds(document), action.size, 85) ?? document.viewport };
+      } catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось открыть документ' }; }
+    }
     case 'execute': {
       if (state.transactionBefore) return state;
       try {
@@ -80,7 +87,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'transient': {
       if (!state.transactionBefore) return state;
-      try { return { ...state, document: applyCommand(state.document, action.command), error: null }; }
+      try {
+        if (action.command.type !== 'update-vertex' && action.command.type !== 'move-vertex') throw new Error('Транзакция допускает только изменение координат');
+        return { ...state, document: applyCommand(state.document, action.command), error: null };
+      }
       catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось изменить документ' }; }
     }
     case 'begin-transaction': return state.transactionBefore ? state : { ...state, transactionBefore: state.document };
