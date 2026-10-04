@@ -1,13 +1,17 @@
 import type { GeoDocument, Viewport } from '../domain/model';
 import { entityPoints, entityVertexIds } from '../domain/model';
 import { worldToScreen, type ViewSize } from '../geometry';
-import { formatCoordinate } from '../geometry/format';
+import { formatHeight, formatDistance } from '../geometry/format';
+import { canEditVertex } from '../domain/commands';
+import { distance } from '../geometry';
+import type { PointLabelMode } from '../store/editor';
+import { DimensionView } from './DimensionView';
 import type { RenderItem } from './selectors';
 
-interface Props { item: RenderItem; document: GeoDocument; viewport: Viewport; size: ViewSize; selected: boolean }
+interface Props { item: RenderItem; document: GeoDocument; viewport: Viewport; size: ViewSize; selected: boolean; order?: number; pointLabelMode?: PointLabelMode; showLineLengths?: boolean }
 const selectionColor = '#277ec1';
 
-export function EntityView({ item: { entity, layer, style }, document, viewport, size, selected }: Props) {
+export function EntityView({ item: { entity, layer, style }, document, viewport, size, selected, order, pointLabelMode = 'name-z', showLineLengths = false }: Props) {
   const ids = entityVertexIds(entity);
   const world = entityPoints(entity, document.vertices);
   const screen = world.map(point => worldToScreen(point, viewport, size));
@@ -25,8 +29,9 @@ export function EntityView({ item: { entity, layer, style }, document, viewport,
         {selected && <circle cx={p.x} cy={p.y} r={12} fill="#277ec115" stroke={selectionColor} strokeWidth={1} pointerEvents="none" />}
         <path d={`M ${p.x - 8} ${p.y} h 16 M ${p.x} ${p.y - 8} v 16`} stroke={stroke} strokeWidth={1} pointerEvents="none" />
         <circle cx={p.x} cy={p.y} r={3.5} fill={style.fill} {...attributes} pointerEvents="none" />
-        <text className="point-label" x={labelX} y={labelY} textAnchor={placeLeft ? 'end' : 'start'} fill={stroke} pointerEvents="none">{entity.name}</text>
-        {world[0]!.z !== undefined && <text className="height-label" x={labelX} y={labelY + 14} textAnchor={placeLeft ? 'end' : 'start'} fill="#7b8993" pointerEvents="none">{formatCoordinate(world[0]!.z!)}</text>}
+        {pointLabelMode !== 'z' && <text className="point-label" x={labelX} y={labelY} textAnchor={placeLeft ? 'end' : 'start'} fill={stroke} pointerEvents="none">{entity.name}</text>}
+        {pointLabelMode !== 'name' && world[0]!.z !== undefined && <text className="height-label" x={labelX} y={labelY + (pointLabelMode === 'z' ? 0 : 14)} textAnchor={placeLeft ? 'end' : 'start'} fill="#7b8993" pointerEvents="none">△ {formatHeight(world[0]!.z!)}</text>}
+        {order !== undefined && <g className="selection-order" pointerEvents="none"><circle cx={p.x - 15} cy={p.y - 18} r={9} fill={selectionColor} /><text x={p.x - 15} y={p.y - 15} textAnchor="middle" fill="white">{order}</text></g>}
       </>;
       break;
     }
@@ -35,7 +40,8 @@ export function EntityView({ item: { entity, layer, style }, document, viewport,
       shape = <>
         <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={14} />
         <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...attributes} pointerEvents="none" />
-        {editable && screen.map((p, i) => <rect key={ids[i]} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
+        {showLineLengths && <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 7} textAnchor="middle" fill={stroke} className="dimension-label" pointerEvents="none">{formatDistance(distance(world[0]!, world[1]!))}</text>}
+        {editable && screen.map((p, i) => canEditVertex(document, ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
       </>;
       break;
     }
@@ -45,8 +51,12 @@ export function EntityView({ item: { entity, layer, style }, document, viewport,
         {entity.type === 'polygon'
           ? <polygon points={points} fill={selected ? '#277ec110' : style.fill} {...attributes} />
           : <><polyline points={points} fill="none" stroke="transparent" strokeWidth={14} /><polyline points={points} fill="none" {...attributes} pointerEvents="none" /></>}
-        {editable && screen.map((p, i) => <rect key={ids[i]} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
+        {editable && screen.map((p, i) => canEditVertex(document, ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
       </>;
+      break;
+    }
+    case 'dimension': {
+      shape = <DimensionView a={world[0]!} b={world[1]!} offset={entity.offset} viewport={viewport} size={size} color={stroke} />;
       break;
     }
     case 'text': {

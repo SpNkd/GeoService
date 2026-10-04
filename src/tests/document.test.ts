@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, canEditVertex } from '../domain/commands';
-import { entityPoints, worldVertex, type Entity, type GeoDocument, type PointEntity } from '../domain/model';
+import { entityPoints, entityVertexIds, worldVertex, type Entity, type GeoDocument, type PointEntity } from '../domain/model';
 import { polygonArea, pathLength } from '../geometry';
 import { createSampleDocument } from '../sample/document';
 import { editorReducer, initialEditorState } from '../store/editor';
@@ -18,7 +18,7 @@ describe('canonical vertex registry', () => {
     const document = createSampleDocument();
     expect(new Set(document.entities.map(e => e.id)).size).toBe(document.entities.length);
     expect(new Set(Object.keys(document.vertices)).size).toBe(Object.keys(document.vertices).length);
-    for (const entity of document.entities) for (const id of (entity.type === 'point' || entity.type === 'text' ? [entity.vertexId] : entity.type === 'line' ? [entity.startVertexId, entity.endVertexId] : entity.vertexIds)) {
+    for (const entity of document.entities) for (const id of entityVertexIds(entity)) {
       expect(Object.hasOwn(document.vertices, id)).toBe(true);
     }
     expect((byId(document, 'p1') as PointEntity).vertexId).toBe((byId(document, 'boundary-01') as Extract<Entity, { type: 'polygon' }>).vertexIds[0]);

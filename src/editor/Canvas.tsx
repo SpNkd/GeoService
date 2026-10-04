@@ -1,52 +1,59 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
 import { canEditVertex, isLayerLocked } from '../domain/commands';
-import { worldVertex, type Entity, type GeoDocument, type Vertex, type WorldPoint } from '../domain/model';
+import { type Vertex, type WorldPoint } from '../domain/model';
+import { createGeometryCommand, type DrawingKind, type GeometryAnchor } from '../domain/geometryIntent';
 import { distance, screenToWorld, worldToScreen, type ScreenPoint, type ViewSize } from '../geometry';
+import { dimensionOffset, measurePair } from '../geometry/survey';
+import { formatAzimuth, formatDistance } from '../geometry/format';
+import { createSnapProvider, findSnapCandidate, type SnapResult } from '../snapping';
 import { renderItems } from '../renderer/selectors';
 import { EntityView } from '../renderer/EntityView';
+import { DimensionView } from '../renderer/DimensionView';
 import { Grid } from '../renderer/Grid';
-import type { EditorAction, EditorState, EditorTool } from '../store/editor';
+import type { EditorAction, EditorState } from '../store/editor';
 
-interface Props { state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void; onCursor: (point: ScreenPoint | null) => void; disabled?: boolean }
-type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex };
-const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
-const layerForTool = (tool: EditorTool) => tool === 'point' ? 'survey-points' : tool === 'text' ? 'annotations' : 'boundary';
-const entityName = (tool: Exclude<EditorTool, 'select' | 'pan'>, n: number) => ({ point: `Точка ${n}`, line: `Линия ${n}`, polyline: `Полилиния ${n}`, polygon: `Полигон ${n}`, text: `Текст ${n}` })[tool];
-function makeEntity(tool: Exclude<EditorTool, 'select' | 'pan'>, points: WorldPoint[], document: GeoDocument, content = ''): { entity: Entity; vertices: Vertex[] } {
-  const vertices = points.map(point => worldVertex(newId('v'), point));
-  const layer = document.layers.find(layer => layer.id === layerForTool(tool)) ?? document.layers.find(layer => !layer.locked) ?? document.layers[0]!;
-  const base = { id: newId(tool), name: entityName(tool, document.entities.length + 1), layerId: layer.id };
-  switch (tool) {
-    case 'point': return { entity: { ...base, type: 'point', vertexId: vertices[0]!.id }, vertices };
-    case 'line': return { entity: { ...base, type: 'line', startVertexId: vertices[0]!.id, endVertexId: vertices[1]!.id }, vertices };
-    case 'polyline': return { entity: { ...base, type: 'polyline', vertexIds: vertices.map(v => v.id) as [string, string, ...string[]] }, vertices };
-    case 'polygon': return { entity: { ...base, type: 'polygon', vertexIds: vertices.map(v => v.id) as [string, string, string, ...string[]] }, vertices };
-    case 'text': return { entity: { ...base, type: 'text', vertexId: vertices[0]!.id, content, fontSize: 14 }, vertices };
-  }
+interface Props {
+  state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
+  onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean;
 }
+type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex };
+type MoveInput = { point: ScreenPoint; pointerId: number };
 
-export function Canvas({ state, dispatch, size, onResize, onCursor, disabled = false }: Props) {
-  const ref = useRef<SVGSVGElement>(null);
-  const drag = useRef<Drag | null>(null);
-  const [space, setSpace] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [draft, setDraft] = useState<WorldPoint[]>([]);
+export function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false }: Props) {
+  const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
+  const frame = useRef<number | null>(null), pending = useRef<MoveInput | null>(null);
+  const [space, setSpace] = useState(false), [dragging, setDragging] = useState(false);
+  const [draft, setDraft] = useState<GeometryAnchor[]>([]);
   const [drawCursor, setDrawCursor] = useState<WorldPoint | null>(null);
-  const [textDraft, setTextDraft] = useState<{ point: WorldPoint; screen: ScreenPoint; content: string } | null>(null);
+  const [snap, setSnap] = useState<SnapResult | null>(null);
+  const [textDraft, setTextDraft] = useState<{ anchor: GeometryAnchor; screen: ScreenPoint; content: string } | null>(null);
   const { viewport, tool, document } = state;
+  const committed = state.transactionBefore ?? document;
+  const provider = useMemo(() => createSnapProvider(committed), [committed]);
+  const items = useMemo(() => renderItems(document), [document]);
   const previousTool = useRef(tool);
+  const announceSnap = useCallback((result: SnapResult | null) => { setSnap(result); onSnap(result); }, [onSnap]);
   useEffect(() => {
-    if (previousTool.current === tool) return;
-    previousTool.current = tool; setDraft([]); setDrawCursor(null); setTextDraft(null);
-  }, [tool]);
-  const finishPath = useCallback((points: WorldPoint[] = draft) => {
+    if (previousTool.current !== tool) { previousTool.current = tool; setDraft([]); setDrawCursor(null); setTextDraft(null); onMeasure(null); }
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null; pending.current = null;
+    announceSnap(null);
+  }, [tool, state.snapOptions, announceSnap, onMeasure]);
+  useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
+  useEffect(() => { onMeasure(null); onSnap(null); }, [onMeasure, onSnap]);
+  const create = useCallback((kind: DrawingKind, anchors: GeometryAnchor[], offset = 0, content = '') => {
+    try {
+      const command = createGeometryCommand(document, kind, anchors, { offset, content });
+      dispatch({ type: 'execute', command });
+      if (command.type === 'add-entity') dispatch({ type: 'select', entityId: command.entity.id });
+      dispatch({ type: 'tool', tool: 'select' }); setDraft([]); setDrawCursor(null);
+    } catch (error) { dispatch({ type: 'report-error', message: error instanceof Error ? error.message : 'Не удалось построить объект' }); }
+  }, [dispatch, document]);
+  const finishPath = useCallback((points: GeometryAnchor[] = draft) => {
     if (tool !== 'polyline' && tool !== 'polygon') return;
-    if ((tool === 'polygon' && points.length < 3) || (tool === 'polyline' && points.length < 2)) { setDraft(points); return; }
-    const created = makeEntity(tool, points, document);
-    dispatch({ type: 'execute', command: { type: 'add-entity', ...created } });
-    dispatch({ type: 'select', entityId: created.entity.id }); dispatch({ type: 'tool', tool: 'select' });
-    setDraft([]); setDrawCursor(null);
-  }, [dispatch, document, draft, tool]);
+    if (points.length < (tool === 'polygon' ? 3 : 2)) return;
+    create(tool, points);
+  }, [create, draft, tool]);
   useEffect(() => {
     if (!ref.current) return;
     const observer = new ResizeObserver(([entry]) => { if (entry) onResize({ width: entry.contentRect.width, height: entry.contentRect.height }); });
@@ -56,13 +63,14 @@ export function Canvas({ state, dispatch, size, onResize, onCursor, disabled = f
     const element = ref.current;
     if (!element) return;
     const wheel = (event: WheelEvent) => {
+      if (disabled) return;
       event.preventDefault(); const rect = element.getBoundingClientRect();
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? size.height : 1);
       const anchor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      onCursor(anchor); dispatch({ type: 'zoom', size, anchor, factor: Math.exp(-Math.max(-250, Math.min(250, delta)) * 0.002) });
+      announceSnap(null); onCursor(anchor); dispatch({ type: 'zoom', size, anchor, factor: Math.exp(-Math.max(-250, Math.min(250, delta)) * 0.002) });
     };
     element.addEventListener('wheel', wheel, { passive: false }); return () => element.removeEventListener('wheel', wheel);
-  }, [dispatch, onCursor, size]);
+  }, [announceSnap, disabled, dispatch, onCursor, size]);
   useEffect(() => {
     const isInput = (target: EventTarget | null) => target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);
     const down = (event: KeyboardEvent) => {
@@ -73,9 +81,9 @@ export function Canvas({ state, dispatch, size, onResize, onCursor, disabled = f
       if (isInput(event.target)) return;
       if (event.key === 'Enter' && (tool === 'polyline' || tool === 'polygon') && draft.length) { event.preventDefault(); finishPath(); }
       if (event.code === 'Escape') {
-        if (draft.length || textDraft) { setDraft([]); setTextDraft(null); setDrawCursor(null); dispatch({ type: 'tool', tool: 'select' }); }
-        else if (tool !== 'select') dispatch({ type: 'tool', tool: 'select' });
-        else dispatch({ type: 'select', entityId: null });
+        setDraft([]); setTextDraft(null); setDrawCursor(null); announceSnap(null); onMeasure(null);
+        if (drag.current?.kind === 'vertex') { dispatch({ type: 'cancel-transaction' }); drag.current = null; setDragging(false); }
+        if (tool !== 'select') dispatch({ type: 'tool', tool: 'select' }); else dispatch({ type: 'select', entityId: null });
       }
       if ((event.key === 'Delete' || event.key === 'Backspace') && state.selectionId) {
         const entity = document.entities.find(item => item.id === state.selectionId);
@@ -87,39 +95,72 @@ export function Canvas({ state, dispatch, size, onResize, onCursor, disabled = f
     const blur = () => { setSpace(false); if (drag.current?.kind === 'vertex') dispatch({ type: 'commit-transaction' }); drag.current = null; setDragging(false); };
     window.addEventListener('keydown', down); window.addEventListener('keyup', up); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
-  }, [disabled, dispatch, document, draft, finishPath, state.selectionId, textDraft, tool]);
+  }, [announceSnap, disabled, dispatch, document, draft, finishPath, onMeasure, state.selectionId, tool]);
+  const anchorAt = (point: ScreenPoint, exclude?: string): GeometryAnchor => {
+    const raw = screenToWorld(point, viewport, size);
+    const result = findSnapCandidate(raw, provider, viewport, state.snapOptions, exclude);
+    announceSnap(result);
+    return { position: result?.worldPosition ?? raw, ...(result?.sourceVertexId ? { vertexId: result.sourceVertexId } : {}) };
+  };
+  const processMove = (input: MoveInput) => {
+    const { point, pointerId } = input;
+    if (disabled) return;
+    onCursor(point);
+    const active = drag.current;
+    if (active?.kind === 'pan') {
+      if (active.pointerId === pointerId) { dispatch({ type: 'pan', delta: { x: point.x - active.last.x, y: point.y - active.last.y } }); active.last = point; }
+      announceSnap(null); return;
+    }
+    if (active?.kind === 'vertex' && active.pointerId === pointerId) {
+      const position = anchorAt(point, active.vertex.id).position;
+      dispatch({ type: 'transient', command: { type: 'update-vertex', vertexId: active.vertex.id,
+        position: { x: position.x, y: position.y, ...(active.vertex.z === undefined ? {} : { z: active.vertex.z }) } } });
+      return;
+    }
+    if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text'].includes(tool)) setDrawCursor(anchorAt(point).position);
+    else announceSnap(null);
+  };
+  const flushMove = () => {
+    if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
+    const input = pending.current; pending.current = null;
+    if (input) processMove(input);
+  };
   const local = (event: PointerEvent<SVGSVGElement>): ScreenPoint => { const rect = event.currentTarget.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; };
   const down = (event: PointerEvent<SVGSVGElement>) => {
-    if (![0, 1, 2].includes(event.button)) return;
-    event.preventDefault(); const point = local(event); onCursor(point);
+    if (disabled || ![0, 1, 2].includes(event.button)) return;
+    flushMove(); event.preventDefault(); const point = local(event); onCursor(point);
     const hit = event.target instanceof Element ? event.target.closest('[data-entity-id]') : null;
+    event.currentTarget.focus();
     if (tool === 'pan' || space || event.button !== 0) {
       drag.current = { kind: 'pan', pointerId: event.pointerId, last: point };
-      event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); event.currentTarget.focus(); return;
+      event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
     }
-    if (tool === 'point') {
-      const created = makeEntity('point', [screenToWorld(point, viewport, size)], document);
-      dispatch({ type: 'execute', command: { type: 'add-entity', ...created } }); dispatch({ type: 'select', entityId: created.entity.id }); dispatch({ type: 'tool', tool: 'select' }); return;
-    }
+    if (tool === 'point') { create('point', [anchorAt(point)]); return; }
     if (tool === 'line') {
-      const world = screenToWorld(point, viewport, size);
-      if (!draft.length) { setDraft([world]); setDrawCursor(world); }
-      else {
-        const created = makeEntity('line', [draft[0]!, world], document);
-        dispatch({ type: 'execute', command: { type: 'add-entity', ...created } }); dispatch({ type: 'select', entityId: created.entity.id }); dispatch({ type: 'tool', tool: 'select' }); setDraft([]); setDrawCursor(null);
-      }
-      event.currentTarget.setPointerCapture(event.pointerId); event.currentTarget.focus(); return;
+      const anchor = anchorAt(point);
+      if (!draft.length) { setDraft([anchor]); setDrawCursor(anchor.position); } else create('line', [draft[0]!, anchor]);
+      return;
     }
-    if (tool === 'polyline' || tool === 'polygon') {
-      const world = screenToWorld(point, viewport, size); setDraft(previous => [...previous, world]); setDrawCursor(world);
-      event.currentTarget.focus(); return;
+    if (tool === 'dimension') {
+      const anchor = anchorAt(point);
+      if (draft.length < 2) { setDraft([...draft, anchor]); setDrawCursor(anchor.position); }
+      else create('dimension', draft, dimensionOffset(draft[0]!.position, draft[1]!.position, anchor.position));
+      return;
     }
-    if (tool === 'text') { setTextDraft({ point: screenToWorld(point, viewport, size), screen: point, content: '' }); event.currentTarget.focus(); return; }
+    if (tool === 'measure') {
+      const anchor = anchorAt(point);
+      const points = draft.length === 1 ? [...draft, anchor] : [anchor];
+      setDraft(points); setDrawCursor(anchor.position);
+      return;
+    }
+    if (tool === 'polyline' || tool === 'polygon') { const anchor = anchorAt(point); setDraft(previous => [...previous, anchor]); setDrawCursor(anchor.position); return; }
+    if (tool === 'text') { setTextDraft({ anchor: anchorAt(point), screen: point, content: '' }); return; }
     if (hit) {
       const entityId = hit.getAttribute('data-entity-id')!;
       const entity = document.entities.find(item => item.id === entityId);
       if (!entity) return;
-      dispatch({ type: 'select', entityId }); event.currentTarget.focus();
+      dispatch({ type: 'select', entityId, toggle: event.shiftKey });
+      if (event.shiftKey) return;
       const handle = event.target instanceof Element ? event.target.closest('[data-vertex-handle]') : null;
       const vertexId = handle?.getAttribute('data-vertex-id') ?? (entity.type === 'point' ? entity.vertexId : null);
       if (vertexId && !isLayerLocked(document, entity) && canEditVertex(document, vertexId)) {
@@ -129,61 +170,67 @@ export function Canvas({ state, dispatch, size, onResize, onCursor, disabled = f
       return;
     }
     dispatch({ type: 'select', entityId: null }); drag.current = { kind: 'pan', pointerId: event.pointerId, last: point };
-    event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); event.currentTarget.focus();
+    event.currentTarget.setPointerCapture(event.pointerId); setDragging(true);
   };
   const move = (event: PointerEvent<SVGSVGElement>) => {
-    const point = local(event); onCursor(point);
-    if (tool === 'line' || tool === 'polyline' || tool === 'polygon') setDrawCursor(screenToWorld(point, viewport, size));
-    const active = drag.current;
-    if (!active || active.pointerId !== event.pointerId) return;
-    if (active.kind === 'pan') { dispatch({ type: 'pan', delta: { x: point.x - active.last.x, y: point.y - active.last.y } }); active.last = point; }
-    else {
-      const position = screenToWorld(point, viewport, size);
-      const next = active.vertex.z === undefined ? { x: position.x, y: position.y } : { x: position.x, y: position.y, z: active.vertex.z };
-      dispatch({ type: 'transient', command: { type: 'update-vertex', vertexId: active.vertex.id, position: next } });
-    }
+    pending.current = { point: local(event), pointerId: event.pointerId };
+    if (frame.current === null) frame.current = requestAnimationFrame(() => { frame.current = null; const input = pending.current; pending.current = null; if (input) processMove(input); });
   };
   const end = (event: PointerEvent<SVGSVGElement>) => {
-    const active = drag.current;
+    flushMove(); const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
     if (active.kind === 'vertex') dispatch({ type: 'commit-transaction' });
-    drag.current = null; setDragging(false);
+    drag.current = null; setDragging(false); announceSnap(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
   const completeText = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!textDraft?.content.trim()) { setTextDraft(null); dispatch({ type: 'tool', tool: 'select' }); return; }
-    const created = makeEntity('text', [textDraft.point], document, textDraft.content.trim());
-    dispatch({ type: 'execute', command: { type: 'add-entity', ...created } }); dispatch({ type: 'select', entityId: created.entity.id }); dispatch({ type: 'tool', tool: 'select' }); setTextDraft(null);
+    create('text', [textDraft.anchor], 0, textDraft.content.trim()); setTextDraft(null);
   };
-  const color = renderItems(document).find(item => item.layer.id === layerForTool(tool))?.style.stroke ?? '#21836e';
-  const previewPoints = [...draft.map(point => worldToScreen(point, viewport, size)), ...(drawCursor ? [worldToScreen(drawCursor, viewport, size)] : [])];
+  const measurement = tool === 'measure' && draft.length ? measurePair(draft[0]!.position, draft[1]?.position ?? drawCursor ?? draft[0]!.position) : null;
+  const measurementStatus = measurement ? `D=${formatDistance(measurement.horizontal)} · ΔX=${formatDistance(measurement.delta.x)} · ΔY=${formatDistance(measurement.delta.y)} · Az=${formatAzimuth(measurement.azimuth)}` : null;
+  useEffect(() => onMeasure(measurementStatus), [measurementStatus, onMeasure]);
+  const previewPoints = [...draft.map(anchor => worldToScreen(anchor.position, viewport, size)), ...(drawCursor && !(tool === 'measure' && draft.length === 2) ? [worldToScreen(drawCursor, viewport, size)] : [])];
   const previewString = previewPoints.map(point => `${point.x},${point.y}`).join(' ');
+  const snapScreen = snap ? worldToScreen(snap.worldPosition, viewport, size) : null;
   return <div className="canvas-wrap">
     <svg ref={ref} className={`drawing-canvas ${dragging ? 'grabbing' : space || tool === 'pan' ? 'panning' : `tool-${tool}`}`}
       data-testid="drawing-canvas" data-center-x={viewport.center.x} data-center-y={viewport.center.y} data-zoom={viewport.pixelsPerUnit}
       aria-label="Геодезическая схема" tabIndex={0} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
       onLostPointerCapture={() => { if (drag.current?.kind === 'vertex') dispatch({ type: 'commit-transaction' }); drag.current = null; setDragging(false); }}
-      onPointerLeave={() => { onCursor(null); if (!['line', 'polyline', 'polygon'].includes(tool)) setDrawCursor(null); }} onDoubleClick={event => {
+      onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); announceSnap(null); }}
+      onDoubleClick={event => {
         if (tool !== 'polyline' && tool !== 'polygon') return;
-        const rect = event.currentTarget.getBoundingClientRect(); const last = screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top }, viewport, size);
-        const points = draft.length > 1 && distance(draft[draft.length - 1]!, draft[draft.length - 2]!) < 1e-9 ? draft.slice(0, -1) : draft;
-        finishPath(points.length && distance(last, points[points.length - 1]!) < 1e-9 ? points : [...points, last]);
+        const rect = event.currentTarget.getBoundingClientRect(); const last = anchorAt({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+        const points = draft.length > 1 && distance(draft[draft.length - 1]!.position, draft[draft.length - 2]!.position) < 1e-9 ? draft.slice(0, -1) : draft;
+        finishPath(points.length && distance(last.position, points[points.length - 1]!.position) < 1e-9 ? points : [...points, last]);
       }} onContextMenu={event => event.preventDefault()}>
       {state.gridVisible && <Grid viewport={viewport} size={size} />}
-      {renderItems(document).map(item => <EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size} selected={state.selectionId === item.entity.id} />)}
-      {draft.length > 0 && <g className="drawing-preview" pointerEvents="none" stroke={color} strokeWidth={1.5} strokeDasharray="5 4" fill={`${color}20`}>
-        {tool === 'line' && previewPoints.length > 1 && <line x1={previewPoints[0]!.x} y1={previewPoints[0]!.y} x2={previewPoints[1]!.x} y2={previewPoints[1]!.y} />}
-        {tool === 'polyline' && previewPoints.length > 1 && <polyline points={previewString} fill="none" />}
-        {tool === 'polygon' && previewPoints.length > 1 && <polygon points={previewString} />}
+      {items.map(item => <EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
+        selected={state.selectionId === item.entity.id || state.orderedPointIds.includes(item.entity.id)}
+        {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
+        pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}
+      {draft.length > 0 && <g className="drawing-preview" pointerEvents="none" stroke="#21836e" strokeWidth={1.5} strokeDasharray="5 4" fill="#21836e20">
+        {(tool === 'line' || tool === 'measure') && previewPoints.length > 1 && <line x1={previewPoints[0]!.x} y1={previewPoints[0]!.y} x2={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!.x} y2={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!.y} />}
+        {tool === 'polyline' && <polyline points={previewString} fill="none" />}
+        {tool === 'polygon' && <polygon points={previewString} />}
         {previewPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r={3} fill="white" />)}
       </g>}
+      {tool === 'dimension' && draft.length >= 2 && <DimensionView a={draft[0]!.position} b={draft[1]!.position} offset={dimensionOffset(draft[0]!.position, draft[1]!.position, drawCursor ?? draft[1]!.position)} viewport={viewport} size={size} preview />}
+      {snap && snapScreen && <g className="snap-indicator" data-testid="snap-indicator" data-snap-type={snap.type} data-source-vertex={snap.sourceVertexId} pointerEvents="none" stroke="#c18430" fill="white" strokeWidth={1.7}>
+        {snap.type === 'vertex' ? <rect x={snapScreen.x - 5} y={snapScreen.y - 5} width={10} height={10} /> : snap.type === 'midpoint' ? <path d={`M${snapScreen.x},${snapScreen.y - 6}l6,11h-12z`} /> : <circle cx={snapScreen.x} cy={snapScreen.y} r={4} />}
+        <text x={snapScreen.x + 12} y={snapScreen.y + 25} stroke="none" fill="#8b632f">{snap.metadata.label}</text>
+      </g>}
     </svg>
+    {measurement && <div className="measurement-readout" data-testid="measurement-readout"><strong>Measure · {draft.length === 2 ? 'Готово' : 'Выберите вторую точку'}</strong>
+      <span>Horizontal: <b>{formatDistance(measurement.horizontal)}</b></span><span>ΔX: {formatDistance(measurement.delta.x)}</span><span>ΔY: {formatDistance(measurement.delta.y)}</span>
+      <span>Azimuth: {formatAzimuth(measurement.azimuth)}</span>{measurement.delta.z !== undefined && <><span>ΔZ: {formatDistance(measurement.delta.z)}</span><span>3D: {formatDistance(measurement.spatial!)}</span></>}<small>Esc — очистить · история не изменяется</small></div>}
     {textDraft && <form className="text-entry" style={{ left: Math.min(textDraft.screen.x + 8, size.width - 230), top: Math.min(textDraft.screen.y + 8, size.height - 60) }} onSubmit={completeText} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setTextDraft(null); dispatch({ type: 'tool', tool: 'select' }); } }}>
       <label>Текстовая аннотация<input autoFocus aria-label="Текст аннотации" value={textDraft.content} onChange={event => setTextDraft({ ...textDraft, content: event.target.value })} placeholder="Введите подпись" /></label><button type="submit">Готово</button><button type="button" onClick={() => { setTextDraft(null); dispatch({ type: 'tool', tool: 'select' }); }}>Отмена</button>
     </form>}
     <div className="canvas-caption"><span className="live-dot" /> МОДЕЛЬ <span>Метры · X / Y</span></div>
     <div className="north-arrow" aria-label="Север в направлении положительной оси Y"><b>N</b><svg width="26" height="38" viewBox="0 0 26 38" aria-hidden="true"><path d="M13 3L4 29l9-5 9 5-9-26z" fill="#405d6b" /><path d="M13 3v21l9 5z" fill="#c7d4dc" /></svg></div>
-    <div className="canvas-help">{tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : 'Колесо — масштаб · Space + drag — перемещение · Esc — Select'}</div>
+    <div className="canvas-help">{tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : 'Shift + клик — точки по порядку · Колесо — масштаб · Space + drag — вид'}</div>
   </div>;
 }

@@ -1,13 +1,14 @@
 import { useEffect, useState, type Dispatch } from 'react';
 import { entityVertexIds, type Entity, type GeoDocument, type PointEntity } from '../domain/model';
 import { distance, pathLength, polygonArea } from '../geometry';
-import { formatCoordinate, formatMeasure } from '../geometry/format';
-import { isLayerLocked } from '../domain/commands';
+import { formatAzimuth, formatCoordinate, formatDistance, formatMeasure } from '../geometry/format';
+import { isLayerLocked, canEditVertex } from '../domain/commands';
+import { azimuth, polygonSelfIntersects } from '../geometry/survey';
 import { vertexFor } from '../renderer/selectors';
 import type { EditorAction, EditorState } from '../store/editor';
 import { Icon } from './Icon';
 
-const typeNames: Record<Entity['type'], string> = { point: 'Точка', line: 'Линия', polyline: 'Полилиния', polygon: 'Полигон', text: 'Текст' };
+const typeNames: Record<Entity['type'], string> = { point: 'Точка', line: 'Линия', polyline: 'Полилиния', polygon: 'Полигон', text: 'Текст', dimension: 'Размер' };
 
 function CoordinateField({ label, value, disabled, onChange, onEditStart, onEditEnd }: { label: string; value: number | undefined; disabled: boolean; onChange: (value: number) => void; onEditStart: () => void; onEditEnd: () => void }) {
   const [draft, setDraft] = useState(value === undefined ? '' : String(value));
@@ -27,7 +28,7 @@ function CoordinateField({ label, value, disabled, onChange, onEditStart, onEdit
 }
 function PointProperties({ entity, document, dispatch }: { entity: PointEntity; document: GeoDocument; dispatch: Dispatch<EditorAction> }) {
   const vertex = vertexFor(document, entity.vertexId);
-  const disabled = isLayerLocked(document, entity);
+  const disabled = isLayerLocked(document, entity) || !canEditVertex(document, entity.vertexId);
   const change = (key: 'x' | 'y' | 'z', value: number) => {
     const { x, y, z } = vertex;
     const position = key === 'x' ? { x: value, y, ...(z !== undefined ? { z } : {}) }
@@ -39,7 +40,7 @@ function PointProperties({ entity, document, dispatch }: { entity: PointEntity; 
     <CoordinateField label="X" value={vertex.x} disabled={disabled} onChange={x => change('x', x)} onEditStart={() => dispatch({ type: 'begin-transaction' })} onEditEnd={() => dispatch({ type: 'commit-transaction' })} />
     <CoordinateField label="Y" value={vertex.y} disabled={disabled} onChange={y => change('y', y)} onEditStart={() => dispatch({ type: 'begin-transaction' })} onEditEnd={() => dispatch({ type: 'commit-transaction' })} />
     <CoordinateField label="Z" value={vertex.z} disabled={disabled} onChange={z => change('z', z)} onEditStart={() => dispatch({ type: 'begin-transaction' })} onEditEnd={() => dispatch({ type: 'commit-transaction' })} />
-    {disabled ? <p className="field-help lock-message">Слой заблокирован. Объект доступен только для просмотра.</p> : <p className="field-help">Изменения применяются сразу. Полная точность доступна в поле ввода.</p>}
+    {disabled ? <p className="field-help lock-message">Вершина используется заблокированным слоем. Координаты доступны только для просмотра.</p> : <p className="field-help">Изменения применяются сразу. Полная точность доступна в поле ввода.</p>}
   </div>;
 }
 function GeometryProperties({ entity, document }: { entity: Exclude<Entity, PointEntity>; document: GeoDocument }) {
@@ -48,20 +49,23 @@ function GeometryProperties({ entity, document }: { entity: Exclude<Entity, Poin
   const worldPoints = points.map(({ x, y, z }) => z === undefined ? { x, y } : { x, y, z });
   return <div className="property-section"><h3>Геометрия</h3><dl className="property-facts">
     {entity.type === 'line' && <><dt>Длина</dt><dd>{formatMeasure(distance(worldPoints[0]!, worldPoints[1]!))} м</dd></>}
+    {(entity.type === 'line' || entity.type === 'dimension') && <><dt>Азимут</dt><dd>{formatAzimuth(azimuth(worldPoints[0]!, worldPoints[1]!))}</dd></>}
+    {entity.type === 'dimension' && <><dt>Horizontal</dt><dd>{formatDistance(distance(worldPoints[0]!, worldPoints[1]!))}</dd><dt>Offset</dt><dd>{formatDistance(entity.offset)}</dd></>}
     {entity.type === 'polyline' && <><dt>Длина</dt><dd>{formatMeasure(pathLength(worldPoints))} м</dd></>}
     {entity.type === 'polygon' && <><dt>Площадь</dt><dd>{formatMeasure(polygonArea(worldPoints))} м²</dd><dt>Периметр</dt><dd>{formatMeasure(pathLength(worldPoints, true))} м</dd></>}
     {entity.type === 'text' && <><dt>Содержание</dt><dd className="text-content">{entity.content}</dd><dt>Размер текста</dt><dd>{entity.fontSize} px</dd></>}
     <dt>Вершины</dt><dd>{points.length}</dd>
   </dl><div className="vertex-table"><table><thead><tr><th>Вершина</th><th>X, м</th><th>Y, м</th></tr></thead><tbody>
-    {points.map(vertex => <tr key={vertex.id}><td title={vertex.id}>{vertex.id}</td><td>{formatCoordinate(vertex.x)}</td><td>{formatCoordinate(vertex.y)}</td></tr>)}
-  </tbody></table></div></div>;
+    {points.map((vertex, i) => <tr key={`${vertex.id}:${i}`}><td title={vertex.id}>{vertex.id}</td><td>{formatCoordinate(vertex.x)}</td><td>{formatCoordinate(vertex.y)}</td></tr>)}
+  </tbody></table></div>{entity.type === 'polygon' && polygonSelfIntersects(worldPoints) && <p className="geometry-warning">Граница самопересекается. Проверьте вершины.</p>}</div>;
 }
 
 export function PropertyInspector({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const entity = state.document.entities.find(item => item.id === state.selectionId);
   const locked = entity ? isLayerLocked(state.document, entity) : false;
   return <aside className="right-panel" aria-label="Свойства объекта">
-    <div className="panel-heading"><h2>Свойства</h2><span className="subtle">{entity ? '1 объект' : 'Нет выбора'}</span></div>
+    <div className="panel-heading"><h2>Свойства</h2><span className="subtle">{state.orderedPointIds.length > 1 ? `${state.orderedPointIds.length} точки` : entity ? '1 объект' : 'Нет выбора'}</span></div>
+    {state.orderedPointIds.length >= 2 && <div className="ordered-selection"><h3>Точки по порядку · {state.orderedPointIds.length}</h3><ol>{state.orderedPointIds.map(id => <li key={id}>{state.document.entities.find(entity => entity.id === id)?.name}</li>)}</ol><div><button onClick={() => dispatch({ type: 'from-selected-points', kind: 'polyline' })}>Создать полилинию</button><button disabled={state.orderedPointIds.length < 3} onClick={() => dispatch({ type: 'from-selected-points', kind: 'polygon' })}>Создать границу</button></div></div>}
     {entity ? <div className="inspector-content">
       <div className="entity-heading"><span className="entity-icon"><Icon name={entity.type === 'polyline' ? 'line' : entity.type} size={23} /></span><div><h3>{entity.name}</h3><span>{typeNames[entity.type]}</span></div><button className="close-button" aria-label="Снять выбор" onClick={() => dispatch({ type: 'select', entityId: null })}>×</button></div>
       <div className="property-section"><h3>Общие</h3><dl className="property-facts"><dt>ID</dt><dd className="mono" data-testid="selected-id">{entity.id}</dd><dt>Тип</dt><dd>{typeNames[entity.type]}</dd></dl>

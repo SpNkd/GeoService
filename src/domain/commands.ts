@@ -1,11 +1,13 @@
 import { entityVertexIds, getVertex, vertexPoint, worldVertex, type Entity, type GeoDocument, type Layer, type PointEntity, type Vertex, type WorldPoint } from './model';
 import { validateDocument } from '../persistence/documentSchema';
 import { assertDocumentSize } from '../persistence/serialization';
+import { distance } from '../geometry';
+import { polygonSelfIntersects } from '../geometry/survey';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
   | { type: 'import-points'; points: { entity: PointEntity; vertex: Vertex }[]; layer?: Layer }
-  | { type: 'add-entity'; entity: Entity; vertices: Vertex[] }
+  | { type: 'add-entity'; entity: Entity; vertices: Vertex[]; layer?: Layer }
   | { type: 'delete-entity'; entityId: string }
   | { type: 'update-vertex'; vertexId: string; position: WorldPoint }
   | { type: 'move-vertex'; vertexId: string; delta: WorldPoint }
@@ -32,9 +34,11 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity) {
   if (layer.locked) throw new Error('Нельзя создать объект в заблокированном слое');
   if (entity.styleId && !document.styles.some(style => style.id === entity.styleId)) throw new Error('Стиль объекта не найден');
   const ids = entityVertexIds(entity);
-  const minimum = entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' ? 2 : 1;
+  const minimum = entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
   if (ids.length < minimum) throw new Error(`Для объекта типа «${entity.type}» требуется не менее ${minimum} вершин`);
   for (const id of ids) if (!Object.hasOwn(document.vertices, id)) throw new Error(`Вершина ${id} не найдена`);
+  if (entity.type === 'dimension' && (!Number.isFinite(entity.offset) || distance(getVertex(document.vertices, ids[0]!), getVertex(document.vertices, ids[1]!)) === 0)) throw new Error('Размер требует две разные позиции XY и конечный offset');
+  if (entity.type === 'polygon' && polygonSelfIntersects(ids.map(id => getVertex(document.vertices, id)))) throw new Error('Граница самопересекается. Измените порядок точек.');
   if (entity.type === 'text' && (!entity.content.trim() || !Number.isFinite(entity.fontSize) || entity.fontSize <= 0)) throw new Error('Текст должен иметь содержание и положительный размер');
 }
 const referencedVertices = (entities: Entity[]) => new Set(entities.flatMap(entityVertexIds));
@@ -65,6 +69,8 @@ export function applyCommand(document: GeoDocument, command: DocumentCommand): G
     }) };
   }
   if (command.type === 'add-entity') {
+    if (command.layer && (command.layer.id !== command.entity.layerId || document.layers.some(layer => layer.id === command.layer!.id))) throw new Error('Неверный или повторяющийся слой нового объекта');
+    if (command.layer && (!document.styles.some(style => style.id === command.layer!.styleId) || command.layer.locked)) throw new Error('Новый слой должен иметь существующий стиль и быть доступен для редактирования');
     const requiredNewIds = new Set(entityVertexIds(command.entity).filter(id => !Object.hasOwn(document.vertices, id)));
     const additions = new Map<string, Vertex>();
     for (const vertex of command.vertices) {
@@ -74,7 +80,8 @@ export function applyCommand(document: GeoDocument, command: DocumentCommand): G
     }
     for (const id of requiredNewIds) if (!additions.has(id)) throw new Error(`Для новой вершины ${id} не заданы координаты`);
     for (const id of additions.keys()) if (!requiredNewIds.has(id)) throw new Error(`Новая вершина ${id} не используется объектом`);
-    const candidate = { ...document, vertices: { ...document.vertices, ...Object.fromEntries(additions) } };
+    const candidate = { ...document, layers: command.layer ? [...document.layers, { ...command.layer }] : document.layers,
+      vertices: { ...document.vertices, ...Object.fromEntries(additions) } };
     assertUniqueDocumentEntity(candidate, command.entity);
     return { ...candidate, entities: [...document.entities, cloneEntity(command.entity)] };
   }
@@ -123,7 +130,7 @@ export function canEditVertex(document: GeoDocument, vertexId: string): boolean 
     .every(entity => !isLayerLocked(document, entity));
 }
 export function entityPosition(document: GeoDocument, entity: Entity): WorldPoint {
-  const id = entity.type === 'line' ? entity.startVertexId : entity.type === 'polyline' || entity.type === 'polygon' ? entity.vertexIds[0] : entity.vertexId;
+  const id = entityVertexIds(entity)[0]!;
   const vertex = getVertex(document.vertices, id);
   return vertexPoint(vertex);
 }

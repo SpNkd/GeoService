@@ -1,5 +1,7 @@
-type IconName = 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
+type IconName = 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
 const paths: Record<IconName, string> = {
+  dimension: 'M3 4v16m18-16v16M3 14h18m-15-3-3 3 3 3m12-6 3 3-3 3',
+  measure: 'M3 15L15 3l6 6L9 21zM7 11l3 3m0-6 3 3m0-6 3 3',
   cursor: 'M4 3l6 17 3-7 7-3L4 3z',
   hand: 'M8 12V6a2 2 0 014 0v5-7a2 2 0 014 0v7-5a2 2 0 014 0v8c0 5-3 8-7 8-3 0-5-2-7-5l-3-4a2 2 0 013-2l2 2',
   fit: 'M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5M8 8h8v8H8z',

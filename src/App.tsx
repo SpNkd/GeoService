@@ -13,6 +13,8 @@ import { createNewDocument } from './domain/newDocument';
 import { persistLocalDocument, restoreLocalDocument } from './persistence/local';
 import { deserializeDocument, MAX_DOCUMENT_BYTES, serializeDocument } from './persistence/serialization';
 import { applyCommand } from './domain/commands';
+import type { SnapResult } from './snapping';
+import type { PointLabelMode } from './store/editor';
 
 export default function App() {
   const [startup] = useState(() => {
@@ -24,6 +26,8 @@ export default function App() {
   const [notice, setNotice] = useState(startup.notice);
   const [fileError, setFileError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [snapStatus, setSnapStatus] = useState<SnapResult | null>(null);
+  const [measurementStatus, setMeasurementStatus] = useState<string | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const committed = state.transactionBefore ?? state.document;
   const dirty = useMemo(() => isDocumentDirty({ document: state.document, savedFingerprint: state.savedFingerprint }), [state.document, state.savedFingerprint]);
@@ -63,7 +67,7 @@ export default function App() {
   return <div className="app-shell">
     <header className="app-header"><a className="brand" href="/" aria-label="GeoService — начало"><span className="brand-mark"><Icon name="crosshair" size={24} /></span>Geo<span>Service</span></a>
       <div className="header-divider" /><div className="document-title"><strong>{state.document.metadata.title}{dirty && <span className="dirty-mark" aria-label="Есть несохранённые изменения"> *</span>}</strong><span>Геодезическая схема · X Easting / Y Northing / Z Height</span></div>
-      <span className="header-version">Редактор · 0.2</span>
+      <span className="header-version">Редактор · 0.3</span>
     </header>
     <nav className="toolbar" aria-label="Инструменты редактора">
       <div className="tool-group document-tools">
@@ -76,7 +80,7 @@ export default function App() {
         <button className="tool-button compact import-button" aria-label="Импорт координат" onClick={() => { dispatch({ type: 'tool', tool: 'select' }); setImportOpen(true); }}>Import</button>
       </div><div className="toolbar-divider" />
       <div className="tool-group">
-        {([['select', 'cursor', 'Выбор'], ['point', 'point', 'Точка'], ['line', 'line', 'Линия'], ['polyline', 'line', 'Полилиния'], ['polygon', 'polygon', 'Полигон'], ['text', 'text', 'Текст'], ['pan', 'hand', 'Панорама']] as const).map(([tool, icon, label]) =>
+        {([['select', 'cursor', 'Выбор'], ['point', 'point', 'Точка'], ['line', 'line', 'Линия'], ['polyline', 'line', 'Полилиния'], ['polygon', 'polygon', 'Полигон'], ['text', 'text', 'Текст'], ['dimension', 'dimension', 'Размер'], ['measure', 'measure', 'Измерение'], ['pan', 'hand', 'Панорама']] as const).map(([tool, icon, label]) =>
           <button key={tool} className={`tool-button compact ${state.tool === tool ? 'active' : ''}`} aria-label={`Инструмент: ${label}`} aria-pressed={state.tool === tool} title={`${label} · ${tool === 'point' ? 'один клик' : tool === 'line' ? 'два клика' : tool === 'polyline' || tool === 'polygon' ? 'Enter завершает' : 'Выбрать объект'}`} onClick={() => dispatch({ type: 'tool', tool })}><Icon name={icon} size={16} />{label}</button>)
         }
       </div><div className="toolbar-divider" />
@@ -86,12 +90,22 @@ export default function App() {
       <button className={`icon-button ${state.gridVisible ? 'grid-active' : ''}`} aria-label="Сетка" aria-pressed={state.gridVisible} onClick={() => dispatch({ type: 'toggle-grid' })}><Icon name="grid" size={16} /></button>
       <span className="toolbar-context">{state.document.coordinateSystem.name ?? 'Система координат'} · м</span>
     </nav>
+    <div className="survey-controls" aria-label="Привязки и подписи">
+      <button className={`tool-button compact ${state.snapOptions.enabled ? 'active' : ''}`} aria-label="Привязки" aria-pressed={state.snapOptions.enabled} onClick={() => dispatch({ type: 'snap-options', patch: { enabled: !state.snapOptions.enabled } })}>SNAP {state.snapOptions.enabled ? 'ON' : 'OFF'}</button>
+      <details className="survey-settings"><summary>Типы привязок</summary><div>
+        {(['vertex', 'midpoint', 'grid'] as const).map(type => <label key={type}><input type="checkbox" checked={state.snapOptions[type]} onChange={event => dispatch({ type: 'snap-options', patch: { [type]: event.target.checked } })} />{type === 'vertex' ? 'Vertex' : type === 'midpoint' ? 'Midpoint' : 'Grid'}</label>)}
+        <small>Допуск 10 px · скрытые слои исключены</small>
+      </div></details>
+      <label>Подписи точек <select aria-label="Подписи точек" value={state.pointLabelMode} onChange={event => dispatch({ type: 'point-labels', mode: event.target.value as PointLabelMode })}><option value="name">Имя</option><option value="name-z">Имя + Z</option><option value="z">Только Z</option></select></label>
+      <label><input type="checkbox" checked={state.showLineLengths} onChange={() => dispatch({ type: 'toggle-line-lengths' })} />Длины линий</label>
+      <span>Shift + клик: выбрать точки по порядку</span>
+    </div>
     <main className="workspace"><LayersPanel state={state} dispatch={dispatch} /><div className="drawing-area">
-      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} disabled={importOpen} />
+      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen} />
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
     </div><PropertyInspector state={state} dispatch={dispatch} /></main>
-    <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
+    <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>X <b data-testid="cursor-x">{cursorWorld ? formatCoordinate(cursorWorld.x) : '—'}</b></span><span>Y <b data-testid="cursor-y">{cursorWorld ? formatCoordinate(cursorWorld.y) : '—'}</b></span><span>м</span></div>
       <span className="status-grid">Шаг сетки: {formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
     </footer>

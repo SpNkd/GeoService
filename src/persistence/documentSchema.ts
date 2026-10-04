@@ -8,6 +8,7 @@ const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.o
 const entity = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('point'), vertexId: id }),
   z.object({ ...base, type: z.literal('line'), startVertexId: id, endVertexId: id }),
+  z.object({ ...base, type: z.literal('dimension'), startVertexId: id, endVertexId: id, offset: number }),
   z.object({ ...base, type: z.literal('polyline'), vertexIds: z.tuple([id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('polygon'), vertexIds: z.tuple([id, id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: number.positive().max(1000) }),
