@@ -6,6 +6,7 @@ import { formatHeight, formatDistance } from '../geometry/format';
 import { lockedVertexIds } from '../domain/commands';
 import { distance } from '../geometry';
 import type { PointLabelMode } from '../store/editor';
+import { GeometryPath } from './PreviewPrimitives';
 import { DimensionView } from './DimensionView';
 import type { RenderItem } from './selectors';
 
@@ -48,11 +49,10 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
       break;
     }
     case 'polyline': case 'polygon': {
-      const points = screen.map(p => `${p.x},${p.y}`).join(' ');
       shape = <>
         {entity.type === 'polygon'
-          ? <polygon points={points} fill={selected ? '#277ec110' : style.fill} {...attributes} />
-          : <><polyline points={points} fill="none" stroke="transparent" strokeWidth={14} /><polyline points={points} fill="none" {...attributes} pointerEvents="none" /></>}
+          ? <GeometryPath points={screen} closed fill={selected ? '#277ec110' : style.fill} {...attributes} />
+          : <><GeometryPath points={screen} closed={false} fill="none" stroke="transparent" strokeWidth={14} /><GeometryPath points={screen} closed={false} fill="none" {...attributes} pointerEvents="none" /></>}
         {editable && screen.map((p, i) => locked && !locked.has(ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
       </>;
       break;

@@ -5,9 +5,14 @@ export const AI_LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 96 *
 export const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
 export const aiRequestSchema = z.strictObject({ text: z.string().trim().min(1).max(AI_LIMITS.requestBytes)
   .refine(text => utf8Bytes(text) <= AI_LIMITS.requestBytes, 'Запрос превышает лимит 8 КБ') });
+const names = z.string().trim().min(1).max(AI_LIMITS.nameLength);
 export const createBoundaryIntentSchema = z.strictObject({ type: z.literal('create_boundary_from_named_points'),
-  pointNames: z.array(z.string().trim().min(1).max(AI_LIMITS.nameLength)).min(3).max(AI_LIMITS.pointNames) });
-export const aiIntentSchema = z.discriminatedUnion('type', [createBoundaryIntentSchema]);
+  pointNames: z.array(names).min(3).max(AI_LIMITS.pointNames) });
+export const createPolylineIntentSchema = z.strictObject({ type: z.literal('create_polyline_from_named_points'),
+  pointNames: z.array(names).min(2).max(AI_LIMITS.pointNames) });
+export const createDimensionIntentSchema = z.strictObject({ type: z.literal('create_dimension_between_named_points'), pointNames: z.array(names).length(2) });
+export const measureIntentSchema = z.strictObject({ type: z.literal('measure_between_named_points'), pointNames: z.array(names).length(2) });
+export const aiIntentSchema = z.discriminatedUnion('type', [createBoundaryIntentSchema, createPolylineIntentSchema, createDimensionIntentSchema, measureIntentSchema]);
 export type AiIntent = z.infer<typeof aiIntentSchema>;
 export const unsupportedSchema = z.strictObject({ status: z.literal('unsupported') });
 export type ParserResult = AiIntent | z.infer<typeof unsupportedSchema>;
@@ -17,7 +22,7 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
   if (utf8Bytes(JSON.stringify(raw) ?? '') > AI_LIMITS.responseBytes) throw new Error('Ответ AI превышает лимит');
   if (unsupportedSchema.safeParse(raw).success) return { status: 'unsupported' };
   const parsed = aiIntentSchema.safeParse(raw);
-  if (!parsed.success) throw new Error('AI вернул неверный intent. Попробуйте явно перечислить от 3 до 500 имён точек.');
+  if (!parsed.success) throw new Error('AI вернул неверный intent. Укажите одну операцию и явно перечислите имена точек.');
   let cursor = 0;
   const nameCharacter = /[\p{L}\p{N}_-]/u;
   for (const name of parsed.data.pointNames) {

@@ -27,7 +27,7 @@ export default function App() {
     editor: { ...initialEditorState(document), ...(startup.dirty ? { savedFingerprint: '' } : {}) }, ai: { status: 'idle' } }));
   const state = application.editor;
   const aiPreview = application.ai.status === 'preview' && application.ai.plan.resolution.status === 'ready' && !state.transactionBefore
-    ? application.ai.plan.resolution.geometry : null;
+    ? application.ai.plan.resolution : null;
   const [notice, setNotice] = useState(startup.notice);
   const [fileError, setFileError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);

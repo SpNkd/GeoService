@@ -3,8 +3,10 @@ import { AiRequestRunner, HttpAiIntentProvider, providerModeSchema, type AiInten
 import { AI_LIMITS, readBoundedJson, utf8Bytes } from '../ai/intent';
 import type { AiState, ApplicationAction } from '../ai/workflow';
 import type { ResolvedReference } from '../ai/resolver';
-import { formatDistance, formatMeasure } from '../geometry/format';
+import { AiPlanMetrics } from './AiPlanMetrics';
+import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
+const operationLabels = { boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
 const defaultProvider = new HttpAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
 interface Props { ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
@@ -30,8 +32,8 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
   const resolution = preview?.plan.resolution;
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
   return <section className="ai-panel" aria-label="AI Assistant">
-    <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : 'Не подключён'}</span></div>
-    <p className="ai-caption">Граница по именам точек · всегда с подтверждением</p>
+    <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? 'OpenRouter' : 'Не подключён'}</span></div>
+    <p className="ai-caption">Граница · полилиния · размер · измерение</p>
     <form onSubmit={generate}>
       <label htmlFor="ai-request">Запрос</label>
       <textarea id="ai-request" value={text} maxLength={AI_LIMITS.requestBytes} onChange={event => setText(event.target.value)} rows={3} />
@@ -43,9 +45,9 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
     <div aria-live="polite" aria-atomic="false">
       {ai.status === 'parsing' && <p className="ai-message">Разбираем запрос… Можно отправить новый или отменить.</p>}
       {ai.status === 'error' && <p className="ai-error" role="alert">{ai.message}</p>}
-      {ai.status === 'applied' && <p className="ai-message">Граница создана. Undo отменит её одной операцией.</p>}
+      {ai.status === 'applied' && <p className="ai-message">Объект создан. Undo отменит его одной операцией.</p>}
       {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>
-        <strong>Интерпретация: создать границу</strong><p className="ai-request-summary">{preview.plan.text}</p>
+        <strong>Интерпретация: {operationLabels[preview.plan.kind]}</strong><p className="ai-request-summary">{preview.plan.text}</p>
         <p>{preview.plan.intent.pointNames.join(' → ')}</p>
         {preview.notice && <p className="ai-message" role="status">{preview.notice}</p>}
         {resolution?.status === 'invalid' && <p className="ai-error">{resolution.message}</p>}
@@ -59,14 +61,17 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
           </>}
         </div>)}
         {resolution?.status === 'ready' && <>
-          <ol className="ai-points">{resolution.references.map(point => <li key={point.entityId}><b>{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>
-          <dl className="ai-metrics"><dt>Вершин</dt><dd>{resolution.references.length}</dd><dt>Perimeter</dt><dd>{formatDistance(resolution.perimeter)}</dd>
-            <dt>Area</dt><dd>{formatMeasure(resolution.area, 3)} м²</dd><dt>Целевой слой</dt><dd>boundary</dd></dl>
+          <ol className="ai-points">{resolution.references.map((point, index) => <li key={point.entityId}><b>{resolution.kind === 'dimension' || resolution.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>
+          <dl className="ai-metrics"><AiPlanMetrics result={resolution} /></dl>
           {resolution.warnings.map(warning => <p key={warning} className="ai-message">{warning}</p>)}
         </>}
-        {transactionActive && <p className="ai-message">Завершите редактирование координат перед Apply.</p>}
-        <div className="ai-actions"><button className="primary-button" type="button" disabled={ai.status !== 'preview' || resolution?.status !== 'ready' || transactionActive}
-          onClick={() => dispatch({ type: 'ai-apply' })}>Apply</button>
+        {preview.plan.kind === 'dimension' && <label>Offset (м)<input aria-label="Offset (м)" type="number" step="0.1" min={-MAX_DIMENSION_OFFSET} max={MAX_DIMENSION_OFFSET}
+          value={Number.isFinite(preview.plan.offsetOverride ?? (resolution?.status === 'ready' && resolution.kind === 'dimension' ? resolution.offset : 0))
+            ? preview.plan.offsetOverride ?? (resolution?.status === 'ready' && resolution.kind === 'dimension' ? resolution.offset : 0) : ''}
+          disabled={ai.status === 'stale' || transactionActive} onChange={event => dispatch({ type: 'ai-offset', offset: event.target.value === '' ? NaN : Number(event.target.value) })} /></label>}
+        {transactionActive && preview.plan.requiresConfirmation && <p className="ai-message">Завершите редактирование координат перед Apply.</p>}
+        <div className="ai-actions">{preview.plan.requiresConfirmation ? <button className="primary-button" type="button" disabled={ai.status !== 'preview' || resolution?.status !== 'ready' || transactionActive}
+          onClick={() => dispatch({ type: 'ai-apply' })}>Apply</button> : <button type="button" className="tool-button compact" onClick={cancel}>Clear</button>}
           {ai.status === 'stale' && <button type="button" className="tool-button compact" disabled={transactionActive} onClick={() => dispatch({ type: 'ai-refresh' })}>Пересчитать план</button>}
         </div>
       </div>}

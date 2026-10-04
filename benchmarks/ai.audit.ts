@@ -2,7 +2,7 @@ import { test, expect } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { writeFileSync } from 'node:fs';
 import { createNewDocument } from '../src/domain/newDocument';
-import { buildPointNameIndex, resolveCreateBoundaryIntent } from '../src/ai/resolver';
+import { buildPointNameIndex, resolveCreateBoundaryIntent, resolveIntent } from '../src/ai/resolver';
 import type { AiIntent } from '../src/ai/intent';
 import type { GeoDocument } from '../src/domain/model';
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
@@ -29,6 +29,18 @@ test('AI names at 1k/10k/50k: index lifecycle and cached resolution (no timing a
     }
     rows.push({ points, buildIndexMedianMs: median(builds), cachedResolutionMedianMs: median(resolutions), uncachedResolutionMedianMs: median(uncached),
       result: points === 50000 ? 'capacity rejection after name/geometry resolution (50000 entity ceiling)' : 'ready' });
+  }
+  for (const points of [1000, 10000, 50000]) {
+    const document = fixture(points), index = buildPointNameIndex(document.entities);
+    for (const type of ['create_polyline_from_named_points', 'create_dimension_between_named_points', 'measure_between_named_points'] as const) {
+      const intent: AiIntent = { type, pointNames: ['P1', 'P2'] }, values: number[] = [];
+      for (let i = 0; i < 30; i++) {
+        const start = performance.now(), result = resolveIntent(intent, document, new Map(), { index });
+        if (i >= 5) values.push(performance.now() - start);
+        expect(result.status).toBe(points === 50000 && type !== 'measure_between_named_points' ? 'invalid' : 'ready');
+      }
+      rows.push({ points, intent: type, cachedResolutionMedianMs: median(values) });
+    }
   }
   const document = fixture(49999), index = buildPointNameIndex(document.entities), values: number[] = [];
   for (let i = 0; i < 30; i++) { const start = performance.now(); const result = resolveCreateBoundaryIntent(intent, document, new Map(), { index });

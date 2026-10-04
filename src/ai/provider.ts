@@ -3,7 +3,7 @@ import { AI_LIMITS, aiRequestSchema, readBoundedJson, validateParserResult, type
 
 export interface AiIntentRequest { text: string; signal: AbortSignal }
 export interface AiIntentProvider { parseIntent(request: AiIntentRequest): Promise<unknown> }
-export const providerModeSchema = z.enum(['mock', 'openai', 'disabled']);
+export const providerModeSchema = z.enum(['mock', 'openai', 'openrouter', 'disabled']);
 export type ProviderMode = z.infer<typeof providerModeSchema>;
 export class HttpAiIntentProvider implements AiIntentProvider {
   constructor(private readonly transport: typeof fetch = (...args) => fetch(...args)) {}

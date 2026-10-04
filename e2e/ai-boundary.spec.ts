@@ -85,13 +85,13 @@ test('duplicate external P1 requires explicit local candidate selection', async 
 
 test('manual P2 coordinate edit invalidates ghost and requires refreshed preview and explicit Apply', async ({ page }) => {
   await setup(page); await generate(page); const ghost = page.getByTestId('ai-ghost'); await expect(ghost).toBeVisible();
-  const original = await ghost.getAttribute('points');
+  const original = await ghost.locator('polygon').getAttribute('points');
   await page.locator('[data-entity-type="point"][aria-label="P2"] circle[r="14"]').click();
   const x = page.getByRole('textbox', { name: 'X', exact: true }); await x.fill('562366.123456789');
   await expect(ghost).toHaveCount(0); await x.blur();
   await expect(page.getByTestId('ai-plan')).toHaveAttribute('data-status', 'stale'); await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Пересчитать план', exact: true }).click();
-  await expect(ghost).toBeVisible(); await expect(ghost).not.toHaveAttribute('points', original!);
+  await expect(ghost).toBeVisible(); await expect(ghost.locator('polygon')).not.toHaveAttribute('points', original!);
   await expect(page.getByTestId('ai-plan')).toContainText('План пересчитан'); await expect(page.getByTestId('ai-plan')).toContainText('562366.123456789');
   await expect(page.locator('[data-entity-type="polygon"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.locator('[data-entity-type="polygon"]')).toHaveCount(1);

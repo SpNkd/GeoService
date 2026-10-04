@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AI_LIMITS, aiIntentSchema, aiRequestSchema, readBoundedJson, validateParserResult } from '../ai/intent';
 import { resolveCreateBoundaryIntent, buildPointNameIndex, pointNameIndex } from '../ai/resolver';
 import { AiRequestRunner, HttpAiIntentProvider, MockAiIntentProvider, type RequestEvent } from '../ai/provider';
-import { applicationReducer, boundaryExecutionGate, type AiPlan, type ApplicationState } from '../ai/workflow';
+import { applicationReducer, mutationExecutionGate, type AiPlan, type ApplicationState } from '../ai/workflow';
 import { createSampleDocument } from '../sample/document';
 import { initialEditorState, isDocumentDirty, editorReducer } from '../store/editor';
 import { commandFromOrderedPoints } from '../domain/geometryIntent';
@@ -23,8 +23,8 @@ function preview(app = state(), names?: string[]): ApplicationState {
   return applicationReducer(applicationReducer(app, { type: 'ai-event', event: { type: 'start', id: 'request-1', text } }),
     { type: 'ai-event', event: { type: 'result', id: 'request-1', result: intent(names) } });
 }
-function plan(app: ApplicationState): AiPlan {
-  if (app.ai.status !== 'preview' && app.ai.status !== 'stale') throw new Error('Expected preview'); return app.ai.plan;
+function plan(app: ApplicationState): Extract<AiPlan, {kind: 'boundary'}> {
+  if (app.ai.status !== 'preview' && app.ai.status !== 'stale') throw new Error('Expected preview'); if (app.ai.plan.kind !== 'boundary') throw new Error('Expected boundary'); return app.ai.plan;
 }
 function ready(doc = drawing(), names?: string[]) {
   const result = resolveCreateBoundaryIntent(intent(names), doc);
@@ -158,7 +158,7 @@ describe('preview, gate and history', () => {
   it('stale preview cannot execute; Apply refreshes and requires a second explicit confirmation', () => {
     const generated = preview(), oldPlan = plan(generated);
     const moved = applicationReducer(generated, { type: 'execute', command: { type: 'move-vertex', vertexId: 'v-p1', delta: { x: 5, y: 0 } } });
-    expect(moved.ai.status).toBe('stale'); expect(boundaryExecutionGate(oldPlan, moved.editor).status).toBe('refreshed');
+    expect(moved.ai.status).toBe('stale'); expect(mutationExecutionGate(oldPlan, moved.editor).status).toBe('refreshed');
     const refreshed = applicationReducer(moved, { type: 'ai-apply' });
     expect(refreshed.editor).toBe(moved.editor); expect(refreshed.ai.status).toBe('preview');
     const resolved = plan(refreshed).resolution; expect(resolved.status === 'ready' && resolved.geometry[0]?.x).toBe(1005);
@@ -175,7 +175,7 @@ describe('preview, gate and history', () => {
   });
   it('gate and guarded existing execute reject active transactions or changed snapshot', () => {
     const generated = preview(), dragging = applicationReducer(generated, { type: 'begin-transaction' });
-    expect(boundaryExecutionGate(plan(dragging), dragging.editor).status).toBe('blocked');
+    expect(mutationExecutionGate(plan(dragging), dragging.editor).status).toBe('blocked');
     expect(applicationReducer(dragging, { type: 'ai-apply' }).editor).toBe(dragging.editor);
     const command = ready().command;
     expect(editorReducer(dragging.editor, { type: 'execute', command, expectedDocument: generated.editor.document }).error).toContain('транзакция');
@@ -186,7 +186,7 @@ describe('preview, gate and history', () => {
     const generated = preview(), valid = plan(generated);
     if (valid.resolution.status !== 'ready') throw new Error('ready');
     const corrupt = { ...valid, resolution: { ...valid.resolution, command: { ...valid.resolution.command, injected: true } } };
-    expect(() => boundaryExecutionGate(corrupt, generated.editor)).toThrow('Неверная команда');
+    expect(() => mutationExecutionGate(corrupt, generated.editor)).toThrow('Неверная команда');
     const applied = applicationReducer(generated, { type: 'ai-apply' }); expect(applicationReducer(applied, { type: 'ai-apply' })).toBe(applied);
   });
   it('replacement resets preview and ignores response from an obsolete request', () => {

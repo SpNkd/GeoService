@@ -8,13 +8,16 @@ import { formatAzimuth, formatDistance } from '../geometry/format';
 import { createSnapProvider, findSnapCandidate, type SnapResult } from '../snapping';
 import { renderItems } from '../renderer/selectors';
 import { EntityView } from '../renderer/EntityView';
+import type { ReadyResolution } from '../ai/resolver';
+import { AiPreviewView } from '../renderer/AiPreviewView';
+import { GeometryPath, MeasurementLine } from '../renderer/PreviewPrimitives';
 import { DimensionView } from '../renderer/DimensionView';
 import { Grid } from '../renderer/Grid';
 import type { EditorAction, EditorState } from '../store/editor';
 
 interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
-  onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; aiPreview?: readonly WorldPoint[] | null;
+  onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; aiPreview?: ReadyResolution | null;
 }
 type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex };
 type MoveInput = { point: ScreenPoint; pointerId: number };
@@ -192,7 +195,6 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const measurementStatus = measurement ? `D=${formatDistance(measurement.horizontal)} · ΔX=${formatDistance(measurement.delta.x)} · ΔY=${formatDistance(measurement.delta.y)} · Az=${formatAzimuth(measurement.azimuth)}` : null;
   useEffect(() => onMeasure(measurementStatus), [measurementStatus, onMeasure]);
   const previewPoints = [...draft.map(anchor => worldToScreen(anchor.position, viewport, size)), ...(drawCursor && !(tool === 'measure' && draft.length === 2) ? [worldToScreen(drawCursor, viewport, size)] : [])];
-  const previewString = previewPoints.map(point => `${point.x},${point.y}`).join(' ');
   const snapScreen = snap ? worldToScreen(snap.worldPosition, viewport, size) : null;
   return <div className="canvas-wrap">
     <svg ref={ref} className={`drawing-canvas ${dragging ? 'grabbing' : space || tool === 'pan' ? 'panning' : `tool-${tool}`}`}
@@ -211,11 +213,11 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         selected={state.selectionId === item.entity.id || state.orderedPointIds.includes(item.entity.id)}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
         pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}
-      {aiPreview && <polygon data-testid="ai-ghost" pointerEvents="none" stroke="#6279ba" strokeWidth={2} strokeDasharray="8 5" fill="#6279ba18" points={aiPreview.map(point => { const screen = worldToScreen(point, viewport, size); return `${screen.x},${screen.y}`; }).join(' ')} />}
+      {aiPreview && <AiPreviewView result={aiPreview} viewport={viewport} size={size} />}
       {draft.length > 0 && <g className="drawing-preview" pointerEvents="none" stroke="#21836e" strokeWidth={1.5} strokeDasharray="5 4" fill="#21836e20">
-        {(tool === 'line' || tool === 'measure') && previewPoints.length > 1 && <line x1={previewPoints[0]!.x} y1={previewPoints[0]!.y} x2={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!.x} y2={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!.y} />}
-        {tool === 'polyline' && <polyline points={previewString} fill="none" />}
-        {tool === 'polygon' && <polygon points={previewString} />}
+        {(tool === 'line' || tool === 'measure') && previewPoints.length > 1 && <MeasurementLine a={previewPoints[0]!} b={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!} />}
+        {tool === 'polyline' && <GeometryPath points={previewPoints} closed={false} fill="none" />}
+        {tool === 'polygon' && <GeometryPath points={previewPoints} closed />}
         {previewPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r={3} fill="white" />)}
       </g>}
       {tool === 'dimension' && draft.length >= 2 && <DimensionView a={draft[0]!.position} b={draft[1]!.position} offset={dimensionOffset(draft[0]!.position, draft[1]!.position, drawCursor ?? draft[1]!.position)} viewport={viewport} size={size} preview />}
