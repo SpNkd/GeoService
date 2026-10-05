@@ -85,6 +85,18 @@ describe('precision and dimension', () => {
   });
 });
 describe('construction and projected dependencies', () => {
+  it.each(['Нарисуй участок 20x30 м, в центре дом, 6x5 м и проставь размеры дома',
+    'Нарисуй участок 20 на 30, в середине дом 6 на 5, размеры дома поставь.',
+    'Участок 20×30 м, посередине дом 6×5 м с размерами сторон'])('accepts explicit centering synonyms with equivalent construction semantics: %s', text => {
+    const task: AiTaskIntent = { actions: [site, { type: 'create_rectangle', name: 'Дом', width: 6, height: 5, placement: { type: 'centered_in_action_result', polygonActionIndex: 0 } }, { type: 'create_dimensions_for_boundary_edges', boundaryActionIndex: 1 }] };
+    expect(validateParserResult(task, text)).toEqual(task);
+    const plan = resolveAiTaskPlan(task, createNewDocument());
+    expect(plan.resolution.status).toBe('ready');
+    const dimensions = plan.actions[2]!.resolution;
+    if (dimensions.status !== 'ready' || dimensions.kind !== 'bulk-dimensions') throw new Error();
+    expect(dimensions.dimensions.map(dimension => dimension.metrics.horizontal)).toEqual([6,5,6,5]);
+    expect(() => validateParserResult(task, 'Участок 20×30 м, на участке дом 6×5 м с размерами')).toThrow('Уточните положение');
+  });
   it('extracts explicit coordinates only; retains Z, scientific notation and Cyrillic names', () => {
     expect(validateParserResult(pointTask, pointText)).toEqual(pointTask);
     const task = { actions: [{ type: 'create_points', points: [{ name: 'КН-7', x: 562341.234123456, y: 6189345.221234567, z: 152.34 }] }] };

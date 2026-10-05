@@ -142,7 +142,7 @@ it('OpenRouter contract is structured, bounded, fixed-model, text-only; local va
   expect(await new OpenRouterIntentProvider('fake-secret', 'qwen/test', transport).parseIntent({ text: 'P1 P2', signal: new AbortController().signal })).toEqual({ actions: [output] });
   const body = JSON.parse(String(transport.mock.calls[0]?.[1]?.body));
   expect(body.model).toBe('qwen/test'); expect(body.messages[1]).toEqual({ role: 'user', content: 'P1 P2' });
-  expect(body.provider).toEqual({ require_parameters: true }); expect(body.reasoning.enabled).toBe(false);
+  expect(body.provider).toEqual({ require_parameters: true, allow_fallbacks: true, data_collection: 'deny' }); expect(body).not.toHaveProperty('reasoning');
   expect(body.response_format.json_schema.strict).toBe(true); expect(body).not.toHaveProperty('models');
 });
 it.each([

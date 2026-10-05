@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AiProviderError } from './reliability';
 
 export const AI_LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 96 * 1024, upstreamBytes: 256 * 1024,
   actions: 8, pointsPerAction: 500, clarificationQuestions: 3, clarificationQuestionLength: 240, totalReferences: 1000, generatedCommands: 128, bulkDimensions: 100, pointNames: 500, nameLength: 128, timeoutMs: 30000 });
@@ -52,7 +53,7 @@ export type ParserResult = AiTaskIntent | z.infer<typeof unsupportedSchema> | z.
 
 /** Literal provenance/order check only; this does not interpret natural language or replace a provider. */
 export function validateParserResult(raw: unknown, text: string): ParserResult {
-  if (utf8Bytes(JSON.stringify(raw) ?? '') > AI_LIMITS.responseBytes) throw new Error('Ответ AI превышает лимит');
+  if (utf8Bytes(JSON.stringify(raw) ?? '') > AI_LIMITS.responseBytes) throw new AiProviderError('INVALID_STRUCTURED_OUTPUT', undefined, 'Ответ AI превышает лимит');
   if (unsupportedSchema.safeParse(raw).success) return { status: 'unsupported' };
   const clarification = clarificationSchema.safeParse(raw); if (clarification.success) return clarification.data;
   // Structured output uses null for absent Z; do not strip unknown fields.
@@ -60,7 +61,7 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
     ? { ...action, points: action.points.map((point: unknown) => { if (point && typeof point === 'object' && 'z' in point && point.z === null) { const { z: _z, ...rest } = point; void _z; return rest; } return point; }) } : action) };
   // Normalize legacy single fixtures at the input boundary; all downstream code uses actions[].
   const parsed = aiTaskSchema.safeParse(aiIntentSchema.safeParse(raw).success ? { actions: [raw] } : raw);
-  if (!parsed.success) throw new Error('AI вернул неверный intent. Укажите поддерживаемые операции и явно перечислите имена точек.');
+  if (!parsed.success) throw new AiProviderError('INVALID_STRUCTURED_OUTPUT', undefined, 'AI вернул неверный intent. Укажите поддерживаемые операции и явно перечислите имена точек.');
   const created = new Set<string>();
   let cursor = 0;
   const nameCharacter = /[\p{L}\p{N}_-]/u;
@@ -68,17 +69,17 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
     if (action.type === 'create_points') {
       for (const point of action.points) {
         const literal = explicitPointCoordinates(text, point.name);
-        if (!literal || literal.x !== point.x || literal.y !== point.y || literal.z !== point.z) throw new Error(`Координаты «${point.name}» должны быть явно заданы в запросе.`);
+        if (!literal || literal.x !== point.x || literal.y !== point.y || literal.z !== point.z) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, `Координаты «${point.name}» должны быть явно заданы в запросе.`);
         created.add(point.name);
       }
       continue;
     }
     if (action.type === 'create_rectangle') {
-      if (!text.toLocaleLowerCase().includes(action.name.toLocaleLowerCase()) || !explicitSize(text, action.width, action.height)) throw new Error('Имя и размеры прямоугольника должны быть явно заданы.');
+      if (!text.toLocaleLowerCase().includes(action.name.toLocaleLowerCase()) || !explicitSize(text, action.width, action.height)) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, 'Имя и размеры прямоугольника должны быть явно заданы.');
       if (action.placement.type === 'lower_left' || action.placement.type === 'center') {
-        const placement = action.placement, pair = explicitAxes(text); if (!pair.some(p => p.x === placement.x && p.y === placement.y)) throw new Error('Положение прямоугольника должно быть задано явно.');
+        const placement = action.placement, pair = explicitAxes(text); if (!pair.some(p => p.x === placement.x && p.y === placement.y)) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, 'Положение прямоугольника должно быть задано явно.');
       }
-      if (action.placement.type === 'centered_in_action_result' && !/центр|center/i.test(text)) throw new Error('Уточните положение дома на участке.');
+      if (action.placement.type === 'centered_in_action_result' && !/центр|середин|center/i.test(text)) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, 'Уточните положение дома на участке.');
       continue;
     }
     if (!('pointNames' in action)) continue;
@@ -96,7 +97,7 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
         if ((!nameCharacter.test(before) && !nameCharacter.test(after)) || inPair) break;
         at = text.indexOf(name, at + 1);
       }
-      if (at < 0) throw new Error(`Имя «${name}» отсутствует в запросе или нарушен порядок. Уточните запрос.`);
+      if (at < 0) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, `Имя «${name}» отсутствует в запросе или нарушен порядок. Уточните запрос.`);
       cursor = at + name.length;
     }
   }

@@ -1,18 +1,21 @@
-import { memo, useEffect, useMemo, useState, type Dispatch, type FormEvent } from 'react';
+import { lazy, Suspense, memo, useEffect, useMemo, useState, type Dispatch, type FormEvent } from 'react';
 import { AiRequestRunner, HttpAiIntentProvider, providerModeSchema, type AiIntentProvider, type ProviderMode } from '../ai/provider';
 import { AI_LIMITS, readBoundedJson, utf8Bytes } from '../ai/intent';
 import type { AiState, ApplicationAction } from '../ai/workflow';
 import type { ResolvedReference } from '../ai/resolver';
 import { AiPlanMetrics } from './AiPlanMetrics';
 import { formatDistance } from '../geometry/format';
+import type { AiDiagnostic } from '../ai/reliability';
 import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
+const Diagnostics = import.meta.env.DEV ? lazy(() => import('./AiDiagnostics')) : null;
 const operationLabels = { points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
 const defaultProvider = new HttpAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
 interface Props { ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
 export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, documentEpoch, provider = defaultProvider }: Props) {
   const [text, setText] = useState('Создай границу по точкам P1, P2, P3 и P4');
+  const [lastDiagnostic, setLastDiagnostic] = useState<AiDiagnostic | null>(null);
   const [clarificationAnswer, setClarificationAnswer] = useState('');
   const [mode, setMode] = useState<ProviderMode>('disabled');
   const runner = useMemo(() => new AiRequestRunner(provider), [provider]);
@@ -28,10 +31,14 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
     }).catch(() => {});
     return () => controller.abort();
   }, []);
+  const run = (requestText: string) => { void runner.run(requestText, event => {
+    if (import.meta.env.DEV && event.diagnostics) setLastDiagnostic(event.diagnostics);
+    dispatch({ type: 'ai-event', event });
+  }); };
   const generate = (event: FormEvent) => { event.preventDefault();
     const requestText = ai.status === 'needs_clarification' ? `${ai.originalText}\nУточнение пользователя: ${clarificationAnswer}` : text;
     setClarificationAnswer('');
-    void runner.run(requestText, event => dispatch({ type: 'ai-event', event })); };
+    run(requestText); };
   const preview = ai.status === 'preview' || ai.status === 'stale' ? ai : ai.status === 'applied' && ai.results ? { plan: ai.results, notice: null } : null;
   const resolution = preview?.plan.resolution;
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
@@ -49,7 +56,10 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
     {mode === 'disabled' && <p className="ai-message">AI не подключён. Запустите mock demo или настройте серверный провайдер по README.</p>}
     <div aria-live="polite" aria-atomic="false">
       {ai.status === 'parsing' && <p className="ai-message">Разбираем запрос… Можно отправить новый или отменить.</p>}
-      {ai.status === 'error' && <p className="ai-error" role="alert">{ai.message}</p>}
+      {ai.status === 'error' && <div className="ai-error-state"><p className="ai-error" role="alert">{ai.message}</p>
+        {ai.code !== 'UNSUPPORTED' && <button type="button" className="tool-button compact" onClick={() => run(ai.originalText ?? text)}>Повторить запрос</button>}
+        {import.meta.env.DEV && <details><summary>Подробнее</summary><p>{ai.id} · {ai.code ?? 'LOCAL_VALIDATION_ERROR'}</p></details>}
+      </div>}
       {ai.status === 'applied' && <p className="ai-message">Изменения применены. Undo отменит их одной операцией.</p>}
       {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>
         <strong>AI Plan · {preview.plan.actions.length} actions</strong><p className="ai-request-summary">{preview.plan.text}</p>
@@ -92,5 +102,6 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
         </div>
       </div>}
     </div>
+    {Diagnostics && <Suspense fallback={null}><Diagnostics record={lastDiagnostic} ai={ai} /></Suspense>}
   </section>;
 });

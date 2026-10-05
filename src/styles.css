@@ -257,3 +257,8 @@ h2, h3, p { margin: 0; }
 .layer-property-name input { width:100%; min-width:0; box-sizing:border-box; border:1px solid #d5e0e8; border-radius:5px; padding:7px; }
 .secondary-action { display:inline-flex; align-items:center; gap:6px; border:1px solid #cbdde7; border-radius:5px; background:#f7fafc; color:#2c667e; padding:6px 9px; font-size:11px; margin:6px 5px 0 0; }
 .snap-step-input { width:65px; border:1px solid #ccdbe4; border-radius:4px; padding:4px; }
+
+.ai-diagnostics { margin-top: 12px; font-size: 11px; }
+.ai-diagnostics summary { cursor: pointer; overflow-wrap: anywhere; }
+.ai-diagnostics pre { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10px; }
+.ai-error-state details { font-size: 11px; overflow-wrap: anywhere; }

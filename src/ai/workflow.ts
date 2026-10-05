@@ -2,13 +2,14 @@ import type { GeoDocument } from '../domain/model';
 import { parseCommand } from '../domain/commandSchema';
 import { editorReducer, type EditorAction, type EditorState } from '../store/editor';
 import { AI_LIMITS, aiTaskSchema } from './intent';
+import type { AiErrorCode } from './reliability';
 import type { RequestEvent } from './provider';
 import { resolveAiTaskPlan, refreshTask, taskCommands, type ResolvedAiTaskPlan } from './task';
 export type { AiPlan, MutationPlan, ResolvedAiTaskPlan } from './task';
 
 export type AiState = { status: 'needs_clarification'; originalText: string; questions: string[] } | { status: 'idle' } | { status: 'parsing'; id: string; text: string }
   | { status: 'preview' | 'stale'; plan: ResolvedAiTaskPlan; notice: string | null }
-  | { status: 'applied'; id: string; results: ResolvedAiTaskPlan | null } | { status: 'error'; message: string };
+  | { status: 'applied'; id: string; results: ResolvedAiTaskPlan | null } | { status: 'error'; message: string; code?: AiErrorCode; id?: string; originalText?: string };
 export interface ApplicationState { editor: EditorState; ai: AiState }
 export type ApplicationAction = EditorAction | { type: 'ai-event'; event: RequestEvent }
   | { type: 'ai-cancel' } | { type: 'ai-choose'; name: string; entityId: string }
@@ -34,9 +35,9 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       const event = action.event;
       if (event.type === 'start') return { ...state, ai: { status: 'parsing', id: event.id, text: event.text } };
       if (state.ai.status !== 'parsing' || state.ai.id !== event.id) return state;
-      if (event.type === 'failure') return { ...state, ai: { status: 'error', message: event.message } };
+      if (event.type === 'failure') return { ...state, ai: { status: 'error', message: event.message, ...(event.code ? { code: event.code } : {}), id: event.id, originalText: state.ai.text } };
       if ('status' in event.result && event.result.status === 'needs_clarification') return { ...state, ai: { status: 'needs_clarification', originalText: state.ai.text, questions: event.result.questions } };
-      if ('status' in event.result) return { ...state, ai: { status: 'error', message: 'Эта команда пока не поддерживается.' } };
+      if ('status' in event.result) return { ...state, ai: { status: 'error', message: 'Эта команда пока не поддерживается.', code: 'UNSUPPORTED', id: event.id, originalText: state.ai.text } };
       return { ...state, ai: { status: 'preview', notice: null, plan: resolveAiTaskPlan(event.result,
         state.editor.transactionBefore ?? state.editor.document, new Map(), { id: event.id, text: state.ai.text }) } };
     }
