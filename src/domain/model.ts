@@ -1,4 +1,4 @@
-/** Domain coordinates are metres: X east, Y north, Z height. Screen axes never enter this model. */
+/** Canonical MODEL coordinates in metres. Survey XY and absolute height are derived separately. */
 export interface WorldPoint { x: number; y: number; z?: number }
 export interface Vertex extends WorldPoint { id: string }
 export type VertexRegistry = Record<string, Vertex>;
@@ -14,7 +14,16 @@ export interface TextEntity extends EntityBase { type: 'text'; vertexId: string;
 export interface LabelEntity extends EntityBase { type: 'label'; targetId: string; template: string; dx: number; dy: number }
 export interface DimensionEntity extends EntityBase { type: 'dimension'; startVertexId: string; endVertexId: string; offset: number; textPosition?: number }
 export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity;
+export interface SurveyXY { e: number; n: number }
+export interface RigidTransform2D { rotation: number; translation: SurveyXY; scale: 1 }
+export interface HorizontalControl { pointEntityId: string; vertexId: string; modelSnapshot: { x: number; y: number }; survey: SurveyXY }
+export interface HorizontalReference { controls: [HorizontalControl, HorizontalControl]; transform: RigidTransform2D }
+export interface VerticalReference { modelZero: 0; absoluteAtModelZero: number }
 export interface GeoDocument {
+  /** Absent only in legacy v2: projected/direct. */
+  modelFrame?: 'local' | 'projected';
+  horizontalReference?: HorizontalReference;
+  verticalReference?: VerticalReference;
   schemaVersion: 2;
   metadata: { id: string; title: string; description: string };
   coordinateSystem: { kind: 'local' | 'projected' | 'unknown'; name?: string; epsg?: number; xAxis: 'east'; yAxis: 'north'; zAxis: 'up' };

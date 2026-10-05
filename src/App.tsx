@@ -1,4 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { documentSurveyXY } from './geometry/georeferencing';
+import type { HorizontalReference } from './domain/model';
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { bounds, fitToBounds, gridStep, screenToWorld, type ScreenPoint, type ViewSize } from './geometry';
 import { formatCoordinate, formatMeasure } from './geometry/format';
 import { visibleBounds } from './renderer/selectors';
@@ -20,6 +22,8 @@ import { AiPanel } from './components/AiPanel';
 import type { PointLabelMode } from './store/editor';
 import { resolveShortcut, shortcutNeedsWait, shortcutRegistry, shortcutMatchesPrefix } from './editor/shortcuts';
 
+const GeoreferenceDialog = lazy(() => import('./components/GeoreferenceDialog').then(module => ({ default: module.GeoreferenceDialog })));
+
 export default function App() {
   const [startup] = useState(() => {
     try { return restoreLocalDocument(localStorage, createSampleDocument); }
@@ -35,6 +39,11 @@ export default function App() {
     ? taskPreviews(aiTask) : [];
   const [notice, setNotice] = useState(startup.notice);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [georeferenceOpen, setGeoreferenceOpen] = useState(false);
+  const [pickingControl, setPickingControl] = useState<0 | 1 | null>(null);
+  const [pickedControl, setPickedControl] = useState<{ slot: 0 | 1; id: string } | null>(null);
+  const [referencePreview, setReferencePreview] = useState<HorizontalReference | null>(null);
+  const closeGeoreference = useCallback(() => { setGeoreferenceOpen(false); setPickingControl(null); setPickedControl(null); setReferencePreview(null); }, []);
   const [importOpen, setImportOpen] = useState(false);
   const [snapStatus, setSnapStatus] = useState<SnapResult | null>(null);
   const [measurementStatus, setMeasurementStatus] = useState<string | null>(null);
@@ -53,6 +62,7 @@ export default function App() {
   const [size, setSize] = useState<ViewSize>({ width: 1, height: 1 });
   const [cursor, setCursor] = useState<ScreenPoint | null>(null);
   const cursorWorld = cursor ? screenToWorld(cursor, state.viewport, size) : null;
+  const cursorSurvey = cursorWorld && state.coordinateDisplay === 'survey' ? documentSurveyXY(state.document, cursorWorld) : null;
   const fitted = useRef(false);
   const onResize = useCallback((next: ViewSize) => {
     setSize(previous => previous.width === next.width && previous.height === next.height ? previous : next);
@@ -106,6 +116,11 @@ export default function App() {
     const executeBuffer = () => { const match = resolveShortcut(keyBuffer.current); clearSequence(); if (match) runShortcut(match.id); };
     const suppressed = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"], [data-shortcut-suppressed]'));
     const keydown = (event: KeyboardEvent) => {
+      if (georeferenceOpen) {
+        if (event.key === 'Escape') { event.preventDefault(); if (pickingControl !== null) setPickingControl(null); else closeGeoreference(); }
+        if (event.metaKey || event.ctrlKey) { if (['s', 'o', 'n', 'z', 'y'].includes(event.key.toLowerCase())) event.preventDefault(); }
+        return;
+      }
       if (event.code === 'Space' && !suppressed(event.target) && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); setSpaceHeld(true); return; }
       if (event.metaKey || event.ctrlKey) {
         clearSequence(); const key = event.key.toLowerCase();
@@ -135,7 +150,7 @@ export default function App() {
     const blur = () => { setSpaceHeld(false); clearSequence(); };
     window.addEventListener('keydown', keydown); window.addEventListener('keyup', keyup); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup); window.removeEventListener('blur', blur); clearSequence(); };
-  }, [state, shortcutsOpen, dirty, size, runShortcut]);
+  }, [state, shortcutsOpen, dirty, size, runShortcut, georeferenceOpen, pickingControl, closeGeoreference]);
   const fittedAiTask = useRef<string | null>(null);
   useEffect(() => {
     if (aiTask?.resolution.status !== 'ready' || aiTask.id === fittedAiTask.current || !aiTask.requiresConfirmation || size.width <= 1) return;
@@ -147,10 +162,10 @@ export default function App() {
   const selected = state.document.entities.find(entity => entity.id === state.selectionId);
   return <div className="app-shell">
     <header className="app-header"><a className="brand" href="/" aria-label="GeoService — начало"><span className="brand-mark"><Icon name="crosshair" size={24} /></span>Geo<span>Service</span></a>
-      <div className="header-divider" /><div className="document-title"><strong>{state.document.metadata.title}{dirty && <span className="dirty-mark" aria-label="Есть несохранённые изменения"> *</span>}</strong><span>Геодезическая схема · X Easting / Y Northing / Z Height</span></div>
+      <div className="header-divider" /><div className="document-title"><strong>{state.document.metadata.title}{dirty && <span className="dirty-mark" aria-label="Есть несохранённые изменения"> *</span>}</strong><span>MODEL X / Y / Z · Survey E / N · абсолютная H</span></div>
       <span className="header-version">Редактор · 0.3</span>
     </header>
-    <nav className="toolbar" aria-label="Инструменты редактора">
+    <nav inert={georeferenceOpen} className="toolbar" aria-label="Инструменты редактора">
       <div className="tool-group document-tools">
         <button className="tool-button compact" aria-label="Новый документ" title="Новый документ · Ctrl/Cmd+N" onClick={startNew}>New</button>
         <button className="tool-button compact" aria-label="Открыть JSON" title="Открыть JSON · Ctrl/Cmd+O" onClick={() => openInput.current?.click()}>Open</button>
@@ -171,7 +186,7 @@ export default function App() {
       <button className={`icon-button ${state.gridVisible ? 'grid-active' : ''}`} aria-label="Сетка" aria-pressed={state.gridVisible} onClick={() => dispatch({ type: 'toggle-grid' })}><Icon name="grid" size={16} /></button>
       <span className="toolbar-context">Слой: {state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'} · {state.document.coordinateSystem.name ?? 'Система координат'} · м</span>
     </nav>
-    <div className="survey-controls" aria-label="Привязки и подписи">
+    <div inert={georeferenceOpen} className="survey-controls" aria-label="Привязки и подписи">
       <button className={`tool-button compact ${state.snapOptions.enabled ? 'active' : ''}`} aria-label="Привязки" aria-pressed={state.snapOptions.enabled} onClick={() => dispatch({ type: 'snap-options', patch: { enabled: !state.snapOptions.enabled } })}>SNAP {state.snapOptions.enabled ? 'ON' : 'OFF'}</button>
       <details className="survey-settings"><summary>Типы привязок</summary><div>
         {(['vertex', 'midpoint', 'grid'] as const).map(type => <label key={type}><input type="checkbox" checked={state.snapOptions[type]} onChange={event => dispatch({ type: 'snap-options', patch: { [type]: event.target.checked } })} />{type === 'vertex' ? 'Vertex' : type === 'midpoint' ? 'Midpoint' : 'Grid'}</label>)}
@@ -179,17 +194,18 @@ export default function App() {
       </div></details>
       <label>Сетка <input className="snap-step-input" aria-label="Шаг привязки сетки" type="number" min="0.000001" step="any" list="snap-steps" value={state.snapOptions.gridStep ?? 1} onChange={event => { const gridStep = Number(event.target.value); if (gridStep > 0 && Number.isFinite(gridStep)) dispatch({ type: 'snap-options', patch: { gridStep } }); }} /> м</label><datalist id="snap-steps">{[0.1, 0.25, 0.5, 1, 2, 5, 10, 20].map(step => <option key={step} value={step} />)}</datalist>
       <button className={`tool-button compact ${state.ortho ? 'active' : ''}`} aria-label="Ортогональный режим" aria-pressed={state.ortho} title="ORTHO · F8" onClick={() => dispatch({ type: 'toggle-ortho' })}>ORTHO {state.ortho ? 'ON' : 'OFF'}</button>
+      <label>Координаты <select aria-label="Отображение координат" value={state.coordinateDisplay} onChange={event => dispatch({ type: 'coordinate-display', mode: event.target.value as 'model' | 'survey' })}><option value="model">Model · X/Y</option><option value="survey">Survey · E/N</option></select></label>
       <label>Подписи точек <select aria-label="Подписи точек" value={state.pointLabelMode} onChange={event => dispatch({ type: 'point-labels', mode: event.target.value as PointLabelMode })}><option value="name">Имя</option><option value="name-z">Имя + Z</option><option value="z">Только Z</option></select></label>
       <label><input type="checkbox" checked={state.showLineLengths} onChange={() => dispatch({ type: 'toggle-line-lengths' })} />Длины линий</label>
       <span>Shift + клик: выбрать точки по порядку</span>
     </div>
-    <main className="workspace"><LayersPanel state={state} dispatch={dispatch} /><div className="drawing-area">
-      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} />
+    <main className="workspace"><LayersPanel inert={georeferenceOpen} state={state} dispatch={dispatch} onCalibrate={() => { dispatch({ type: 'tool', tool: 'select' }); setGeoreferenceOpen(true); }} /><div className="drawing-area">
+      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} />
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
-    </div><div className="right-column"><PropertyInspector state={state} dispatch={dispatch} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
+    </div><div inert={georeferenceOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
     <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
-      <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>X <b data-testid="cursor-x">{cursorWorld ? formatCoordinate(cursorWorld.x) : '—'}</b></span><span>Y <b data-testid="cursor-y">{cursorWorld ? formatCoordinate(cursorWorld.y) : '—'}</b></span><span>м</span></div>
+      <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>{state.coordinateDisplay === 'model' ? 'X' : 'E'} <b data-testid="cursor-x">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.x) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.e) : '—'}</b></span><span>{state.coordinateDisplay === 'model' ? 'Y' : 'N'} <b data-testid="cursor-y">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.y) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.n) : '—'}</b></span><span>м</span></div>
       <span className="status-grid">Привязка: {state.snapOptions.gridStep ?? 1} м · ORTHO {state.ortho ? 'ON' : 'OFF'}</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
     </footer>
     <input ref={openInput} type="file" accept=".json,application/json" aria-label="Файл GeoDocument" hidden onChange={async event => {
@@ -203,6 +219,7 @@ export default function App() {
     }} />
     {(fileError || notice) && <div className={`document-notice ${fileError ? 'error' : ''}`} role={fileError ? 'alert' : 'status'}><span>{fileError ?? notice}</span><button aria-label="Закрыть сообщение" onClick={() => { setFileError(null); setNotice(null); }}>×</button></div>}
     {shortcutsOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setShortcutsOpen(false); }}><section className="shortcuts-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><h2 id="shortcuts-title">Keyboard shortcuts</h2>{(['Tools', 'Navigation', 'File', 'Edit'] as const).map(group => <div key={group}><h3>{group}</h3><dl>{shortcutRegistry.filter(entry => entry.group === group).map(entry => <Fragment key={entry.id}><dt>{entry.description}</dt><dd>{entry.label}</dd></Fragment>)}</dl></div>)}<button onClick={() => setShortcutsOpen(false)}>Закрыть · Esc</button></section></div>}
+    {georeferenceOpen && <Suspense fallback={<div className="modal-backdrop"><p>Открываю привязку…</p></div>}><GeoreferenceDialog document={state.document} picking={pickingControl} picked={pickedControl} onPick={setPickingControl} onPreview={setReferencePreview} onClose={closeGeoreference} onApply={command => { dispatch({ type: 'execute', command }); closeGeoreference(); }} /></Suspense>}
     {importOpen && <ImportDialog document={state.document} onClose={() => setImportOpen(false)} onImport={command => {
       // Preflight keeps validation errors in the open import dialog; the reducer owns the actual mutation.
       const candidate = applyCommand(state.document, command);

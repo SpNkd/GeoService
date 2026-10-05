@@ -1,3 +1,4 @@
+import { documentSurveyXY, modelToAbsoluteZ } from '../geometry/georeferencing';
 import { memo, useEffect, useState, type Dispatch } from 'react';
 import { entityVertexIds, type Entity, type GeoDocument, type PointEntity, type TextEntity, type LabelEntity } from '../domain/model';
 import { distance, pathLength, polygonArea } from '../geometry';
@@ -30,6 +31,7 @@ function CoordinateField({ label, value, disabled, onChange, onEditStart, onEdit
 }
 function PointProperties({ entity, document, dispatch }: { entity: PointEntity; document: GeoDocument; dispatch: Dispatch<EditorAction> }) {
   const vertex = vertexFor(document, entity.vertexId);
+  const survey = documentSurveyXY(document, vertex), absolute = modelToAbsoluteZ(vertex.z, document.verticalReference);
   const disabled = isLayerLocked(document, entity) || !canEditVertex(document, entity.vertexId);
   const change = (key: 'x' | 'y' | 'z', value: number) => {
     const { x, y, z } = vertex;
@@ -37,11 +39,12 @@ function PointProperties({ entity, document, dispatch }: { entity: PointEntity; 
       : key === 'y' ? { x, y: value, ...(z !== undefined ? { z } : {}) } : { x, y, z: value };
     dispatch({ type: 'transient', command: { type: 'update-vertex', vertexId: vertex.id, position } });
   };
-  return <div className="property-section"><h3>Координаты</h3>
+  return <div className="property-section"><h3>Координаты · MODEL</h3>
     <div className="vertex-id-row"><span>Вершина</span><code>{vertex.id}</code></div>
     <CoordinateField label="X" value={vertex.x} disabled={disabled} onChange={x => change('x', x)} onEditStart={() => dispatch({ type: 'begin-transaction' })} onEditEnd={() => dispatch({ type: 'commit-transaction' })} />
     <CoordinateField label="Y" value={vertex.y} disabled={disabled} onChange={y => change('y', y)} onEditStart={() => dispatch({ type: 'begin-transaction' })} onEditEnd={() => dispatch({ type: 'commit-transaction' })} />
     <CoordinateField label="Z" value={vertex.z} disabled={disabled} onChange={z => change('z', z)} onEditStart={() => dispatch({ type: 'begin-transaction' })} onEditEnd={() => dispatch({ type: 'commit-transaction' })} />
+    <div className="derived-coordinates"><h3>SURVEY · только просмотр</h3><dl><dt>E</dt><dd data-testid="point-survey-e">{survey ? formatCoordinate(survey.e) : '—'}</dd><dt>N</dt><dd data-testid="point-survey-n">{survey ? formatCoordinate(survey.n) : '—'}</dd>{document.verticalReference && <><dt>H абсолютная</dt><dd data-testid="point-absolute-h">{absolute === undefined ? '—' : formatCoordinate(absolute)}</dd></>}</dl></div>
     {disabled ? <p className="field-help lock-message">Вершина используется заблокированным слоем. Координаты доступны только для просмотра.</p> : <p className="field-help">Изменения применяются сразу. Полная точность доступна в поле ввода.</p>}
   </div>;
 }
@@ -124,7 +127,7 @@ function TextCoordinates({ entity, document, locked, dispatch }: { entity: TextE
 }
 
 function LabelPresets({ entity, state, dispatch }: { entity: Entity; state: EditorState; dispatch: Dispatch<EditorAction> }) {
-  const presets = entity.type === 'point' ? [['Имя', '{name}'], ['Имя + Z', '{name} · Z={z}'], ['Координаты', 'X={x} · Y={y}']]
+  const presets = entity.type === 'point' ? [['Имя', '{name}'], ['Имя + Z', '{name} · Z={z}'], ['Координаты', 'X={x} · Y={y}'], ['Абсолютная высота', 'H={h_absolute}']]
     : entity.type === 'polygon' ? [['Название', '{name}'], ['Площадь', 'S={area} м²'], ['Периметр', 'P={perimeter} м'], ['Название + площадь', '{name} · S={area} м²']]
     : [['Длина', 'L={length} м'], ['Название', '{name}'], ['Название + длина', '{name} · L={length} м']];
   const [template, setTemplate] = useState(presets[0]![1]!);

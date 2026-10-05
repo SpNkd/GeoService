@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { documentModelFrame } from '../geometry/georeferencing';
 import type { GeoDocument } from '../domain/model';
 import type { DocumentCommand } from '../domain/commands';
 import { detectDecimal, detectDelimiter, detectHeader, MAX_TABLE_BYTES, parseTable, type DecimalSeparator, type Delimiter } from '../import/parser';
@@ -7,6 +8,7 @@ import { buildImportPlan, createImportCommand, defaultMapping, type ColumnRole }
 interface Props { document: GeoDocument; onClose: () => void; onImport: (command: DocumentCommand) => void }
 const roles: [ColumnRole, string][] = [['ignore', 'Ignore'], ['id', 'Point ID'], ['easting', 'Easting → X'], ['northing', 'Northing → Y'], ['height', 'Height → Z']];
 export function ImportDialog({ document, onClose, onImport }: Props) {
+  const [coordinateSpace, setCoordinateSpace] = useState<'model' | 'survey'>(documentModelFrame(document) === 'local' && document.entities.length ? 'model' : 'survey');
   const [raw, setRaw] = useState('');
   const [delimiter, setDelimiter] = useState<Delimiter>('\t');
   const [decimal, setDecimal] = useState<DecimalSeparator>('.');
@@ -49,7 +51,7 @@ export function ImportDialog({ document, onClose, onImport }: Props) {
   const preview = parsed.table?.rows.slice(header ? 1 : 0, (header ? 1 : 0) + 15) ?? [];
   const importNow = () => {
     if (!plan || !canImport) return;
-    try { onImport(createImportCommand(plan, document, layerId, validOnly)); }
+    try { onImport({ ...createImportCommand(plan, document, layerId, validOnly), coordinateSpace } as DocumentCommand); }
     catch (error) { setFileError(error instanceof Error ? error.message : 'Не удалось подготовить импорт'); }
   };
   return <div className="modal-backdrop"><div className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title" ref={dialog}
@@ -76,6 +78,7 @@ export function ImportDialog({ document, onClose, onImport }: Props) {
         <label>Целевой слой<select aria-label="Целевой слой" value={layerId} onChange={event => setLayerId(event.target.value)}>{!document.layers.some(layer => layer.id === 'survey-points') && <option value="survey-points">Геодезические точки (создать)</option>}{document.layers.map(layer => <option key={layer.id} value={layer.id} disabled={layer.locked}>{layer.name}{layer.locked ? ' · заблокирован' : !layer.visible ? ' · скрыт' : ''}</option>)}</select></label>
         <label className="check-label"><input aria-label="Первая строка — заголовок" type="checkbox" checked={header} onChange={event => changeFormat(delimiter, event.target.checked)} />Первая строка — заголовок</label>
       </div>
+      <label className="import-frame-field">Координаты входной таблицы<select aria-label="Система входных координат" value={coordinateSpace} onChange={event => setCoordinateSpace(event.target.value as 'model' | 'survey')}><option value="model">MODEL · X/Y модели</option><option value="survey">SURVEY · E/N</option></select></label><p className="field-help">Survey в пустом документе создаёт projected/direct frame; в привязанной локальной модели преобразуются только новые XY. Height всегда → MODEL Z. Вариант выбран явно, значения координат не анализируются.</p>
       <p className="mapping-note">Проверьте mapping: Easting → X, Northing → Y, Height → Z. Исходные X/Y могут требовать перестановки.</p>
       {notice && <p className="import-warning">{notice}</p>}
       {target && !target.visible && <p className="import-warning">Целевой слой скрыт. Для просмотра точек включите его видимость после импорта.</p>}

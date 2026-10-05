@@ -95,6 +95,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   if (previous.document.entities !== next.document.entities || previous.document.layers !== next.document.layers) return false;
   if (!entityVertexIds(next.item.entity).every(id => previous.document.vertices[id] === next.document.vertices[id])) return false;
   if (next.item.entity.type === 'label') {
+    if (previous.document.verticalReference !== next.document.verticalReference) return false;
     const targetId = next.item.entity.targetId;
     const beforeTarget = previous.document.entities.find(entity => entity.id === targetId);
     const afterTarget = next.document.entities.find(entity => entity.id === targetId);

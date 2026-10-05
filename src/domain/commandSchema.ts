@@ -1,12 +1,15 @@
 import { z } from 'zod';
-import { entitySchema, finiteNumber, id, layerSchema, vertexSchema, worldPointSchema } from '../persistence/documentSchema';
+import { entitySchema, finiteNumber, id, layerSchema, vertexSchema, worldPointSchema, surveyXYSchema, verticalReferenceSchema } from '../persistence/documentSchema';
 import type { DocumentCommand } from './commands';
 
 // Resolved editor commands only. Intent/name resolution belongs above this boundary.
 const entity = z.discriminatedUnion('type', [entitySchema.options[0].strict(), ...entitySchema.options.slice(1).map(option => option.strict())])
   .refine(value => !('vertexIds' in value) || value.vertexIds.length <= 50000, 'Объект превышает лимит 50 000 ссылок на вершины');
 const commandSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('import-points'), points: z.array(z.strictObject({ entity: entitySchema.options[0].strict(), vertex: vertexSchema.strict() })).min(1).max(50000), layer: layerSchema.strict().optional() }),
+  z.strictObject({ type: z.literal('set-model-frame'), frame: z.enum(['local', 'projected']) }),
+  z.strictObject({ type: z.literal('set-horizontal-reference'), pairs: z.tuple([z.strictObject({ pointEntityId: id, survey: surveyXYSchema }), z.strictObject({ pointEntityId: id, survey: surveyXYSchema })]).nullable() }),
+  z.strictObject({ type: z.literal('set-vertical-reference'), reference: verticalReferenceSchema.nullable() }),
+  z.strictObject({ type: z.literal('import-points'), coordinateSpace: z.enum(['model', 'survey']).optional(), points: z.array(z.strictObject({ entity: entitySchema.options[0].strict(), vertex: vertexSchema.strict() })).min(1).max(50000), layer: layerSchema.strict().optional() }),
   z.strictObject({ type: z.literal('add-entity'), entity, vertices: z.array(vertexSchema.strict()).max(50000), layer: layerSchema.strict().optional() }),
   z.strictObject({ type: z.literal('delete-entity'), entityId: id }),
   z.strictObject({ type: z.literal('create-layer'), layer: layerSchema.strict() }),

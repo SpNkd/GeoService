@@ -11,12 +11,14 @@ import { DEFAULT_SNAP_OPTIONS, type SnapOptions } from '../snapping';
 export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure';
 export type PointLabelMode = 'name' | 'name-z' | 'z';
 export interface EditorState {
+  coordinateDisplay: 'model' | 'survey';
   document: GeoDocument; viewport: Viewport; selectionId: string | null; selectedEntityIds: string[]; selectedLayerId: string | null; currentLayerId: string; tool: EditorTool; gridVisible: boolean;
   past: GeoDocument[]; future: GeoDocument[]; transactionBefore: GeoDocument | null; error: string | null;
   savedFingerprint: string; documentEpoch: number;
   orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean; ortho: boolean;
 }
 export type EditorAction =
+  | { type: 'coordinate-display'; mode: 'model' | 'survey' }
   | { type: 'load-json'; text: string; size: ViewSize }
   | { type: 'replace-document'; document: GeoDocument; size: ViewSize }
   | { type: 'mark-saved' }
@@ -58,7 +60,7 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { coordinateDisplay: 'model', document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
@@ -66,6 +68,7 @@ export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFing
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case 'coordinate-display': return { ...state, coordinateDisplay: action.mode };
     case 'toggle-ortho': return { ...state, ortho: !state.ortho };
     case 'create-layer': {
       let name = 'Новый слой', suffix = 2;

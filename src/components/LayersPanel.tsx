@@ -1,10 +1,12 @@
 import { memo, type Dispatch } from 'react';
 import type { EditorAction, EditorState } from '../store/editor';
+import { documentModelFrame } from '../geometry/georeferencing';
+import { CoordinateReferencePanel } from './CoordinateReferencePanel';
 import { Icon } from './Icon';
 
-export const LayersPanel = memo(function LayersPanel({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
+export const LayersPanel = memo(function LayersPanel({ state, dispatch, onCalibrate, inert = false }: { state: EditorState; dispatch: Dispatch<EditorAction>; onCalibrate: () => void; inert?: boolean }) {
   const { document } = state;
-  return <aside className="left-panel" aria-label="Слои документа">
+  return <aside inert={inert} className="left-panel" aria-label="Слои документа">
     <div className="panel-heading"><Icon name="layers" size={16} /><h2>Слои</h2><span className="badge">{document.layers.length}</span><button className="icon-button small" aria-label="Создать слой" title="Создать слой" onClick={() => dispatch({ type: 'create-layer' })}><Icon name="plus" size={16} /></button></div>
     <div className="layer-list">
       {[...document.layers].sort((a, b) => a.order - b.order).map((layer, index, layers) => {
@@ -22,8 +24,9 @@ export const LayersPanel = memo(function LayersPanel({ state, dispatch }: { stat
       })}
     </div>
     <div className="panel-section"><h3>Документ</h3>
-      <dl className="document-facts"><dt>Система координат</dt><dd>{document.coordinateSystem.name ?? ({ local: 'Локальная', projected: 'Проекция', unknown: 'Не указана' })[document.coordinateSystem.kind]}</dd><dt>Единицы</dt><dd>Метры (м)</dd><dt>Оси</dt><dd>X → восток · Y → север</dd><dt>Объекты</dt><dd>{document.entities.length} в модели</dd></dl>
+      <dl className="document-facts"><dt>Система координат</dt><dd>{document.coordinateSystem.name ?? (documentModelFrame(document) === 'local' ? 'Локальная MODEL' : 'Проектная / direct')}</dd><dt>Единицы</dt><dd>Метры (м)</dd><dt>Оси модели</dt><dd>X / Y · Z вверх</dd><dt>Объекты</dt><dd>{document.entities.length} в модели</dd></dl>
     </div>
+    <CoordinateReferencePanel state={state} dispatch={dispatch} onCalibrate={onCalibrate} />
     <div className="sidebar-note"><Icon name="crosshair" size={20} /><p>Точность в модели<small>Координаты хранятся без округления. Масштаб влияет только на вид.</small></p></div>
     <div className="panel-foot"><span className="live-dot" /> Локальный редактор <span className="version">v0.3</span></div>
   </aside>;

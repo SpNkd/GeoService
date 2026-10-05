@@ -1,3 +1,4 @@
+import { modelToAbsoluteZ } from './georeferencing';
 import type { Entity, GeoDocument, LabelEntity, WorldPoint } from '../domain/model';
 import { entityVertexIds, getVertex, vertexPoint } from '../domain/model';
 import { DISPLAY_PRECISION, formatCoordinate, formatHeight, formatMeasure } from './format';
@@ -49,15 +50,17 @@ export function resolveLabelTemplate(document: GeoDocument, label: LabelEntity):
   const target = document.entities.find(entity => entity.id === label.targetId);
   if (!target || target.type === 'label' || target.type === 'dimension' || target.type === 'text') return label.template;
   const ids = entityVertexIds(target), points = ids.map(id => vertexPoint(getVertex(document.vertices, id)));
-  const allowed: Record<string, string> = { name: target.name };
+  const allowed: Record<string, string> = { name: target.name, h_absolute: '—' };
   if (target.type === 'point') {
     const p = points[0]!;
     allowed.name = target.name; allowed.x = formatCoordinate(p.x); allowed.y = formatCoordinate(p.y);
+    const absolute = modelToAbsoluteZ(p.z, document.verticalReference);
+    if (absolute !== undefined) allowed.h_absolute = formatHeight(absolute);
     if (p.z !== undefined) allowed.z = formatHeight(p.z);
   } else if (target.type === 'line') allowed.length = formatMeasure(distance(points[0]!, points[1]!), DISPLAY_PRECISION.distance);
   else if (target.type === 'polyline') allowed.length = formatMeasure(pathLength(points), DISPLAY_PRECISION.distance);
   else { allowed.area = formatMeasure(polygonArea(points), DISPLAY_PRECISION.distance); allowed.perimeter = formatMeasure(pathLength(points, true), DISPLAY_PRECISION.distance); }
-  return label.template.replace(/\{([a-z]+)\}/gi, (token, key: string) => allowed[key] ?? token);
+  return label.template.replace(/\{([a-z_]+)\}/gi, (token, key: string) => allowed[key] ?? token);
 }
 
 export function resolvedLabelPosition(document: GeoDocument, label: LabelEntity): WorldPoint | null {

@@ -1,13 +1,17 @@
-import { entityVertexIds, getVertex, vertexPoint, worldVertex, type Entity, type GeoDocument, type Layer, type PointEntity, type Vertex, type WorldPoint } from './model';
+import { entityVertexIds, getVertex, vertexPoint, worldVertex, type Entity, type GeoDocument, type Layer, type PointEntity, type Vertex, type WorldPoint, type SurveyXY, type VerticalReference } from './model';
 import { validateDocument } from '../persistence/documentSchema';
 import { encodeDocument } from '../persistence/serialization';
 import { distance } from '../geometry';
 import { polygonSelfIntersects } from '../geometry/survey';
+import { createHorizontalReference, documentModelFrame, surveyToModelXY } from '../geometry/georeferencing';
 import { parseCommand } from './commandSchema';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
-  | { type: 'import-points'; points: { entity: PointEntity; vertex: Vertex }[]; layer?: Layer }
+  | { type: 'set-model-frame'; frame: 'local' | 'projected' }
+  | { type: 'set-horizontal-reference'; pairs: [{ pointEntityId: string; survey: SurveyXY }, { pointEntityId: string; survey: SurveyXY }] | null }
+  | { type: 'set-vertical-reference'; reference: VerticalReference | null }
+  | { type: 'import-points'; coordinateSpace?: 'model' | 'survey'; points: { entity: PointEntity; vertex: Vertex }[]; layer?: Layer }
   | { type: 'add-entity'; entity: Entity; vertices: Vertex[]; layer?: Layer }
   | { type: 'delete-entity'; entityId: string }
   | { type: 'create-layer'; layer: Layer }
@@ -85,9 +89,27 @@ function applyEntityAdditions(document: GeoDocument, commands: readonly Extract<
 
 export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   const command = parseCommand(raw);
+  if (command.type === 'set-model-frame') {
+    if (command.frame === 'projected' && document.horizontalReference) throw new Error('Сначала удалите горизонтальную привязку.');
+    if (documentModelFrame(document) === command.frame) return document;
+    return { ...document, modelFrame: command.frame };
+  }
+  if (command.type === 'set-horizontal-reference') {
+    if (!command.pairs) { if (!document.horizontalReference) return document; const next = { ...document }; delete next.horizontalReference; return next; }
+    return { ...document, horizontalReference: createHorizontalReference(document, command.pairs) };
+  }
+  if (command.type === 'set-vertical-reference') {
+    if (!command.reference) { if (!document.verticalReference) return document; const next = { ...document }; delete next.verticalReference; return next; }
+    if (document.verticalReference?.absoluteAtModelZero === command.reference.absoluteAtModelZero) return document;
+    return { ...document, verticalReference: { ...command.reference } };
+  }
   if ((command.type === 'add-entity' || command.type === 'import-points') && document.entities.length + (command.type === 'add-entity' ? 1 : command.points.length) > 50000) throw new Error('Документ превышает лимит 50 000 объектов');
   if ((command.type === 'add-entity' || command.type === 'import-points') && command.layer && document.layers.length >= 1000) throw new Error('Документ превышает лимит 1000 слоёв');
   if (command.type === 'import-points') {
+    const isSurvey = command.coordinateSpace === 'survey';
+    const empty = !document.entities.length && !Object.keys(document.vertices).length;
+    const frame = isSurvey && empty ? 'projected' : documentModelFrame(document);
+    if (isSurvey && frame === 'local' && !document.horizontalReference) throw new Error('Для Survey импорта в локальную модель нужна привязка. Выберите MODEL или новый документ.');
     if (!command.points.length) throw new Error('Импорт не содержит точек');
     if (command.layer && document.layers.some(layer => layer.id === command.layer!.id)) throw new Error('ID нового слоя уже используется');
     const layers = command.layer ? [...document.layers, { ...command.layer }] : document.layers;
@@ -99,9 +121,9 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
       if (!layer || layer.locked) throw new Error('Целевой слой заблокирован или отсутствует');
       if (ids.has(entity.id) || Object.hasOwn(vertices, vertex.id)) throw new Error('Импорт содержит повторяющийся внутренний ID');
       if (entity.vertexId !== vertex.id) throw new Error('Точка импорта ссылается на другую вершину');
-      ids.add(entity.id); vertices[vertex.id] = { ...vertex }; entities.push({ ...entity });
+      ids.add(entity.id); vertices[vertex.id] = isSurvey && frame === 'local' ? { ...vertex, ...surveyToModelXY({ e: vertex.x, n: vertex.y }, document.horizontalReference!.transform) } : { ...vertex }; entities.push({ ...entity });
     }
-    const candidate = validateDocument({ ...document, layers, vertices, entities });
+    const candidate = validateDocument({ ...document, ...(isSurvey && empty ? { modelFrame: 'projected' } : {}), layers, vertices, entities });
     encodeDocument(candidate);
     return candidate;
   }
@@ -140,6 +162,7 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   if (command.type === 'delete-entity') {
     const entity = document.entities.find(item => item.id === command.entityId);
     if (!entity) throw new Error('Объект не найден');
+    if (document.horizontalReference?.controls.some(control => control.pointEntityId === entity.id)) throw new Error(`Точка ${entity.name} используется для привязки координат. Сначала измените или удалите привязку.`);
     const layer = document.layers.find(item => item.id === entity.layerId);
     if (!layer || layer.locked) throw new Error('Нельзя удалить объект на заблокированном слое');
     const attached = entity.type === 'label' ? [] : document.entities.filter(item => item.type === 'label' && item.targetId === entity.id);

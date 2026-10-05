@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
+import { documentModelFrame, modelToSurveyXY, surveyNorthDirection } from '../geometry/georeferencing';
 import { canEditVertex, isLayerLocked } from '../domain/commands';
-import { entityVertexIds, type Vertex, type WorldPoint } from '../domain/model';
+import { entityVertexIds, type HorizontalReference, type Vertex, type WorldPoint } from '../domain/model';
 import { createGeometryCommand, newGeometryId, type DrawingKind, type GeometryAnchor } from '../domain/geometryIntent';
 import { distance, screenToWorld, worldToScreen, type ScreenPoint, type ViewSize } from '../geometry';
 import { constrainAngle } from '../geometry/constraints';
@@ -17,13 +18,14 @@ import { Grid } from '../renderer/Grid';
 import type { EditorAction, EditorState } from '../store/editor';
 
 interface Props {
+  onPickPoint?: ((id: string) => void) | undefined; referencePreview?: HorizontalReference | undefined;
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; aiPreview?: { id: string; result: ReadyResolution }[];
 }
 type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
-export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [] }: Props) {
+export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], onPickPoint, referencePreview }: Props) {
   const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
   const lastTextClick = useRef<{ entityId: string; at: number; point: ScreenPoint } | null>(null);
   const frame = useRef<number | null>(null), pending = useRef<MoveInput | null>(null);
@@ -104,6 +106,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (active.pointerId === pointerId) { dispatch({ type: 'pan', delta: { x: point.x - active.last.x, y: point.y - active.last.y } }); active.last = point; }
       announceSnap(null); return;
     }
+    if (onPickPoint) { announceSnap(null); return; }
     if (active?.kind === 'vertex' && active.pointerId === pointerId) {
       const position = anchorAt(point, active.vertex.id).position;
       dispatch({ type: 'transient', command: { type: 'update-vertex', vertexId: active.vertex.id,
@@ -153,6 +156,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       drag.current = { kind: 'pan', pointerId: event.pointerId, last: point };
       event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
     }
+    if (onPickPoint) { const entity = document.entities.find(item => item.id === hit?.getAttribute('data-entity-id')); if (entity?.type === 'point') onPickPoint(entity.id); return; }
     if (tool === 'point') { create('point', [anchorAt(point)]); return; }
     if (tool === 'line') {
       const anchor = anchorAt(point, undefined, event.shiftKey);
@@ -246,6 +250,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   useEffect(() => onMeasure(measurementStatus), [measurementStatus, onMeasure]);
   const previewPoints = [...draft.map(anchor => worldToScreen(anchor.position, viewport, size)), ...(drawCursor && !(tool === 'measure' && draft.length === 2) ? [worldToScreen(drawCursor, viewport, size)] : [])];
   const snapScreen = snap ? worldToScreen(snap.worldPosition, viewport, size) : null;
+  const reference = referencePreview ?? document.horizontalReference;
+  const north = surveyNorthDirection(reference?.transform);
+  const surveyAvailable = Boolean(reference) || documentModelFrame(document) === 'projected';
   return <div className="canvas-wrap">
     <svg ref={ref} className={`drawing-canvas ${dragging ? 'grabbing' : spaceHeld || tool === 'pan' ? 'panning' : `tool-${tool}`}`}
       data-testid="drawing-canvas" data-center-x={viewport.center.x} data-center-y={viewport.center.y} data-zoom={viewport.pixelsPerUnit}
@@ -254,6 +261,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       onLostPointerCapture={() => { if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'commit-transaction' }); drag.current = null; setDragging(false); }}
       onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); announceSnap(null); }}
       onDoubleClick={event => {
+        if (disabled || onPickPoint) return;
         const hit = event.target instanceof Element ? event.target.closest('[data-entity-id]') : null;
         if (tool === 'select' && hit) {
           const entity = document.entities.find(item => item.id === hit.getAttribute('data-entity-id'));
@@ -270,6 +278,10 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         selected={state.selectedEntityIds.includes(item.entity.id) || state.orderedPointIds.includes(item.entity.id)}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
         pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}
+      {reference && <g className="control-preview" pointerEvents="none" data-testid="control-markers">{reference.controls.map((control, i) => {
+        const vertex = document.vertices[control.vertexId]!, p = worldToScreen(vertex, viewport, size), survey = modelToSurveyXY(vertex, reference.transform);
+        return <g key={control.pointEntityId}><circle cx={p.x} cy={p.y} r={11} fill="none" stroke="#b77922" strokeWidth={2} strokeDasharray={referencePreview ? '3 3' : undefined} /><text x={p.x + 15} y={p.y - 12}>{i === 0 ? 'A' : 'B'} · E {survey.e.toFixed(3)} · N {survey.n.toFixed(3)}</text></g>;
+      })}</g>}
       {aiPreview.map((action, index) => <AiPreviewView key={action.id} result={action.result} viewport={viewport} size={size} actionNumber={aiPreview.length > 1 ? index + 1 : undefined} />)}
       {draft.length > 0 && <g className="drawing-preview" pointerEvents="none" stroke="#21836e" strokeWidth={1.5} strokeDasharray="5 4" fill="#21836e20">
         {(tool === 'line' || tool === 'measure') && previewPoints.length > 1 && <MeasurementLine a={previewPoints[0]!} b={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!} />}
@@ -293,7 +305,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       <label>Редактировать текст<input autoFocus aria-label="Редактировать текст" value={editingText.content} onChange={event => setEditingText({ ...editingText, content: event.target.value })} /></label><button type="submit">Готово</button><button type="button" onClick={() => setEditingText(null)}>Отмена</button>
     </form>}
     <div className="canvas-caption"><span className="live-dot" /> МОДЕЛЬ <span>Метры · X / Y</span></div>
-    <div className="north-arrow" aria-label="Север в направлении положительной оси Y"><b>N</b><svg width="26" height="38" viewBox="0 0 26 38" aria-hidden="true"><path d="M13 3L4 29l9-5 9 5-9-26z" fill="#405d6b" /><path d="M13 3v21l9 5z" fill="#c7d4dc" /></svg></div>
+    <div className="north-arrow" aria-label={surveyAvailable ? "Survey North в MODEL viewport" : "Ось MODEL +Y; Survey не задан"} data-testid="north-arrow" data-screen-x={north.screen.x} data-screen-y={north.screen.y} data-preview={Boolean(referencePreview)}><b>{surveyAvailable ? 'N' : '+Y'}</b><svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true"><g transform={`rotate(${north.rotationDegrees})`}><path d="M0 -18L-7 13l7-5 7 5z" fill="#405d6b" /><path d="M0 -18v26l7 5z" fill="#c7d4dc" /></g></svg></div>
     <div className="canvas-help">{sequenceHint ? `${sequenceHint}…` : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Текущий слой: ${document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'} · Shift + клик — точки по порядку · Колесо — масштаб · Space + drag — вид`}</div>
   </div>;
 });
