@@ -22,7 +22,7 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number };
+type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
 export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], onPickPoint, referencePreview }: Props) {
@@ -51,7 +51,8 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   useEffect(() => { onMeasure(null); onSnap(null); }, [onMeasure, onSnap]);
   useEffect(() => {
     const cancelTransient = () => {
-      if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'cancel-transaction' });
+      if (drag.current?.kind === 'dimension-retarget') dispatch({ type: 'cancel-transaction' });
+      else if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'cancel-transaction' });
       drag.current = null; setDragging(false); setDraft([]); setTextDraft(null); setEditingText(null); setDrawCursor(null); announceSnap(null); onMeasure(null);
     };
     window.addEventListener('geoservice:escape', cancelTransient);
@@ -106,7 +107,20 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (active.pointerId === pointerId) { dispatch({ type: 'pan', delta: { x: point.x - active.last.x, y: point.y - active.last.y } }); active.last = point; }
       announceSnap(null); return;
     }
+    if (active?.kind === 'dimension-retarget' && active.pointerId === pointerId) {
+      const raw = screenToWorld(point, viewport, size);
+      const result = findSnapCandidate(raw, provider, viewport, { ...state.snapOptions, enabled: true, vertex: true, midpoint: false, grid: false, tolerancePx: 12 }, active.excludeVertexId);
+      const vertexId = result?.type === 'vertex' ? result.sourceVertexId ?? null : null;
+      active.candidateVertexId = vertexId;
+      announceSnap(result?.type === 'vertex' ? result : null);
+      dispatch({ type: 'preview-dimension-retarget', vertexId }); return;
+    }
     if (onPickPoint) { announceSnap(null); return; }
+    if (state.dimensionPick) {
+      const raw = screenToWorld(point, viewport, size);
+      const result = findSnapCandidate(raw, provider, viewport, { ...state.snapOptions, enabled: true, vertex: true, midpoint: false, grid: false, tolerancePx: 12 });
+      announceSnap(result?.type === 'vertex' ? result : null); return;
+    }
     if (active?.kind === 'vertex' && active.pointerId === pointerId) {
       const position = anchorAt(point, active.vertex.id).position;
       dispatch({ type: 'transient', command: { type: 'update-vertex', vertexId: active.vertex.id,
@@ -157,6 +171,30 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
     }
     if (onPickPoint) { const entity = document.entities.find(item => item.id === hit?.getAttribute('data-entity-id')); if (entity?.type === 'point') onPickPoint(entity.id); return; }
+    if (state.dimensionPick) {
+      const raw = screenToWorld(point, viewport, size);
+      const result = findSnapCandidate(raw, provider, viewport, { ...state.snapOptions, enabled: true, vertex: true, midpoint: false, grid: false, tolerancePx: 12 });
+      if (result?.type === 'vertex' && result.sourceVertexId) dispatch({ type: 'finish-dimension-pick', vertexId: result.sourceVertexId });
+      else dispatch({ type: 'report-error', message: 'Выберите существующую вершину.' });
+      return;
+    }
+    // Endpoint grips have a screen-space priority probe so another entity painted above the dimension cannot steal the drag.
+    if (!event.shiftKey && state.selectionId) {
+      const selectedDimension = document.entities.find(item => item.id === state.selectionId);
+      if (selectedDimension?.type === 'dimension' && !isLayerLocked(document, selectedDimension)) {
+        for (const endpoint of ['start', 'end'] as const) {
+          const vertexId = endpoint === 'start' ? selectedDimension.startVertexId : selectedDimension.endVertexId;
+          const endpointScreen = worldToScreen(document.vertices[vertexId]!, viewport, size);
+          if (Math.hypot(endpointScreen.x - point.x, endpointScreen.y - point.y) <= 7) {
+            const excludeVertexId = endpoint === 'start' ? selectedDimension.endVertexId : selectedDimension.startVertexId;
+            dispatch({ type: 'begin-dimension-retarget', dimensionId: selectedDimension.id, endpoint });
+            drag.current = { kind: 'dimension-retarget', pointerId: event.pointerId, entityId: selectedDimension.id, endpoint, excludeVertexId, candidateVertexId: vertexId };
+            dispatch({ type: 'preview-dimension-retarget', vertexId });
+            event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
+          }
+        }
+      }
+    }
     if (tool === 'point') { create('point', [anchorAt(point)]); return; }
     if (tool === 'line') {
       const anchor = anchorAt(point, undefined, event.shiftKey);
@@ -236,7 +274,15 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const end = (event: PointerEvent<SVGSVGElement>) => {
     flushMove(); const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
-    if (active.kind !== 'pan') dispatch({ type: 'commit-transaction' });
+    if (active.kind === 'dimension-retarget') dispatch({ type: 'finish-dimension-retarget', vertexId: active.candidateVertexId });
+    else if (active.kind !== 'pan') dispatch({ type: 'commit-transaction' });
+    drag.current = null; setDragging(false); announceSnap(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const cancelDrag = (event: PointerEvent<SVGSVGElement>) => {
+    const active = drag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    if (active.kind !== 'pan') dispatch({ type: 'cancel-transaction' });
     drag.current = null; setDragging(false); announceSnap(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
@@ -256,9 +302,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   return <div className="canvas-wrap">
     <svg ref={ref} className={`drawing-canvas ${dragging ? 'grabbing' : spaceHeld || tool === 'pan' ? 'panning' : `tool-${tool}`}`}
       data-testid="drawing-canvas" data-center-x={viewport.center.x} data-center-y={viewport.center.y} data-zoom={viewport.pixelsPerUnit}
-      aria-label="Геодезическая схема" tabIndex={0} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+      aria-label="Геодезическая схема" tabIndex={0} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={cancelDrag}
       onKeyDown={event => { if (event.key === 'Enter' && (tool === 'polyline' || tool === 'polygon') && draft.length) { event.preventDefault(); finishPath(); } }}
-      onLostPointerCapture={() => { if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'commit-transaction' }); drag.current = null; setDragging(false); }}
+      onLostPointerCapture={() => { if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'cancel-transaction' }); drag.current = null; setDragging(false); }}
       onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); announceSnap(null); }}
       onDoubleClick={event => {
         if (disabled || onPickPoint) return;
@@ -276,6 +322,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       {state.gridVisible && <Grid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep ?? 1} />}
       {items.map(item => <EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
         selected={state.selectedEntityIds.includes(item.entity.id) || state.orderedPointIds.includes(item.entity.id)}
+        dimensionRetarget={state.dimensionRetarget?.dimensionId === item.entity.id ? state.dimensionRetarget : null}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
         pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}
       {reference && <g className="control-preview" pointerEvents="none" data-testid="control-markers">{reference.controls.map((control, i) => {

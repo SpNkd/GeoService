@@ -211,6 +211,8 @@ h2, h3, p { margin: 0; }
 .measurement-readout strong { color:#21836e; margin-bottom:5px; }
 .measurement-readout small { color:#81939d; margin-top:4px; }
 .dimension-label, .geometry-length, .snap-indicator text { font:11px 'Inter',sans-serif; paint-order:stroke; stroke:#f8fbfc; stroke-width:4px; stroke-linejoin:round; }
+.dimension-reference-grip { cursor: crosshair; }
+.dimension-reference-grip:hover circle:last-child { fill:#e6fff1; stroke-width:2.5px; }
 .snap-indicator text { font-size:10px; }
 .drawing-canvas.tool-dimension, .drawing-canvas.tool-measure { cursor:crosshair; }
 .selection-order text { font:10px sans-serif; fill:white; }

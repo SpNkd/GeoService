@@ -16,6 +16,7 @@ const commandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('delete-layer'), layerId: id }),
   z.strictObject({ type: z.literal('move-layer'), layerId: id, direction: z.union([z.literal(-1), z.literal(1)]) }),
   z.strictObject({ type: z.literal('update-layer'), layerId: id, name: z.string().min(1).max(1000).refine(value => Boolean(value.trim())) }),
+  z.strictObject({ type: z.literal('update-dimension-reference'), dimensionId: id, endpoint: z.enum(['start', 'end']), vertexId: id }),
   z.strictObject({ type: z.literal('update-vertex'), vertexId: id, position: worldPointSchema.strict() }),
   z.strictObject({ type: z.literal('move-vertex'), vertexId: id, delta: worldPointSchema.strict() }),
   z.strictObject({ type: z.literal('move-text'), entityId: id, vertexId: id, position: worldPointSchema.strict() }),

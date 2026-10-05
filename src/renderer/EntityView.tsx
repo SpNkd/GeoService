@@ -11,10 +11,10 @@ import { GeometryPath } from './PreviewPrimitives';
 import { DimensionView } from './DimensionView';
 import type { RenderItem } from './selectors';
 
-interface Props { item: RenderItem; document: GeoDocument; viewport: Viewport; size: ViewSize; selected: boolean; order?: number; pointLabelMode?: PointLabelMode; showLineLengths?: boolean }
+interface Props { item: RenderItem; document: GeoDocument; viewport: Viewport; size: ViewSize; selected: boolean; order?: number; pointLabelMode?: PointLabelMode; showLineLengths?: boolean; dimensionRetarget?: { endpoint: 'start' | 'end'; vertexId: string | null } | null }
 const selectionColor = '#277ec1';
 
-export const EntityView = memo(function EntityView({ item: { entity, layer, style }, document, viewport, size, selected, order, pointLabelMode = 'name-z', showLineLengths = false }: Props) {
+export const EntityView = memo(function EntityView({ item: { entity, layer, style }, document, viewport, size, selected, order, pointLabelMode = 'name-z', showLineLengths = false, dimensionRetarget = null }: Props) {
   const ids = entityVertexIds(entity);
   const world = entityPoints(entity, document.vertices);
   const screen = world.map(point => worldToScreen(point, viewport, size));
@@ -59,7 +59,16 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
       break;
     }
     case 'dimension': {
-      shape = <DimensionView a={world[0]!} b={world[1]!} offset={entity.offset} textPosition={entity.textPosition ?? 0.5} viewport={viewport} size={size} color={stroke} />;
+      const candidate = dimensionRetarget?.vertexId ? document.vertices[dimensionRetarget.vertexId] : undefined;
+      const isOpposite = candidate?.id === (dimensionRetarget?.endpoint === 'start' ? entity.endVertexId : entity.startVertexId);
+      const a = dimensionRetarget?.endpoint === 'start' && candidate && !isOpposite ? candidate : world[0]!;
+      const b = dimensionRetarget?.endpoint === 'end' && candidate && !isOpposite ? candidate : world[1]!;
+      const target = candidate && worldToScreen(candidate, viewport, size);
+      shape = <>
+        <g opacity={dimensionRetarget ? 0.28 : 1}><DimensionView a={world[0]!} b={world[1]!} offset={entity.offset} textPosition={entity.textPosition ?? 0.5} viewport={viewport} size={size} color={stroke} grips={editable} /></g>
+        {dimensionRetarget && candidate && !isOpposite && <DimensionView a={a} b={b} offset={entity.offset} textPosition={entity.textPosition ?? 0.5} viewport={viewport} size={size} color="#18865b" preview />}
+        {dimensionRetarget && target && <circle data-testid="dimension-retarget-target" cx={target.x} cy={target.y} r={7} fill={isOpposite ? '#fff' : '#e6fff1'} stroke={isOpposite ? '#c94242' : '#18865b'} strokeWidth={2} pointerEvents="none" />}
+      </>;
       break;
     }
     case 'text': {
@@ -90,7 +99,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
 }, (previous, next) => {
   if (previous.item.entity !== next.item.entity || previous.item.layer !== next.item.layer || previous.item.style !== next.item.style
     || previous.viewport !== next.viewport || previous.size !== next.size || previous.selected !== next.selected || previous.order !== next.order
-    || previous.pointLabelMode !== next.pointLabelMode || previous.showLineLengths !== next.showLineLengths) return false;
+    || previous.pointLabelMode !== next.pointLabelMode || previous.showLineLengths !== next.showLineLengths || previous.dimensionRetarget !== next.dimensionRetarget) return false;
   // Handle availability depends on every consumer's layer, not just this entity.
   if (previous.document.entities !== next.document.entities || previous.document.layers !== next.document.layers) return false;
   if (!entityVertexIds(next.item.entity).every(id => previous.document.vertices[id] === next.document.vertices[id])) return false;

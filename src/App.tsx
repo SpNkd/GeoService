@@ -107,7 +107,10 @@ export default function App() {
         if (deletions.length) { dispatch({ type: 'execute-batch', commands: deletions }); dispatch({ type: 'select', entityId: null }); }
         break;
       }
-      case 'cancel': window.dispatchEvent(new Event('geoservice:escape')); dispatch({ type: 'tool', tool: 'select' }); dispatch({ type: 'select', entityId: null }); break;
+      case 'cancel': window.dispatchEvent(new Event('geoservice:escape')); dispatch({ type: 'tool', tool: 'select' });
+        if (state.dimensionPick) dispatch({ type: 'cancel-dimension-pick' });
+        else if (!state.dimensionRetarget) dispatch({ type: 'select', entityId: null });
+        break;
       case 'help': setShortcutsOpen(true); break;
     }
   }, [dispatch, fit, save, startNew, state]);
@@ -116,6 +119,12 @@ export default function App() {
     const executeBuffer = () => { const match = resolveShortcut(keyBuffer.current); clearSequence(); if (match) runShortcut(match.id); };
     const suppressed = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"], [data-shortcut-suppressed]'));
     const keydown = (event: KeyboardEvent) => {
+      if (state.dimensionPick) {
+        if (event.key === 'Escape') { event.preventDefault(); dispatch({ type: 'cancel-dimension-pick' }); return; }
+        if (event.metaKey || event.ctrlKey) { if (['s', 'o', 'n', 'z', 'y'].includes(event.key.toLowerCase())) event.preventDefault(); return; }
+        if (!suppressed(event.target)) event.preventDefault();
+        return;
+      }
       if (georeferenceOpen) {
         if (event.key === 'Escape') { event.preventDefault(); if (pickingControl !== null) setPickingControl(null); else closeGeoreference(); }
         if (event.metaKey || event.ctrlKey) { if (['s', 'o', 'n', 'z', 'y'].includes(event.key.toLowerCase())) event.preventDefault(); }
@@ -204,7 +213,7 @@ export default function App() {
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
     </div><div inert={georeferenceOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
-    <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
+    <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (state.dimensionPick ? `Выберите существующую вершину для ${state.dimensionPick.endpoint === 'start' ? 'начала' : 'конца'} размера · Esc отмена` : null) ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>{state.coordinateDisplay === 'model' ? 'X' : 'E'} <b data-testid="cursor-x">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.x) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.e) : '—'}</b></span><span>{state.coordinateDisplay === 'model' ? 'Y' : 'N'} <b data-testid="cursor-y">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.y) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.n) : '—'}</b></span><span>м</span></div>
       <span className="status-grid">Привязка: {state.snapOptions.gridStep ?? 1} м · ORTHO {state.ortho ? 'ON' : 'OFF'}</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
     </footer>

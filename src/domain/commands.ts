@@ -18,6 +18,7 @@ export type DocumentCommand =
   | { type: 'delete-layer'; layerId: string }
   | { type: 'move-layer'; layerId: string; direction: -1 | 1 }
   | { type: 'update-layer'; layerId: string; name: string }
+  | { type: 'update-dimension-reference'; dimensionId: string; endpoint: 'start' | 'end'; vertexId: string }
   | { type: 'update-vertex'; vertexId: string; position: WorldPoint }
   | { type: 'move-vertex'; vertexId: string; delta: WorldPoint }
   | { type: 'move-text'; entityId: string; vertexId: string; position: WorldPoint }
@@ -89,6 +90,19 @@ function applyEntityAdditions(document: GeoDocument, commands: readonly Extract<
 
 export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   const command = parseCommand(raw);
+  if (command.type === 'update-dimension-reference') {
+    const entity = document.entities.find(item => item.id === command.dimensionId);
+    if (!entity || entity.type !== 'dimension') throw new Error('Размер не найден');
+    if (isLayerLocked(document, entity)) throw new Error('Нельзя изменять размер на заблокированном слое');
+    if (!Object.hasOwn(document.vertices, command.vertexId)) throw new Error('Опорная вершина не найдена');
+    const other = command.endpoint === 'start' ? entity.endVertexId : entity.startVertexId;
+    if (command.vertexId === other) throw new Error('Начало и конец размера должны ссылаться на разные вершины');
+    if (distance(document.vertices[command.vertexId]!, document.vertices[other]!) === 0) throw new Error('Начало и конец размера не могут занимать одну позицию');
+    const current = command.endpoint === 'start' ? entity.startVertexId : entity.endVertexId;
+    if (command.vertexId === current) return document;
+    const updated = command.endpoint === 'start' ? { ...entity, startVertexId: command.vertexId } : { ...entity, endVertexId: command.vertexId };
+    return { ...document, entities: document.entities.map(item => item.id === entity.id ? updated : item) };
+  }
   if (command.type === 'set-model-frame') {
     if (command.frame === 'projected' && document.horizontalReference) throw new Error('Сначала удалите горизонтальную привязку.');
     if (documentModelFrame(document) === command.frame) return document;

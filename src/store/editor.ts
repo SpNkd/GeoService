@@ -1,5 +1,5 @@
 import type { GeoDocument, Viewport } from '../domain/model';
-import { applyCommand, applyCommandsAtomically, type DocumentCommand } from '../domain/commands';
+import { applyCommand, applyCommandsAtomically, isLayerLocked, type DocumentCommand } from '../domain/commands';
 import { fitToBounds, panViewport, zoomAt, type ScreenPoint, type ViewSize } from '../geometry';
 import { visibleBounds } from '../renderer/selectors';
 import { deserializeDocument, documentFingerprint } from '../persistence/serialization';
@@ -12,6 +12,8 @@ export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'pol
 export type PointLabelMode = 'name' | 'name-z' | 'z';
 export interface EditorState {
   coordinateDisplay: 'model' | 'survey';
+  dimensionRetarget: { dimensionId: string; endpoint: 'start' | 'end'; vertexId: string | null } | null;
+  dimensionPick: { dimensionId: string; endpoint: 'start' | 'end' } | null;
   document: GeoDocument; viewport: Viewport; selectionId: string | null; selectedEntityIds: string[]; selectedLayerId: string | null; currentLayerId: string; tool: EditorTool; gridVisible: boolean;
   past: GeoDocument[]; future: GeoDocument[]; transactionBefore: GeoDocument | null; error: string | null;
   savedFingerprint: string; documentEpoch: number;
@@ -19,6 +21,12 @@ export interface EditorState {
 }
 export type EditorAction =
   | { type: 'coordinate-display'; mode: 'model' | 'survey' }
+  | { type: 'begin-dimension-retarget'; dimensionId: string; endpoint: 'start' | 'end' }
+  | { type: 'preview-dimension-retarget'; vertexId: string | null }
+  | { type: 'finish-dimension-retarget'; vertexId: string | null }
+  | { type: 'begin-dimension-pick'; dimensionId: string; endpoint: 'start' | 'end' }
+  | { type: 'cancel-dimension-pick' }
+  | { type: 'finish-dimension-pick'; vertexId: string }
   | { type: 'load-json'; text: string; size: ViewSize }
   | { type: 'replace-document'; document: GeoDocument; size: ViewSize }
   | { type: 'mark-saved' }
@@ -60,7 +68,7 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { coordinateDisplay: 'model', document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
@@ -69,6 +77,44 @@ export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFing
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case 'coordinate-display': return { ...state, coordinateDisplay: action.mode };
+    case 'begin-dimension-retarget': {
+      const dimension = state.document.entities.find(entity => entity.id === action.dimensionId);
+      if (!dimension || dimension.type !== 'dimension' || isLayerLocked(state.document, dimension) || state.transactionBefore) return state;
+      return { ...state, selectionId: dimension.id, selectedEntityIds: [dimension.id], dimensionPick: null,
+        dimensionRetarget: { dimensionId: dimension.id, endpoint: action.endpoint, vertexId: null }, transactionBefore: state.document, error: null };
+    }
+    case 'preview-dimension-retarget': return state.dimensionRetarget ? { ...state, dimensionRetarget: { ...state.dimensionRetarget, vertexId: action.vertexId } } : state;
+    case 'finish-dimension-retarget': {
+      const preview = state.dimensionRetarget;
+      if (!preview) return state;
+      if (!action.vertexId) return { ...state, transactionBefore: null, dimensionRetarget: null, error: 'Отпустите grip на существующей вершине.' };
+      try {
+        const command: DocumentCommand = { type: 'update-dimension-reference', dimensionId: preview.dimensionId, endpoint: preview.endpoint, vertexId: action.vertexId };
+        const document = applyCommand(state.document, command);
+        return document === state.document
+          ? { ...state, transactionBefore: null, dimensionRetarget: null, error: null }
+          : { ...state, document, past: pushHistory(state.past, state.document), future: [], transactionBefore: null, dimensionRetarget: null, dimensionPick: null, error: null };
+      } catch (error) {
+        return { ...state, transactionBefore: null, dimensionRetarget: null, error: error instanceof Error ? error.message : 'Нельзя изменить привязку размера' };
+      }
+    }
+    case 'begin-dimension-pick': {
+      const dimension = state.document.entities.find(entity => entity.id === action.dimensionId);
+      if (!dimension || dimension.type !== 'dimension' || isLayerLocked(state.document, dimension) || state.transactionBefore) return state;
+      return { ...state, selectionId: dimension.id, selectedEntityIds: [dimension.id], dimensionRetarget: null, dimensionPick: { dimensionId: dimension.id, endpoint: action.endpoint }, error: null };
+    }
+    case 'cancel-dimension-pick': return state.dimensionPick ? { ...state, dimensionPick: null } : state;
+    case 'finish-dimension-pick': {
+      const pick = state.dimensionPick;
+      if (!pick) return state;
+      try {
+        const document = applyCommand(state.document, { type: 'update-dimension-reference', ...pick, vertexId: action.vertexId });
+        return { ...state, document, past: document === state.document ? state.past : pushHistory(state.past, state.document),
+          future: document === state.document ? state.future : [], dimensionPick: null, error: null };
+      } catch (error) {
+        return { ...state, dimensionPick: null, error: error instanceof Error ? error.message : 'Нельзя изменить привязку размера' };
+      }
+    }
     case 'toggle-ortho': return { ...state, ortho: !state.ortho };
     case 'create-layer': {
       let name = 'Новый слой', suffix = 2;
@@ -127,12 +173,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'begin-transaction': return state.transactionBefore ? state : { ...state, transactionBefore: state.document };
     case 'commit-transaction': {
+      if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };
       const before = state.transactionBefore;
       return !before ? state : { ...state, past: state.document === before ? state.past : pushHistory(state.past, before),
         future: state.document === before ? state.future : [], transactionBefore: null };
     }
-    case 'cancel-transaction': return state.transactionBefore ? { ...state, document: state.transactionBefore, transactionBefore: null, error: null } : state;
+    case 'cancel-transaction': return state.transactionBefore ? { ...state, document: state.transactionBefore, transactionBefore: null, dimensionRetarget: null, error: null } : state;
     case 'undo': {
+      if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };
+      if (state.dimensionPick) return { ...state, dimensionPick: null };
       if (state.transactionBefore && state.document !== state.transactionBefore) {
         return { ...state, document: state.transactionBefore, future: [state.document], transactionBefore: null, error: null };
       }
@@ -143,6 +192,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selectionId: reconcileSelection(document, state.selectionId), selectedEntityIds: state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
     }
     case 'redo': {
+      if (state.dimensionRetarget || state.dimensionPick) return { ...state, transactionBefore: null, dimensionRetarget: null, dimensionPick: null };
       if (!state.future.length || state.transactionBefore) return state;
       const document = state.future[state.future.length - 1]!;
       return { ...state, ...reconcileLayers(document, state), document, past: pushHistory(state.past, state.document), future: state.future.slice(0, -1),
@@ -151,7 +201,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'clear-error': return { ...state, error: null };
     case 'report-error': return { ...state, error: action.message };
     case 'select': {
-      if (action.entityId === null) return { ...state, selectionId: null, selectedEntityIds: [], selectedLayerId: null, orderedPointIds: [] };
+      if (action.entityId === null) return { ...state, selectionId: null, selectedEntityIds: [], selectedLayerId: null, orderedPointIds: [], dimensionPick: null };
       const entity = state.document.entities.find(item => item.id === action.entityId);
       const layer = state.document.layers.find(item => item.id === entity?.layerId);
       if (!layer?.visible) return state;

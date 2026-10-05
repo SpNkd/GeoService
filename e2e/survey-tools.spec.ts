@@ -21,7 +21,8 @@ async function importPoints(page: Page) {
   await expect(page.locator('[data-entity-type="point"]')).toHaveCount(4);
 }
 async function movePoint(page: Page, name: string, dx = 40, dy = -25) {
-  const p = await position(page, name);
+  // Stay outside the selected Dimension's 14 px reference-grip target while remaining within the point hit circle.
+  const center = await position(page, name), p = { x: center.x + 9, y: center.y };
   await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.move(p.x + dx, p.y + dy, { steps: 8 }); await page.mouse.up();
 }
 

@@ -56,14 +56,30 @@ function GeometryProperties({ entity, document, locked, dispatch }: { entity: Ex
   return <div className="property-section"><h3>Геометрия</h3><dl className="property-facts">
     {entity.type === 'line' && <><dt>Длина</dt><dd>{formatMeasure(distance(worldPoints[0]!, worldPoints[1]!))} м</dd></>}
     {(entity.type === 'line' || entity.type === 'dimension') && <><dt>Азимут</dt><dd>{formatAzimuth(azimuth(worldPoints[0]!, worldPoints[1]!))}</dd></>}
-    {entity.type === 'dimension' && <><dt>Horizontal</dt><dd>{formatDistance(distance(worldPoints[0]!, worldPoints[1]!))}</dd></>}
+    {entity.type === 'dimension' && <><dt>Длина размера</dt><dd>{formatDistance(distance(worldPoints[0]!, worldPoints[1]!))} м</dd></>}
     {entity.type === 'polyline' && <><dt>Длина</dt><dd>{formatMeasure(pathLength(worldPoints))} м</dd></>}
     {entity.type === 'polygon' && <><dt>Площадь</dt><dd>{formatMeasure(polygonArea(worldPoints))} м²</dd><dt>Периметр</dt><dd>{formatMeasure(pathLength(worldPoints, true))} м</dd></>}
     {entity.type === 'text' && <><dt>Содержание</dt><dd className="text-content">{entity.content}</dd><dt>Размер текста</dt><dd>{entity.fontSize} px</dd></>}
     <dt>Вершины</dt><dd>{points.length}</dd>
-  </dl>{entity.type === 'dimension' && <DimensionOffsetField entity={entity} locked={locked} dispatch={dispatch} />}<div className="vertex-table"><table><thead><tr><th>Вершина</th><th>X, м</th><th>Y, м</th></tr></thead><tbody>
+  </dl>{entity.type === 'dimension' && <><DimensionReferences entity={entity} document={document} locked={locked} dispatch={dispatch} /><DimensionOffsetField entity={entity} locked={locked} dispatch={dispatch} /><DimensionTextPositionField entity={entity} locked={locked} dispatch={dispatch} /></>}<div className="vertex-table"><table><thead><tr><th>Вершина</th><th>X, м</th><th>Y, м</th></tr></thead><tbody>
     {points.map((vertex, i) => <tr key={`${vertex.id}:${i}`}><td title={vertex.id}>{vertex.id}</td><td>{formatCoordinate(vertex.x)}</td><td>{formatCoordinate(vertex.y)}</td></tr>)}
   </tbody></table></div>{entity.type === 'polygon' && polygonSelfIntersects(worldPoints) && <p className="geometry-warning">Граница самопересекается. Проверьте вершины.</p>}</div>;
+}
+
+function DimensionReferences({ entity, document, locked, dispatch }: { entity: Extract<Entity, { type: 'dimension' }>; document: GeoDocument; locked: boolean; dispatch: Dispatch<EditorAction> }) {
+  const reference = (endpoint: 'start' | 'end') => {
+    const vertexId = endpoint === 'start' ? entity.startVertexId : entity.endVertexId;
+    const vertex = document.vertices[vertexId]!;
+    const point = document.entities.find(item => item.type === 'point' && item.vertexId === vertexId);
+    return { vertexId, vertex, name: point?.name ?? 'Вершина' };
+  };
+  return <div className="dimension-reference-fields"><h3>Привязки к вершинам</h3>{(['start', 'end'] as const).map(endpoint => {
+    const { vertexId, vertex, name } = reference(endpoint), survey = documentSurveyXY(document, vertex);
+    return <div className="dimension-reference-row" key={endpoint}>
+      <div><strong>{endpoint === 'start' ? 'Начало' : 'Конец'} · {name}</strong><code>{vertexId}</code><span>MODEL X {formatCoordinate(vertex.x)} · Y {formatCoordinate(vertex.y)} м</span>{survey && <span>SURVEY E {formatCoordinate(survey.e)} · N {formatCoordinate(survey.n)} м</span>}</div>
+      <button type="button" className="secondary-action" disabled={locked} onClick={() => dispatch({ type: 'begin-dimension-pick', dimensionId: entity.id, endpoint })}>{locked ? 'Только просмотр' : 'Выбрать на схеме'}</button>
+    </div>;
+  })}</div>;
 }
 
 function LayerProperties({ layer, state, dispatch }: { layer: GeoDocument['layers'][number]; state: EditorState; dispatch: Dispatch<EditorAction> }) {
@@ -100,6 +116,20 @@ function DimensionOffsetField({ entity, locked, dispatch }: { entity: Extract<En
   };
   return <label className="coordinate-field"><span>Отступ размера</span><div><input aria-label="Отступ размера" type="text" inputMode="decimal" spellCheck={false} value={draft} disabled={locked}
     onChange={event => setDraft(event.target.value)} onBlur={commit} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /><span>м</span></div></label>;
+}
+
+function DimensionTextPositionField({ entity, locked, dispatch }: { entity: Extract<Entity, { type: 'dimension' }>; locked: boolean; dispatch: Dispatch<EditorAction> }) {
+  const [draft, setDraft] = useState(String(entity.textPosition ?? 0.5));
+  useEffect(() => setDraft(String(entity.textPosition ?? 0.5)), [entity.textPosition]);
+  const commit = () => {
+    const value = Number(draft);
+    if (draft.trim() && Number.isFinite(value)) {
+      const textPosition = Math.max(0.05, Math.min(0.95, value));
+      if (textPosition !== (entity.textPosition ?? 0.5)) dispatch({ type: 'execute', command: { type: 'update-entity', entityId: entity.id, patch: { textPosition } } });
+      setDraft(String(textPosition));
+    } else setDraft(String(entity.textPosition ?? 0.5));
+  };
+  return <label className="coordinate-field"><span>Положение текста</span><input aria-label="Положение текста" type="number" min="0.05" max="0.95" step="0.01" value={draft} disabled={locked} onChange={event => setDraft(event.target.value)} onBlur={commit} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label>;
 }
 
 function LabelProperties({ entity, document, locked, dispatch }: { entity: LabelEntity; document: GeoDocument; locked: boolean; dispatch: Dispatch<EditorAction> }) {
