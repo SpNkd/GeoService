@@ -115,3 +115,13 @@ describe('IndexedDB document autosave', () => {
     expect(original).toEqual(createSampleDocument());
   });
 });
+
+it('supersedes a save while worker preparation is still pending, including clear ordering', async()=>{
+  const document=createSampleDocument();let release:()=>void=()=>{};
+  const gate=new Promise<void>(resolve=>{release=resolve;});let calls=0;
+  const api=createAutosaveStore({indexedDB:new IDBFactory(),prepare:async d=>{calls++;if(calls===1)await gate;const serialized=serializeDocument(d);return {document:JSON.parse(serialized) as GeoDocument,approximateSerializedBytes:new TextEncoder().encode(serialized).byteLength};}});
+  const older=api.saveAutosave(document,true);await Promise.resolve();
+  const latest={...document,metadata:{...document.metadata,title:'newest'}};const newer=api.saveAutosave(latest,true);release();
+  expect(await older).toBeNull();expect((await newer)?.document).toEqual(latest);expect((await api.loadAutosave())?.document).toEqual(latest);
+  await api.clearAutosave();expect(await api.getAutosaveInfo()).toBeNull();
+});

@@ -11,11 +11,13 @@ const fallbackStyle: EntityStyle = { id: 'fallback', stroke: '#546675', fill: 'n
 export function renderItems(document: GeoDocument): RenderItem[] {
   const styles = new Map(document.styles.map(style => [style.id, style]));
   const visible = new Set(document.layers.filter(layer => layer.visible).map(layer => layer.id));
-  const items = [...document.layers].sort((a, b) => a.order - b.order).flatMap(layer =>
-    layer.visible ? document.entities.filter(entity => entity.layerId === layer.id && entity.visible !== false && (entity.type !== 'label' || visible.has(document.entities.find(target => target.id === entity.targetId)?.layerId ?? ''))).sort((a, b) => Number(a.type === 'text' || a.type === 'label') - Number(b.type === 'text' || b.type === 'label')).map(entity => ({
-      entity, layer, style: styles.get(entity.styleId ?? layer.styleId) ?? fallbackStyle,
-    })) : [],
-  );
+  const groups = new Map<string, Entity[]>(), entities = new Map(document.entities.map(e => [e.id, e]));
+  for (const entity of document.entities) {
+    if (!visible.has(entity.layerId) || entity.visible === false || entity.type === 'label' && !visible.has(entities.get(entity.targetId)?.layerId ?? '')) continue;
+    const group = groups.get(entity.layerId) ?? []; group.push(entity); groups.set(entity.layerId, group);
+  }
+  const items = [...document.layers].sort((a,b) => a.order-b.order).flatMap(layer =>
+    (groups.get(layer.id) ?? []).sort((a,b) => Number(a.type==='text'||a.type==='label')-Number(b.type==='text'||b.type==='label')).map(entity => ({entity, layer, style:styles.get(entity.styleId ?? layer.styleId) ?? fallbackStyle})));
   return items;
 }
 export function visibleBounds(document: GeoDocument) {

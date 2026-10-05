@@ -1,4 +1,4 @@
-import type { SourceProvenance, SourceDocument, VectorPrimitive, BlockDefinition, BlockTransform } from '../vectors/types';
+import type { SourceProvenance, SourceDocument, VectorPrimitive, BlockDefinition, BlockTransform, ImportedSemanticContent } from '../vectors/types';
 /** Canonical MODEL coordinates in metres. Survey XY and absolute height are derived separately. */
 export interface WorldPoint { x: number; y: number; z?: number }
 export interface Vertex extends WorldPoint { id: string }
@@ -18,7 +18,7 @@ export interface SymbolEntity extends EntityBase { type: 'symbol'; libraryId: st
 export interface ArcEntity extends EntityBase { type: 'arc'; center: WorldPoint; radius: number; startAngle: number; endAngle: number }
 export interface CircleEntity extends EntityBase { type: 'circle'; center: WorldPoint; radius: number }
 export interface BlockInstanceEntity extends EntityBase, BlockTransform { type: 'block_instance'; blockDefinitionId: string; attributes?: Record<string, string>; attributePrimitives?: VectorPrimitive[] }
-export interface ImportedGraphicEntity extends EntityBase { type: 'imported_graphic'; position: WorldPoint; primitives: VectorPrimitive[] }
+export interface ImportedGraphicEntity extends EntityBase { type: 'imported_graphic'; position: WorldPoint; primitives: VectorPrimitive[]; semanticContent?: ImportedSemanticContent }
 export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity | SymbolEntity | ArcEntity | CircleEntity | BlockInstanceEntity | ImportedGraphicEntity;
 export interface SurveyXY { e: number; n: number }
 export interface RigidTransform2D { rotation: number; translation: SurveyXY; scale: 1 }

@@ -30,8 +30,10 @@ test('drag updates shared geometry without serializing drafts or writing autosav
   expect(await readAutosaveDocument(page).then(document => document.vertices['v-p1']!.x)).toBe(1000);
   await expect(page.getByLabel('Есть несохранённые изменения')).toBeVisible();
   await page.mouse.up();
-  await expect.poll(count).toBeGreaterThan(baseline);
+  // Worker validates/encodes committed autosave; the editor thread must not stringify the full document.
+  expect(await count()).toBe(baseline);
   await expect.poll(() => readAutosaveDocument(page).then(document => document.vertices['v-p1']!.x)).not.toBe(1000);
+  expect(await count()).toBe(baseline);
   await page.keyboard.press('Control+z');
   await expect(page.locator('[data-entity-id="boundary-01"] polygon')).toHaveAttribute('points', before!);
   await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);

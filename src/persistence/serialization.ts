@@ -24,4 +24,13 @@ export function encodeDocument(document: GeoDocument): string {
 export function serializeDocument(document: GeoDocument): string {
   return encodeDocument(validateDocument(document));
 }
-export const documentFingerprint = (document: GeoDocument) => JSON.stringify(document);
+const fingerprints=new WeakMap<object,string>();
+const componentFingerprint=(value:object)=>{let cached=fingerprints.get(value);if(cached===undefined){cached=JSON.stringify(value);fingerprints.set(value,cached);}return cached;};
+/** Exact JSON equality for immutable canonical components; no hash collisions or document-wide re-encoding on layer edits. */
+export const documentFingerprint = (document: GeoDocument) => {
+  const parts=Object.keys(document).sort().flatMap(key=>{
+    const value=document[key as keyof GeoDocument];if(value===undefined)return [];
+    return [JSON.stringify(key)+':'+(value&&typeof value==='object'?componentFingerprint(value):JSON.stringify(value))];
+  });
+  return '{'+parts.join(',')+'}';
+};

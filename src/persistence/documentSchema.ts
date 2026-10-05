@@ -1,4 +1,4 @@
-import { sourceSchema, sourceDocumentSchema, blockDefinitionSchema, primitivesSchema, blockTransformSchema, attributesSchema } from './vectorSchema';
+import { semanticContentSchema, sourceSchema, sourceDocumentSchema, blockDefinitionSchema, primitivesSchema, blockTransformSchema, attributesSchema } from './vectorSchema';
 import { validateVectorDocument } from '../vectors/geometry';
 import { z } from 'zod';
 import { requireSymbol } from '../symbols/registry';
@@ -25,7 +25,7 @@ export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('arc'), center: worldPointSchema, radius: finiteNumber.positive(), startAngle: finiteNumber, endAngle: finiteNumber }),
   z.object({ ...base, type: z.literal('circle'), center: worldPointSchema, radius: finiteNumber.positive() }),
   z.object({ ...base, type: z.literal('block_instance'), blockDefinitionId: id, ...blockTransformSchema, attributes: attributesSchema.optional(), attributePrimitives: primitivesSchema.optional() }),
-  z.object({ ...base, type: z.literal('imported_graphic'), position: worldPointSchema, primitives: primitivesSchema }),
+  z.object({ ...base, type: z.literal('imported_graphic'), position: worldPointSchema, primitives: primitivesSchema, semanticContent: semanticContentSchema.optional() }),
 ]);
 
 export const vertexSchema = worldPointSchema.extend({ id });

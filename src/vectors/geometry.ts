@@ -1,5 +1,5 @@
 import type { Entity, GeoDocument, WorldPoint } from '../domain/model';
-import type { BlockTransform, VectorPrimitive } from './types';
+import type { BlockDefinition, BlockTransform, VectorPrimitive } from './types';
 import { VECTOR_LIMITS } from './types';
 export type Matrix = readonly [number, number, number, number, number, number];
 export const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
@@ -17,32 +17,74 @@ export function arcPoints(center:WorldPoint,radius:number,start=0,end=2*Math.PI)
 }
 const boxPoints=(points:WorldPoint[]):WorldPoint[]=>{if(!points.length)return [];let x=Infinity,y=Infinity,X=-Infinity,Y=-Infinity;for(const p of points){x=Math.min(x,p.x);y=Math.min(y,p.y);X=Math.max(X,p.x);Y=Math.max(Y,p.y);}return [{x,y},{x:X,y},{x:X,y:Y},{x,y:Y}];};
 export function textBounds(content:string,height:number):WorldPoint[] {const lines=content.split('\n'),width=Math.max(...lines.map(line=>line.length))*height*.7,bottom=-(lines.length-1)*height*1.2;return [{x:0,y:bottom},{x:width,y:bottom},{x:width,y:height},{x:0,y:height}];}
-const caches=new WeakMap<GeoDocument,Map<string,WorldPoint[]>>();
-/** Cached definition bounds, shared by every instance. Nested AABBs are conservative. */
-export function primitiveBounds(document:GeoDocument,primitives:VectorPrimitive[],stack:string[]=[]):WorldPoint[] {
-  const cache=caches.get(document)??new Map<string,WorldPoint[]>();caches.set(document,cache);
-  const points:WorldPoint[]=[];
-  for(const p of primitives){
-    if(p.kind==='path') points.push(...boxPoints(p.points));
-    else if(p.kind==='arc'||p.kind==='circle')points.push(...boxPoints(arcPoints(p.center,p.radius,p.kind==='arc'?p.startAngle:0,p.kind==='arc'?p.endAngle:2*Math.PI)));
-    else if(p.kind==='text') {const m=blockMatrix({position:p.position,rotationDeg:p.rotationDeg,scaleX:1,scaleY:1},{x:0,y:0});points.push(...textBounds(p.content,p.height).map(x=>transformPoint(x,m)));}
-    else {
-      if(stack.includes(p.blockDefinitionId)||stack.length>=VECTOR_LIMITS.depth)continue;
-      const block=document.blocks?.find(b=>b.id===p.blockDefinitionId);if(!block)continue;
-      let local=cache.get(block.id);if(!local){local=boxPoints(primitiveBounds(document,block.primitives,[...stack,block.id]));cache.set(block.id,local);}
-      points.push(...local.map(x=>transformPoint(x,blockMatrix(p,block.basePoint))));
-    }
-  }
-  return boxPoints(points);
+interface BoundsContext {
+  definitions: Map<string, BlockDefinition>;
+  definitionsBounds: Map<string, WorldPoint[]>;
+  primitives: WeakMap<VectorPrimitive[], WorldPoint[]>;
+  instances: WeakMap<Entity, WorldPoint[]>;
 }
-export function vectorEntityBounds(document:GeoDocument,entity:Entity):WorldPoint[] {
-  if(entity.type==='arc'||entity.type==='circle')return boxPoints(arcPoints(entity.center,entity.radius,entity.type==='arc'?entity.startAngle:0,entity.type==='arc'?entity.endAngle:2*Math.PI));
-  if(entity.type==='imported_graphic')return primitiveBounds(document,entity.primitives).map(p=>({x:p.x+entity.position.x,y:p.y+entity.position.y}));
-  if(entity.type==='block_instance') {
-    const p:VectorPrimitive={kind:'block',...entity,colorMode:'bylayer'};
-    return boxPoints([...primitiveBounds(document,[p]),...primitiveBounds(document,entity.attributePrimitives??[]).map(x=>({x:x.x+entity.position.x,y:x.y+entity.position.y}))]);
+const emptyBlocks: BlockDefinition[] = [];
+const emptyPrimitives: VectorPrimitive[] = [];
+const contexts = new WeakMap<BlockDefinition[], BoundsContext>();
+const definitionRevisions = new WeakMap<BlockDefinition, { points: WorldPoint[]; children: WorldPoint[][] }>();
+const instanceRevisions = new WeakMap<Entity, {points:WorldPoint[];dependencies:WorldPoint[][]}>();
+const metrics = { definitionComputations: 0, primitiveVisits: 0, instanceComputations: 0 };
+/** Diagnostic counters for deterministic cache tests and opt-in profiling. */
+export const vectorBoundsMetrics = () => ({ ...metrics });
+function context(document: GeoDocument): BoundsContext {
+  const blocks = document.blocks ?? emptyBlocks;
+  let c = contexts.get(blocks);
+  if (!c) { c = { definitions: new Map(blocks.map(b => [b.id, b])), definitionsBounds: new Map(), primitives: new WeakMap(), instances: new WeakMap() }; contexts.set(blocks, c); }
+  return c;
+}
+export const blockDefinition = (document: GeoDocument, id: string) => context(document).definitions.get(id);
+function definitionBounds(document: GeoDocument, id: string, stack: string[]): WorldPoint[] {
+  if (stack.includes(id) || stack.length >= VECTOR_LIMITS.depth) return [];
+  const c = context(document), block = c.definitions.get(id);
+  if (!block) return [];
+  const cached = c.definitionsBounds.get(id);
+  if (cached) return cached;
+  // Object identity is the immutable definition revision. A replaced child invalidates ancestors.
+  const next = [...stack, id], children = block.primitives.filter(p => p.kind === 'block').map(p => definitionBounds(document, p.blockDefinitionId, next));
+  const revision = definitionRevisions.get(block);
+  let points: WorldPoint[];
+  if (revision && children.length === revision.children.length && children.every((p, i) => p === revision.children[i])) points = revision.points;
+  else { metrics.definitionComputations++; points = primitiveBounds(document, block.primitives, next); definitionRevisions.set(block, { points, children }); }
+  c.definitionsBounds.set(id, points);
+  return points;
+}
+/** Library revision cache survives document edits, pan, hover and instance movement. */
+export function primitiveBounds(document: GeoDocument, primitives: VectorPrimitive[], stack: string[] = []): WorldPoint[] {
+  const c = context(document), cached = c.primitives.get(primitives);
+  if (cached) return cached;
+  const points: WorldPoint[] = [];
+  for (const p of primitives) {
+    metrics.primitiveVisits++;
+    if (p.kind === 'path') points.push(...boxPoints(p.points));
+    else if (p.kind === 'arc' || p.kind === 'circle') points.push(...boxPoints(arcPoints(p.center, p.radius, p.kind === 'arc' ? p.startAngle : 0, p.kind === 'arc' ? p.endAngle : 2 * Math.PI)));
+    else if (p.kind === 'text') { const m = blockMatrix({ position: p.position, rotationDeg: p.rotationDeg, scaleX: 1, scaleY: 1 }, { x: 0, y: 0 }); points.push(...textBounds(p.content, p.height).map(x => transformPoint(x, m))); }
+    else { const block = c.definitions.get(p.blockDefinitionId); if (block) points.push(...definitionBounds(document, block.id, stack).map(x => transformPoint(x, blockMatrix(p, block.basePoint)))); }
   }
-  return [];
+  const result = boxPoints(points); c.primitives.set(primitives, result); return result;
+}
+export function vectorEntityBounds(document: GeoDocument, entity: Entity): WorldPoint[] {
+  const c = context(document), cached = c.instances.get(entity);
+  if (cached) return cached;
+  const dependencies:WorldPoint[][]=[];
+  if(entity.type==='imported_graphic')dependencies.push(primitiveBounds(document,entity.primitives));
+  if(entity.type==='block_instance')dependencies.push(definitionBounds(document,entity.blockDefinitionId,[]),primitiveBounds(document,entity.attributePrimitives??emptyPrimitives));
+  const revision=instanceRevisions.get(entity);
+  if(revision&&revision.dependencies.length===dependencies.length&&dependencies.every((p,i)=>p===revision.dependencies[i])) {c.instances.set(entity,revision.points);return revision.points;}
+  metrics.instanceComputations++;
+  let points:WorldPoint[]=[];
+  if(entity.type==='arc'||entity.type==='circle')points=boxPoints(arcPoints(entity.center,entity.radius,entity.type==='arc'?entity.startAngle:0,entity.type==='arc'?entity.endAngle:2*Math.PI));
+  if(entity.type==='imported_graphic')points=dependencies[0]!.map(p=>({x:p.x+entity.position.x,y:p.y+entity.position.y}));
+  if(entity.type==='block_instance') {
+    const block=c.definitions.get(entity.blockDefinitionId);
+    points=boxPoints([...dependencies[0]!.map(p=>transformPoint(p,blockMatrix(entity,block!.basePoint))),...dependencies[1]!.map(p=>({x:p.x+entity.position.x,y:p.y+entity.position.y}))]);
+  }
+  instanceRevisions.set(entity,{points,dependencies});
+  c.instances.set(entity, points); return points;
 }
 export function validateVectorDocument(document:GeoDocument):void {
   const blocks=new Map((document.blocks??[]).map(b=>[b.id,b])),layers=new Set(document.layers.map(l=>l.id)),sources=new Set((document.sources??[]).map(s=>s.id));

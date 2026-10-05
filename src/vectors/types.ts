@@ -8,8 +8,16 @@ export type VectorPrimitive = PrimitiveStyle & (
   | { kind: 'path'; points: WorldPoint[]; closed: boolean; fill?: boolean }
   | { kind: 'circle'; center: WorldPoint; radius: number }
   | { kind: 'arc'; center: WorldPoint; radius: number; startAngle: number; endAngle: number }
-  | { kind: 'text'; position: WorldPoint; content: string; height: number; rotationDeg: number }
+  | { kind: 'text'; position: WorldPoint; content: string; height: number; rotationDeg: number; attributeTag?: string }
   | ({ kind: 'block'; blockDefinitionId: string; attributes?: Record<string, string> } & BlockTransform)
 );
 export interface BlockDefinition { id: string; sourceName: string; basePoint: WorldPoint; primitives: VectorPrimitive[] }
 export const VECTOR_LIMITS = { blocks: 2000, primitives: 200000, points: 1000000, depth: 16, renderedPrimitives: 500000 } as const;
+
+/** Controlled imported text metadata; geometry ownership stays with the proxy. */
+export interface ImportedSemanticContent {
+  primaryText?: string;
+  textRuns?: { text: string; position?: WorldPoint }[];
+  measuredValue?: number;
+  dimensionType?: number;
+}

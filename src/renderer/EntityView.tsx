@@ -105,7 +105,9 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
     || previous.viewport !== next.viewport || previous.size !== next.size || previous.selected !== next.selected || previous.order !== next.order
     || previous.pointLabelMode !== next.pointLabelMode || previous.showLineLengths !== next.showLineLengths || previous.dimensionRetarget !== next.dimensionRetarget) return false;
   // Handle availability depends on every consumer's layer, not just this entity.
-  if (previous.document.entities !== next.document.entities || previous.document.layers !== next.document.layers) return false;
+  if (previous.document.layers !== next.document.layers) return false;
+  if (next.selected && ['line','polyline','polygon'].includes(next.item.entity.type) && previous.document.entities !== next.document.entities) return false;
+  if (['block_instance','imported_graphic'].includes(next.item.entity.type) && previous.document.blocks !== next.document.blocks) return false;
   if (!entityVertexIds(next.item.entity).every(id => previous.document.vertices[id] === next.document.vertices[id])) return false;
   if (next.item.entity.type === 'label') {
     if (previous.document.verticalReference !== next.document.verticalReference) return false;

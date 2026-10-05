@@ -1,9 +1,11 @@
+import { NESTED_MOVE_MESSAGE, resolveDeepSelection } from '../editor/deepSelection';
+import { createProvenanceIndex } from '../dxf/provenance';
 import { SymbolProperties } from './SymbolProperties';
 import type { ViewSize } from '../geometry';
 import { layerBounds } from '../geometry/entityBounds';
 import { documentSurveyXY, modelToAbsoluteZ } from '../geometry/georeferencing';
 import { MoveSelectionPanel } from './MoveSelectionPanel';
-import { Fragment, memo, useEffect, useState, type Dispatch } from 'react';
+import { Fragment, memo, useEffect, useMemo, useState, type Dispatch } from 'react';
 import { entityVertexIds, type Entity, type GeoDocument, type PointEntity, type TextEntity, type LabelEntity } from '../domain/model';
 import { distance, pathLength, polygonArea } from '../geometry';
 import { formatAzimuth, formatCoordinate, formatDistance, formatMeasure } from '../geometry/format';
@@ -172,6 +174,11 @@ function LabelPresets({ entity, state, dispatch }: { entity: Entity; state: Edit
 
 export const PropertyInspector = memo(function PropertyInspector({ state, dispatch, size }: { size: ViewSize; state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const entity = state.document.entities.find(item => item.id === state.selectionId);
+  const semanticIndex = useMemo(()=>createProvenanceIndex(state.document),[state.document]);
+  const summary = useMemo(()=>entity?semanticIndex.getEntitySemanticSummary(entity.id):undefined,[entity,semanticIndex]);
+  const deep = state.deepSelection ? resolveDeepSelection(state.document,state.deepSelection) : null;
+  const heading = entity?.type==='block_instance' ? summary?.blockName ?? entity.name : entity?.type==='imported_graphic' ? entity.semanticContent?.primaryText ?? entity.name : entity?.name;
+  const subtitle = entity?.type==='imported_graphic' && entity.source?.originalType==='MULTILEADER' ? 'Мультивыноска' : entity?.type==='imported_graphic' && entity.source?.originalType==='DIMENSION' ? 'DXF размер' : entity ? typeNames[entity.type] : '';
   const selectedLayer = state.document.layers.find(layer => layer.id === state.selectedLayerId);
   const locked = entity ? isLayerLocked(state.document, entity) : false;
   return <aside className="right-panel" aria-label="Свойства объекта">
@@ -179,17 +186,25 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
     {state.selectedEntityIds.length>1 && <p data-testid="group-properties"><strong>Выбрано: {state.selectedEntityIds.length} объектов</strong> · Переместить… / M</p>}
     <MoveSelectionPanel state={state} dispatch={dispatch} />
     {state.orderedPointIds.length >= 2 && <div className="ordered-selection"><h3>Точки по порядку · {state.orderedPointIds.length}</h3><ol>{state.orderedPointIds.map(id => <li key={id}>{state.document.entities.find(entity => entity.id === id)?.name}</li>)}</ol><div><button onClick={() => dispatch({ type: 'from-selected-points', kind: 'polyline' })}>Создать полилинию</button><button disabled={state.orderedPointIds.length < 3} onClick={() => dispatch({ type: 'from-selected-points', kind: 'polygon' })}>Создать границу</button></div></div>}
-    {selectedLayer ? <LayerProperties layer={selectedLayer} state={state} dispatch={dispatch} size={size} /> : entity ? <div className="inspector-content">
-      <div className="entity-heading"><span className="entity-icon"><Icon name={['arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 'symbol' : entity.type === 'polyline' ? 'line' : entity.type === 'symbol' ? 'symbol' : entity.type === 'label' ? 'text' : entity.type} size={23} /></span><div><h3>{entity.name}</h3><span>{typeNames[entity.type]}</span></div><button className="close-button" aria-label="Снять выбор" onClick={() => dispatch({ type: 'select', entityId: null })}>×</button></div>
-      <div className="property-section"><h3>Общие</h3><dl className="property-facts"><dt>ID</dt><dd className="mono" data-testid="selected-id">{entity.id}</dd><dt>Тип</dt><dd>{typeNames[entity.type]}</dd></dl>
+    {selectedLayer ? <LayerProperties layer={selectedLayer} state={state} dispatch={dispatch} size={size} /> : deep && state.deepSelection ? <div className="inspector-content" data-testid="deep-properties">
+      <div className="entity-heading"><div><h3>{deep.primitive.kind==='text'?deep.primitive.content:state.deepSelection.sourceType}</h3><span>Вложенный элемент · только просмотр</span></div></div>
+      <dl className="property-facts"><dt>Владелец</dt><dd>{summary?.blockName??entity?.name}</dd><dt>ID владельца</dt><dd data-testid="selected-id">{state.deepSelection.ownerEntityId}</dd>
+        <dt>Путь</dt><dd>{[...state.deepSelection.blockPath,state.deepSelection.sourceType].join(' → ')} · {state.deepSelection.primitivePath.join('.')}</dd><dt>Тип</dt><dd>{state.deepSelection.sourceType}</dd><dt>Исходный слой</dt><dd>{deep.source?.originalLayer??deep.primitive.layerId}</dd><dt>Handle</dt><dd>{deep.source?.handle??'—'}</dd>
+        {deep.primitive.kind==='text'&&<><dt>Текст</dt><dd>{deep.primitive.content}</dd></>}
+        <dt>Локальные координаты</dt><dd>{'position' in deep.primitive?`${deep.primitive.position.x} / ${deep.primitive.position.y}`:'center' in deep.primitive?`${deep.primitive.center.x} / ${deep.primitive.center.y}`:deep.primitive.points.map(p=>`${p.x} / ${p.y}`).slice(0,4).join('; ')}</dd></dl>
+      <p className="read-only-banner">{NESTED_MOVE_MESSAGE}</p><button className="secondary-action" onClick={()=>dispatch({type:'select',entityId:state.deepSelection!.ownerEntityId})}>Выбрать экземпляр блока</button>
+    </div> : entity ? <div className="inspector-content">
+      <div className="entity-heading"><span className="entity-icon"><Icon name={['arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 'symbol' : entity.type === 'polyline' ? 'line' : entity.type === 'symbol' ? 'symbol' : entity.type === 'label' ? 'text' : entity.type} size={23} /></span><div><h3>{heading}</h3><span>{subtitle}</span></div><button className="close-button" aria-label="Снять выбор" onClick={() => dispatch({ type: 'select', entityId: null })}>×</button></div>
+      <div className="property-section"><h3>Общие</h3><dl className="property-facts"><dt>ID</dt><dd className="mono" data-testid="selected-id">{entity.id}</dd><dt>Тип</dt><dd>{subtitle}</dd></dl>
         <label className="layer-field">Слой<select aria-label="Слой объекта" value={entity.layerId} disabled={locked} onChange={event => dispatch({ type: 'execute', command: { type: 'set-entity-layer', entityId: entity.id, layerId: event.target.value } })}>
           {state.document.layers.map(layer => <option key={layer.id} value={layer.id} disabled={layer.locked}>{layer.name}</option>)}
         </select></label>
         {locked && <p className="read-only-banner">Слой заблокирован · только просмотр</p>}
       </div>
       {entity.source && <div className="property-section"><h3>Источник DXF</h3><dl className="property-facts"><dt>Тип</dt><dd>{entity.source.originalType}</dd><dt>Исходный слой</dt><dd>{entity.source.originalLayer}</dd><dt>Handle</dt><dd>{entity.source.handle ?? '—'}</dd></dl></div>}
-      {entity.type === 'block_instance' && <div className="property-section"><h3>Блок</h3><dl className="property-facts"><dt>Имя</dt><dd>{state.document.blocks?.find(b=>b.id===entity.blockDefinitionId)?.sourceName}</dd><dt>MODEL X/Y</dt><dd>{entity.position.x} / {entity.position.y}</dd><dt>Поворот</dt><dd>{entity.rotationDeg}°</dd><dt>Scale X/Y/Z</dt><dd>{entity.scaleX} / {entity.scaleY} / {entity.scaleZ??1}</dd>{Object.entries(entity.attributes??{}).map(([k,v])=><Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>)}</dl><p>Move Selection перемещает экземпляр целиком.</p></div>}
+      {entity.type === 'block_instance' && <div className="property-section"><h3>Блок</h3><dl className="property-facts"><dt>Имя</dt><dd>{summary?.blockName}</dd><dt>Название экземпляра</dt><dd>{entity.name}</dd><dt>Вложенных primitives</dt><dd>{summary?.primitiveCount}</dd><dt>Экземпляров definition</dt><dd>{summary?.instanceCount}</dd><dt>MODEL X/Y</dt><dd>{entity.position.x} / {entity.position.y}</dd><dt>Поворот</dt><dd>{entity.rotationDeg}°</dd><dt>Scale X/Y/Z</dt><dd>{entity.scaleX} / {entity.scaleY} / {entity.scaleZ??1}</dd>{Object.entries(entity.attributes??{}).map(([k,v])=><Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>)}</dl><p>Move Selection перемещает экземпляр целиком.</p></div>}
       {(entity.type === 'arc' || entity.type === 'circle') && <div className="property-section"><h3>Дуга / окружность</h3><dl className="property-facts"><dt>Центр X/Y</dt><dd>{entity.center.x} / {entity.center.y}</dd><dt>Радиус</dt><dd>{entity.radius} м</dd>{entity.type==='arc'&&<><dt>Углы, рад</dt><dd>{entity.startAngle} / {entity.endAngle}</dd></>}</dl><p>Move / слой доступны; редактор дуги пока отсутствует.</p></div>}
+      {entity.type === 'imported_graphic' && entity.semanticContent && <div className="property-section" data-testid="imported-semantic-content"><h3>{subtitle}</h3><dl className="property-facts">{entity.semanticContent.primaryText&&<><dt>Текст</dt><dd>{entity.semanticContent.primaryText}</dd></>}{entity.semanticContent.measuredValue!==undefined&&<><dt>Значение</dt><dd>{entity.semanticContent.measuredValue}</dd></>}{entity.semanticContent.dimensionType!==undefined&&<><dt>DXF dimension type</dt><dd>{entity.semanticContent.dimensionType}</dd></>}</dl><p className="field-help">Импортированный composite · семантика только для просмотра.</p></div>}
       {entity.type === 'imported_graphic' && <div className="property-section"><h3>Векторный proxy</h3><p>{entity.primitives.length} primitives. Доступны Move, смена слоя и удаление.</p></div>}
       {entity.type === 'symbol' ? <SymbolProperties key={entity.id} entity={entity} document={state.document} locked={locked} dispatch={dispatch} /> : entity.type === 'point' ? <PointProperties key={entity.id} entity={entity} document={state.document} dispatch={dispatch} /> : entity.type === 'label' ? <LabelProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} /> : entity.type === 'text' ? <div className="property-section"><h3>Текст</h3><TextContentField entity={entity} locked={locked} dispatch={dispatch} /><TextCoordinates entity={entity} document={state.document} locked={locked} dispatch={dispatch} /></div> : ['arc','circle','block_instance','imported_graphic'].includes(entity.type) ? null : <GeometryProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} />}
       {['point', 'line', 'polyline', 'polygon', 'symbol'].includes(entity.type) && <LabelPresets key={`labels:${entity.id}`} entity={entity} state={state} dispatch={dispatch} />}
@@ -198,4 +213,4 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
     </div> : <div className="empty-inspector"><div className="empty-symbol"><Icon name="cursor" size={30} /></div><h3>Выберите объект</h3><p>Нажмите на точку, линию, полигон или подпись на схеме.</p><div className="empty-preview"><span>X</span><i /><span>Y</span><i /><span>Z</span><i /></div><small>Свойства и координаты появятся здесь</small></div>}
     <div className="inspector-footer"><span>Изменения сохраняются в этом браузере.</span><small>Save экспортирует полный документ в JSON.</small></div>
   </aside>;
-});
+},(a,b)=>a.dispatch===b.dispatch&&a.size===b.size&&(Object.keys(a.state) as (keyof EditorState)[]).every(key=>key==='viewport'||a.state[key]===b.state[key]));

@@ -53,8 +53,8 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem('geoservice.snap-step', String(state.snapOptions.gridStep ?? 1)); } catch { /* optional preference */ } }, [state.snapOptions.gridStep]);
   useEffect(() => { let active=true; void loadAutosave().then(restored=>{if(!active)return;if(restored){skipNextAutosave.current=true;dispatch({type:'replace-document',document:restored.document,size:sizeRef.current,dirty:restored.dirty});setPersistence({state:'saved',info:{id:'current',persistenceVersion:1,schemaVersion:2,savedAt:restored.savedAt,approximateSerializedBytes:restored.approximateSerializedBytes,entityCount:restored.document.entities.length,dirty:restored.dirty,...(restored.document.sources?.[0]?.format?{sourceFormat:restored.document.sources[0].format}:{})}});}else setPersistence({state:'saved'});setHydrationDone(true);}).catch(error=>{if(!active)return;skipNextAutosave.current=true;const failure=error instanceof AutosaveError?error:new AutosaveError('OPEN_FAILED','IndexedDB не удалось открыть.');const message=storageFailureMessage(failure,true);setNotice(message);setPersistence({state:'error',message});setHydrationDone(true);});return()=>{active=false;};},[]);
   const aiTask = application.ai.status === 'preview' ? application.ai.plan : application.ai.status === 'applied' ? application.ai.results : null;
-  const aiPreview = aiTask?.resolution.status === 'ready' && !state.transactionBefore
-    ? taskPreviews(aiTask) : [];
+  const aiPreview = useMemo(() => aiTask?.resolution.status === 'ready' && !state.transactionBefore
+    ? taskPreviews(aiTask) : [], [aiTask, state.transactionBefore]);
   const [notice, setNotice] = useState<string|null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [georeferenceOpen, setGeoreferenceOpen] = useState(false);
@@ -89,6 +89,7 @@ export default function App() {
       if (viewport) { dispatch({ type: 'viewport', viewport }); fitted.current = true; }
     }
   }, [committed]);
+  const openCalibration = useCallback(() => { dispatch({type:'tool',tool:'select'}); setGeoreferenceOpen(true); },[dispatch]);
   const fit = useCallback(() => {
     const viewport = fitToBounds(visibleBounds(state.document), size, 85);
     if (viewport) dispatch({ type: 'viewport', viewport });
@@ -121,6 +122,7 @@ export default function App() {
       case 'undo': dispatch({ type: 'undo' }); break;
       case 'redo': case 'redo-y': dispatch({ type: 'redo' }); break;
       case 'delete': {
+        if(state.deepSelection){dispatch({type:'report-error',message:'Элемент является частью блока. Для перемещения выберите экземпляр блока.'});break;}
         const ids = state.selectedEntityIds.length ? state.selectedEntityIds : state.selectionId ? [state.selectionId] : [];
         const selected = new Set(ids);
         const deletions = state.document.entities.filter(entity => selected.has(entity.id) && !(entity.type === 'label' && selected.has(entity.targetId))).map(entity => ({ type: 'delete-entity' as const, entityId: entity.id }));
@@ -236,8 +238,8 @@ export default function App() {
       <label><input type="checkbox" checked={state.showLineLengths} onChange={() => dispatch({ type: 'toggle-line-lengths' })} />Длины линий</label>
       <span>Shift + клик: добавить в выбор</span>
     </div>
-    <main className="workspace"><LayersPanel inert={georeferenceOpen || dxfOpen} state={state} dispatch={dispatch} onCalibrate={() => { dispatch({ type: 'tool', tool: 'select' }); setGeoreferenceOpen(true); }} /><div className="drawing-area">
-      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={dxfOpen || importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} aiReferenceIds={application.ai.status==='preview'?application.ai.plan.referenceEntityIds:[]} />
+    <main className="workspace"><LayersPanel inert={georeferenceOpen || dxfOpen} state={state} dispatch={dispatch} onCalibrate={openCalibration} /><div className="drawing-area">
+      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={dxfOpen || importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} aiReferenceIds={application.ai.status==='preview'?application.ai.plan.referenceEntityIds:undefined} />
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
     </div><div inert={georeferenceOpen || dxfOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} size={size} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>

@@ -1,6 +1,7 @@
+import { prepareAutosaveDocument, type AutosavePreparation, type PreparedAutosave } from './autosavePreparation';
 import type { GeoDocument } from '../domain/model';
 import { validateDocument } from './documentSchema';
-import { deserializeDocument, serializeDocument } from './serialization';
+import { deserializeDocument } from './serialization';
 
 export const LEGACY_DOCUMENT_KEY = 'geoservice.document.v2';
 export const LEGACY_DIRTY_KEY = 'geoservice.document.dirty.v2';
@@ -26,7 +27,7 @@ export interface AutosaveRecord {
 }
 export interface AutosaveInfo extends Omit<AutosaveRecord, 'document'> { storageUsage?: number; storageQuota?: number }
 export interface RestoredAutosave { document: GeoDocument; dirty: boolean; savedAt: string; approximateSerializedBytes: number; migrated: boolean }
-export interface AutosaveStoreOptions { indexedDB?: IDBFactory; legacyStorage?: Pick<Storage, 'getItem' | 'removeItem'>; estimate?: () => Promise<StorageEstimate> }
+export interface AutosaveStoreOptions { prepare?: AutosavePreparation; indexedDB?: IDBFactory; legacyStorage?: Pick<Storage, 'getItem' | 'removeItem'>; estimate?: () => Promise<StorageEstimate> }
 const storageError = (error: unknown, fallback: AutosaveErrorCode): AutosaveError => {
   if (error instanceof AutosaveError) return error;
   if (error instanceof DOMException && error.name === 'QuotaExceededError') return new AutosaveError('QUOTA_EXCEEDED', 'Хранилище браузера исчерпало доступную квоту.', { cause: error });
@@ -45,6 +46,8 @@ export function createAutosaveStore(options: AutosaveStoreOptions = {}) {
   let database: Promise<IDBDatabase> | undefined;
   let writeQueue: Promise<unknown> = Promise.resolve();
   let requestedRevision = 0;
+  let cachedInfo: AutosaveInfo | null | undefined;
+  const recordInfo=(record:AutosaveRecord):AutosaveInfo=>({id:record.id,persistenceVersion:record.persistenceVersion,schemaVersion:record.schemaVersion,savedAt:record.savedAt,approximateSerializedBytes:record.approximateSerializedBytes,entityCount:record.entityCount,dirty:record.dirty,...(record.sourceFormat?{sourceFormat:record.sourceFormat}:{})});
 
   const open = (): Promise<IDBDatabase> => {
     if (!factory) return Promise.reject(new AutosaveError('INDEXEDDB_UNAVAILABLE', 'IndexedDB недоступен в этом браузере.'));
@@ -70,14 +73,16 @@ export function createAutosaveStore(options: AutosaveStoreOptions = {}) {
     tx.onabort = tx.onerror = () => reject(storageError(tx.error ?? request.error, tx.error ? fallback : 'TRANSACTION_FAILED'));
   }));
   const write = async (document: GeoDocument, dirty: boolean, revision: number): Promise<AutosaveRecord | null> => {
-    let serialized: string;
-    try { serialized = serializeDocument(document); }
+    if(revision !== requestedRevision)return null;
+    let prepared: PreparedAutosave;
+    try { prepared = await (options.prepare ?? prepareAutosaveDocument)(document); }
     catch (error) { throw new AutosaveError('VALIDATION_FAILED', error instanceof Error ? error.message : 'Документ не прошёл проверку.', { cause: error }); }
-    const canonical = JSON.parse(serialized) as GeoDocument;
+    const canonical = prepared.document;
     const sourceFormat = canonical.sources?.[0]?.format;
-    const record: AutosaveRecord = { id: CURRENT_DOCUMENT_ID, persistenceVersion: 1, schemaVersion: 2, savedAt: new Date().toISOString(), approximateSerializedBytes: new TextEncoder().encode(serialized).byteLength, entityCount: canonical.entities.length, dirty, ...(sourceFormat ? { sourceFormat } : {}), document: canonical };
+    const record: AutosaveRecord = { id: CURRENT_DOCUMENT_ID, persistenceVersion: 1, schemaVersion: 2, savedAt: new Date().toISOString(), approximateSerializedBytes: prepared.approximateSerializedBytes, entityCount: canonical.entities.length, dirty, ...(sourceFormat ? { sourceFormat } : {}), document: canonical };
     if (revision !== requestedRevision) return null;
     await transaction('readwrite', 'WRITE_FAILED', store => store.put(record));
+    cachedInfo=recordInfo(record);
     return record;
   };
   const saveAutosave = (document: GeoDocument, dirty = false): Promise<AutosaveRecord | null> => {
@@ -96,6 +101,7 @@ export function createAutosaveStore(options: AutosaveStoreOptions = {}) {
       let document: GeoDocument;
       try { document = validateDocument(existing.document); }
       catch (error) { throw new AutosaveError('VALIDATION_FAILED', 'Локальный документ не прошёл проверку схемы.', { cause: error }); }
+      cachedInfo=recordInfo(existing);
       return { document, dirty: existing.dirty, savedAt: existing.savedAt, approximateSerializedBytes: existing.approximateSerializedBytes, migrated: false };
     }
     let legacy: string | null, legacyDirty: string | null;
@@ -115,15 +121,14 @@ export function createAutosaveStore(options: AutosaveStoreOptions = {}) {
   };
   const clearAutosave = async (): Promise<void> => {
     const revision = ++requestedRevision;
-    const task = writeQueue.then(async () => { if (revision !== requestedRevision) return; await transaction('readwrite', 'WRITE_FAILED', store => store.delete(CURRENT_DOCUMENT_ID)); });
+    const task = writeQueue.then(async () => { if (revision !== requestedRevision) return; await transaction('readwrite', 'WRITE_FAILED', store => store.delete(CURRENT_DOCUMENT_ID));cachedInfo=null; });
     writeQueue = task.catch(() => undefined); await task;
   };
   const getAutosaveInfo = async (): Promise<AutosaveInfo | null> => {
-    const [raw, estimate] = await Promise.all([readRecord(), (options.estimate ?? globalThis.navigator?.storage?.estimate?.bind(globalThis.navigator.storage))?.().catch(() => undefined)]);
-    if (raw === undefined) return null;
-    if (!isRecord(raw)) throw new AutosaveError('CORRUPTED_AUTOSAVE', 'Запись локального автосохранения повреждена.');
-    const info = Object.fromEntries(Object.entries(raw).filter(([key]) => key !== 'document')) as AutosaveInfo;
-    return { ...info, ...(estimate?.usage === undefined ? {} : { storageUsage: estimate.usage }), ...(estimate?.quota === undefined ? {} : { storageQuota: estimate.quota }) };
+    const [raw, estimate] = await Promise.all([cachedInfo === undefined ? readRecord() : Promise.resolve(cachedInfo), (options.estimate ?? globalThis.navigator?.storage?.estimate?.bind(globalThis.navigator.storage))?.().catch(() => undefined)]);
+    if(raw===null||raw===undefined)return null;
+    if(cachedInfo===undefined){if(!isRecord(raw))throw new AutosaveError('CORRUPTED_AUTOSAVE','Запись локального автосохранения повреждена.');cachedInfo=recordInfo(raw);}
+    return {...cachedInfo!,...(estimate?.usage===undefined?{}:{storageUsage:estimate.usage}),...(estimate?.quota===undefined?{}:{storageQuota:estimate.quota})};
   };
   return { saveAutosave, loadAutosave, clearAutosave, getAutosaveInfo };
 }

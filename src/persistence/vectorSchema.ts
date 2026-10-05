@@ -12,9 +12,15 @@ export const primitiveSchema = z.discriminatedUnion('kind', [
   z.strictObject({ ...style, kind: z.literal('path'), points: z.array(point).min(2).max(50000), closed: z.boolean(), fill: z.boolean().optional() }),
   z.strictObject({ ...style, kind: z.literal('circle'), center: point, radius: finite.positive() }),
   z.strictObject({ ...style, kind: z.literal('arc'), center: point, radius: finite.positive(), startAngle: finite, endAngle: finite }),
-  z.strictObject({ ...style, kind: z.literal('text'), position: point, content: z.string().min(1).max(10000), height: finite.positive(), rotationDeg: finite }),
+  z.strictObject({ ...style, kind: z.literal('text'), position: point, content: z.string().min(1).max(10000), height: finite.positive(), rotationDeg: finite, attributeTag: z.string().max(1000).optional() }),
   z.strictObject({ ...style, kind: z.literal('block'), blockDefinitionId: id, ...blockTransformSchema, attributes: attributesSchema.optional() }),
 ]);
 export const primitivesSchema = z.array(primitiveSchema).max(VECTOR_LIMITS.primitives);
 export const blockDefinitionSchema = z.strictObject({ id, sourceName: z.string().max(1000), basePoint: point, primitives: primitivesSchema });
 export const sourceDocumentSchema = z.strictObject({ id, filename: z.string().min(1).max(1000).refine(v => !/[\\/]/.test(v)), format: z.literal('DXF'), dxfVersion: z.string().max(100), encoding: z.string().max(100), originalUnits: finite.int(), unitScaleToMeters: finite.positive().optional() });
+
+export const semanticContentSchema = z.strictObject({
+  primaryText: z.string().max(10000).optional(),
+  textRuns: z.array(z.strictObject({ text: z.string().max(10000), position: point.optional() })).max(2000).optional(),
+  measuredValue: finite.optional(), dimensionType: finite.int().min(0).max(255).optional(),
+});

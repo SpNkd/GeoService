@@ -10,6 +10,7 @@ export function MoveSelectionPanel({ state, dispatch }: { state: EditorState; di
     catch(error) { return {plan:null,error:error instanceof Error?error.message:'Нельзя переместить выбор'}; }
   },[state.document,state.selectedEntityIds]);
   useEffect(()=>{if(state.moveInputOpen){firstInput.current?.focus();firstInput.current?.select();}},[state.moveInputOpen,state.moveInputFocusEpoch,mode]);
+  if(state.deepSelection) return null;
   if(!state.selectedEntityIds.length&&!state.moveInputOpen) return null;
   if(!state.moveInputOpen) return <div className="property-section move-selection"><button className="secondary-action" onClick={()=>dispatch({type:'open-move-input'})}>Переместить… · M</button></div>;
   let command=null;

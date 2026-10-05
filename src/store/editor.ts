@@ -1,3 +1,4 @@
+import { NESTED_MOVE_MESSAGE, resolveDeepSelection, type DeepSelection } from '../editor/deepSelection';
 import { requireSymbol } from '../symbols/registry';
 import { nextSymbolRotation } from '../symbols/types';
 import { layerBounds } from '../geometry/entityBounds';
@@ -16,6 +17,8 @@ import { resolveSelectionMove, projectSelectionMove, type ResolvedSelectionMove,
 export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure' | 'symbol';
 export type PointLabelMode = 'name' | 'name-z' | 'z';
 export interface EditorState {
+  deepSelection: DeepSelection | null;
+  hitStackStatus: {index:number;count:number} | null;
   symbolPlacement: { libraryId: string; symbolId: string; rotationDeg: number } | null;
   marqueeActive: boolean;
   moveInputOpen: boolean;
@@ -30,6 +33,7 @@ export interface EditorState {
   orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean; ortho: boolean;
 }
 export type EditorAction =
+  | { type: 'deep-select'; candidate: {ownerEntityId:string;selection:DeepSelection|null}; index:number;count:number }
   | { type: 'choose-symbol'; libraryId: string; symbolId: string }
   | { type: 'rotate-symbol' }
   | { type: 'fit-layer'; layerId: string; size: ViewSize }
@@ -87,7 +91,7 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
@@ -95,6 +99,11 @@ export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFing
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case 'deep-select': {
+      const id=reconcileSelection(state.document,action.candidate.ownerEntityId);
+      if(!id || state.transactionBefore || action.candidate.selection && !resolveDeepSelection(state.document, action.candidate.selection))return state;
+      return {...state,selectionId:id,selectedEntityIds:[id],selectedLayerId:null,orderedPointIds:[],deepSelection:action.candidate.selection,hitStackStatus:{index:action.index,count:action.count},moveInputOpen:false,error:null};
+    }
     case 'fit-layer': { const viewport = fitToBounds(layerBounds(state.document, action.layerId), action.size, 85); return viewport ? { ...state, viewport } : state; }
     case 'choose-symbol': {
       if (state.transactionBefore) return state;
@@ -112,7 +121,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const entity = state.document.entities.find(e => e.id === state.selectedEntityIds[0]);
       return entity?.type === 'symbol' ? editorReducer(state, { type: 'execute', command: { type: 'update-entity', entityId: entity.id, patch: { rotationDeg: nextSymbolRotation(entity.rotationDeg, requireSymbol(entity.libraryId, entity.symbolId).allowedRotations) } } }) : state;
     }
-    case 'begin-marquee': return { ...state, marqueeActive: true };
+    case 'begin-marquee': return { ...state, deepSelection:null,hitStackStatus:null, marqueeActive: true };
     case 'cancel-marquee': return { ...state, marqueeActive: false };
     case 'finish-marquee': {
       const hits = action.entityIds.filter(id => reconcileSelection(state.document,id));
@@ -123,9 +132,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const newPoints = selectedEntityIds.filter(id=>!oldOrder.includes(id) && state.document.entities.some(e=>e.id===id && e.type==='point'));
       return { ...state, marqueeActive:false, selectedEntityIds, selectionId:selectedEntityIds.at(-1)??null, selectedLayerId:null, orderedPointIds:[...oldOrder,...newPoints] };
     }
-    case 'open-move-input': return state.transactionBefore ? state : { ...state, moveInputOpen: true, moveInputFocusEpoch: state.moveInputFocusEpoch + 1, tool: 'select', symbolPlacement: null };
+    case 'open-move-input': if(state.deepSelection)return {...state,error:NESTED_MOVE_MESSAGE}; return state.transactionBefore ? state : { ...state, moveInputOpen: true, moveInputFocusEpoch: state.moveInputFocusEpoch + 1, tool: 'select', symbolPlacement: null };
     case 'close-move-input': return { ...state, moveInputOpen: false };
     case 'begin-selection-move': {
+      if(state.deepSelection)return {...state,error:NESTED_MOVE_MESSAGE};
       if (state.transactionBefore || state.dimensionPick) return state;
       try {
         const resolved = resolveSelectionMove(state.document, action.entityIds);
@@ -221,6 +231,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'execute-batch':
     case 'execute': {
+      if(state.deepSelection){if(action.type==='execute-batch'||!['set-layer-visibility','set-layer-lock','move-layer','create-layer'].includes(action.command.type))return {...state,error:NESTED_MOVE_MESSAGE};state={...state,deepSelection:null,hitStackStatus:null};}
       if (action.expectedDocument && (state.transactionBefore || state.document !== action.expectedDocument)) {
         return { ...state, error: 'Документ изменился или активна транзакция. Пересчитайте план.' };
       }
@@ -246,7 +257,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       }
       catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось изменить документ' }; }
     }
-    case 'begin-transaction': return state.transactionBefore ? state : { ...state, transactionBefore: state.document };
+    case 'begin-transaction': if(state.deepSelection)return {...state,error:NESTED_MOVE_MESSAGE}; return state.transactionBefore ? state : { ...state, transactionBefore: state.document };
     case 'commit-transaction': {
       if (state.selectionMove) return editorReducer(state, { type: 'finish-selection-move' });
       if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };
@@ -256,6 +267,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'cancel-transaction': return state.transactionBefore ? { ...state, document: state.transactionBefore, transactionBefore: null, dimensionRetarget: null, selectionMove: null, error: null } : state;
     case 'undo': {
+      state={...state,deepSelection:null,hitStackStatus:null};
       if (state.selectionMove) return { ...state, selectionMove: null, transactionBefore: null, error: null };
       if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };
       if (state.dimensionPick) return { ...state, dimensionPick: null };
@@ -269,6 +281,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selectionId: reconcileSelection(document, state.selectionId), selectedEntityIds: state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
     }
     case 'redo': {
+      state={...state,deepSelection:null,hitStackStatus:null};
       if (state.selectionMove) return { ...state, selectionMove: null, transactionBefore: null, error: null };
       if (state.dimensionRetarget || state.dimensionPick) return { ...state, transactionBefore: null, dimensionRetarget: null, dimensionPick: null };
       if (!state.future.length || state.transactionBefore) return state;
@@ -279,6 +292,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'clear-error': return { ...state, error: null };
     case 'report-error': return { ...state, error: action.message };
     case 'select': {
+      state={...state,deepSelection:null,hitStackStatus:null};
       if (action.entityId === null) return { ...state, selectionId: null, selectedEntityIds: [], selectedLayerId: null, orderedPointIds: [], dimensionPick: null };
       const entity = state.document.entities.find(item => item.id === action.entityId);
       const layer = state.document.layers.find(item => item.id === entity?.layerId);
@@ -292,16 +306,16 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return { ...state, selectionId, selectedEntityIds, selectedLayerId: null, orderedPointIds };
     }
     case 'select-layer': return state.document.layers.some(layer => layer.id === action.layerId)
-      ? { ...state, currentLayerId: action.layerId, selectedLayerId: action.layerId, selectionId: null, selectedEntityIds: [], orderedPointIds: [], moveInputOpen: false } : state;
+      ? { ...state, deepSelection:null,hitStackStatus:null,currentLayerId: action.layerId, selectedLayerId: action.layerId, selectionId: null, selectedEntityIds: [], orderedPointIds: [], moveInputOpen: false } : state;
     case 'select-layer-objects': {
       if (!state.document.layers.some(layer => layer.id === action.layerId)) return state;
       const ids = state.document.entities.filter(entity => entity.layerId === action.layerId).map(entity => entity.id);
-      return { ...state, currentLayerId: action.layerId, selectedLayerId: null, selectedEntityIds: ids, selectionId: ids[0] ?? null, orderedPointIds: [] };
+      return { ...state, deepSelection:null,hitStackStatus:null,currentLayerId: action.layerId, selectedLayerId: null, selectedEntityIds: ids, selectionId: ids[0] ?? null, orderedPointIds: [] };
     }
     case 'viewport': return { ...state, viewport: action.viewport };
     case 'pan': return { ...state, viewport: panViewport(state.viewport, action.delta) };
     case 'zoom': return { ...state, viewport: zoomAt(state.viewport, action.size, action.anchor, action.factor) };
-    case 'tool': return { ...state, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
+    case 'tool': return { ...state,deepSelection:null,hitStackStatus:null, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
     case 'toggle-grid': return { ...state, gridVisible: !state.gridVisible };
   }
 }
