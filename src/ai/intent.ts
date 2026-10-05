@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SPATIAL_ANCHORS } from '../geometry/autoPlacement';
 import { AiProviderError } from './reliability';
 
 export const AI_LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 96 * 1024, upstreamBytes: 256 * 1024,
@@ -18,13 +19,16 @@ export type AiIntent = z.infer<typeof aiIntentSchema>;
 export const bulkDimensionsIntentSchema = z.strictObject({ type: z.literal('create_dimensions_for_boundary_edges'),
   boundaryActionIndex: z.number().int().min(0).max(AI_LIMITS.actions - 1) });
 export const createPointsIntentSchema = z.strictObject({ type: z.literal('create_points'), points: z.array(z.strictObject({ name: names, x: z.number().finite(), y: z.number().finite(), z: z.number().finite().optional() })).min(1).max(AI_LIMITS.pointsPerAction) });
+export const spatialAnchorSchema = z.enum(SPATIAL_ANCHORS);
+export type SpatialAnchor = z.infer<typeof spatialAnchorSchema>;
 export const rectanglePlacementSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('lower_left'), x: z.number().finite(), y: z.number().finite() }),
   z.strictObject({ type: z.literal('center'), x: z.number().finite(), y: z.number().finite() }),
   z.strictObject({ type: z.literal('local_origin') }),
   z.strictObject({ type: z.literal('centered_in_action_result'), polygonActionIndex: z.number().int().min(0).max(AI_LIMITS.actions - 1) }),
+  z.strictObject({ type: z.literal('anchored_in_action_result'), polygonActionIndex: z.number().int().min(0).max(AI_LIMITS.actions - 1), anchor: spatialAnchorSchema }),
 ]);
-export const createRectangleIntentSchema = z.strictObject({ type: z.literal('create_rectangle'), name: names, width: z.number().finite().positive(), height: z.number().finite().positive(), placement: rectanglePlacementSchema });
+export const createRectangleIntentSchema = z.strictObject({ type: z.literal('create_rectangle'), name: names, width: z.number().finite().positive(), height: z.number().finite().positive(), sizeSource: z.string().trim().min(1).max(240).optional(), placement: rectanglePlacementSchema });
 export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, createRectangleIntentSchema]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 export const requestedPointNames = (action: AiAction): readonly string[] => 'pointNames' in action ? action.pointNames : [];
@@ -37,7 +41,7 @@ export const aiTaskSchema = z.strictObject({ actions: z.array(aiActionSchema).mi
     task.actions.forEach((action, index) => {
       if (action.type === 'create_rectangle') {
         const placement = action.placement;
-        if (placement.type === 'centered_in_action_result' && (placement.polygonActionIndex >= index || !['create_boundary_from_named_points', 'create_rectangle'].includes(task.actions[placement.polygonActionIndex]?.type ?? ''))) ctx.addIssue({ code: 'custom', message: 'Прямоугольник требует предыдущий polygon output' });
+        if ((placement.type === 'centered_in_action_result' || placement.type === 'anchored_in_action_result') && (placement.polygonActionIndex >= index || !['create_boundary_from_named_points', 'create_rectangle'].includes(task.actions[placement.polygonActionIndex]?.type ?? ''))) ctx.addIssue({ code: 'custom', message: 'Прямоугольник требует предыдущий polygon output' });
         if (placement.type === 'local_origin' && index !== 0) ctx.addIssue({ code: 'custom', message: 'Уточните положение следующего прямоугольника' });
       }
       if (action.type === 'create_points' && new Set(action.points.map(point => point.name)).size !== action.points.length) ctx.addIssue({ code: 'custom', message: 'Имена создаваемых точек повторяются' });
@@ -51,14 +55,26 @@ export const aiTaskSchema = z.strictObject({ actions: z.array(aiActionSchema).mi
 export type AiTaskIntent = z.infer<typeof aiTaskSchema>;
 export type ParserResult = AiTaskIntent | z.infer<typeof unsupportedSchema> | z.infer<typeof clarificationSchema>;
 
+/** One shared wire envelope; missing flag is accepted for older {intent}-only clients. */
+export function unwrapProviderEnvelope(raw: unknown): unknown {
+  const parsed = z.strictObject({ intent: z.unknown(), unsupported: z.boolean().optional() }).safeParse(raw);
+  if (!parsed.success || !Object.hasOwn(parsed.data, 'intent')) throw new AiProviderError('INVALID_STRUCTURED_OUTPUT');
+  const { intent, unsupported } = parsed.data;
+  const isUnsupported = intent === null || unsupportedSchema.safeParse(intent).success;
+  if (unsupported !== undefined && unsupported !== isUnsupported) throw new AiProviderError('INVALID_STRUCTURED_OUTPUT');
+  return isUnsupported ? { status: 'unsupported' } : intent;
+}
+
 /** Literal provenance/order check only; this does not interpret natural language or replace a provider. */
 export function validateParserResult(raw: unknown, text: string): ParserResult {
   if (utf8Bytes(JSON.stringify(raw) ?? '') > AI_LIMITS.responseBytes) throw new AiProviderError('INVALID_STRUCTURED_OUTPUT', undefined, 'Ответ AI превышает лимит');
+  if (raw && typeof raw === 'object' && ('intent' in raw || 'unsupported' in raw)) raw = unwrapProviderEnvelope(raw);
   if (unsupportedSchema.safeParse(raw).success) return { status: 'unsupported' };
   const clarification = clarificationSchema.safeParse(raw); if (clarification.success) return clarification.data;
   // Structured output uses null for absent Z; do not strip unknown fields.
   if (raw && typeof raw === 'object' && 'actions' in raw && Array.isArray(raw.actions)) raw = { ...raw, actions: raw.actions.map(action => action && typeof action === 'object' && action.type === 'create_points' && Array.isArray(action.points)
-    ? { ...action, points: action.points.map((point: unknown) => { if (point && typeof point === 'object' && 'z' in point && point.z === null) { const { z: _z, ...rest } = point; void _z; return rest; } return point; }) } : action) };
+    ? { ...action, points: action.points.map((point: unknown) => { if (point && typeof point === 'object' && 'z' in point && point.z === null) { const { z: _z, ...rest } = point; void _z; return rest; } return point; }) } : action && typeof action === 'object' && action.type === 'create_rectangle' && action.sizeSource === null
+    ? Object.fromEntries(Object.entries(action).filter(([key]) => key !== 'sizeSource')) : action) };
   // Normalize legacy single fixtures at the input boundary; all downstream code uses actions[].
   const parsed = aiTaskSchema.safeParse(aiIntentSchema.safeParse(raw).success ? { actions: [raw] } : raw);
   if (!parsed.success) throw new AiProviderError('INVALID_STRUCTURED_OUTPUT', undefined, 'AI вернул неверный intent. Укажите поддерживаемые операции и явно перечислите имена точек.');
@@ -75,7 +91,7 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
       continue;
     }
     if (action.type === 'create_rectangle') {
-      if (!text.toLocaleLowerCase().includes(action.name.toLocaleLowerCase()) || !explicitSize(text, action.width, action.height)) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, 'Имя и размеры прямоугольника должны быть явно заданы.');
+      if (!text.toLocaleLowerCase().includes(action.name.toLocaleLowerCase()) || !explicitSize(text, action.width, action.height, action.sizeSource)) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, 'Имя и размеры прямоугольника должны быть явно заданы.');
       if (action.placement.type === 'lower_left' || action.placement.type === 'center') {
         const placement = action.placement, pair = explicitAxes(text); if (!pair.some(p => p.x === placement.x && p.y === placement.y)) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, 'Положение прямоугольника должно быть задано явно.');
       }
@@ -116,8 +132,15 @@ export function explicitPointCoordinates(text: string, name: string): { x: numbe
   const axis = text.match(axes);
   return axis ? { x: Number(axis[1]), y: Number(axis[2]), ...(axis[3] === undefined ? {} : { z: Number(axis[3]) }) } : null;
 }
-function explicitSize(text: string, width: number, height: number) {
-  return [...text.matchAll(new RegExp(`(${numericLiteral})\\s*(?:на|[×xх*])\\s*(${numericLiteral})`, 'gi'))].some(match => Number(match[1]) === width && Number(match[2]) === height);
+function explicitSize(text: string, width: number, height: number, source?: string) {
+  const pairPattern = new RegExp(`(${numericLiteral})\\s*(?:на|[×xх*])\\s*(${numericLiteral})`, 'gi');
+  const matches = [...text.matchAll(pairPattern)];
+  if (matches.some(match => Number(match[1]) === width && Number(match[2]) === height)) return true;
+  if (source && [...source.matchAll(pairPattern)].length) return false;
+  // Lexical evidence only: the model translates word numerals; the application never maps words to numbers.
+  // Numeric-only fragments cannot bypass the exact numeric check above.
+  return Boolean(source && text.includes(source) && /\p{L}/u.test(source.replace(/на/giu, ''))
+    && /^[\p{L}\p{N}\s.,+-]+\s+на\s+[\p{L}\p{N}\s.,+-]+$/u.test(source));
 }
 function explicitAxes(text: string) {
   return [...text.matchAll(new RegExp(`X\\s*=\\s*(${numericLiteral})\\s*[,;]?\\s*Y\\s*=\\s*(${numericLiteral})`, 'gi'))].map(match => ({ x: Number(match[1]), y: Number(match[2]) }));

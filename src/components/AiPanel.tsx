@@ -6,6 +6,7 @@ import type { ResolvedReference } from '../ai/resolver';
 import { AiPlanMetrics } from './AiPlanMetrics';
 import { formatDistance } from '../geometry/format';
 import type { AiDiagnostic } from '../ai/reliability';
+import { anchorLabels, formatAssumption } from '../ai/assumptions';
 import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
 const Diagnostics = import.meta.env.DEV ? lazy(() => import('./AiDiagnostics')) : null;
@@ -64,6 +65,7 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
       {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>
         <strong>AI Plan · {preview.plan.actions.length} actions</strong><p className="ai-request-summary">{preview.plan.text}</p>
         <p>Changes: {preview.plan.generatedCommandCount} · Measurements: {preview.plan.readOnlyCount}</p>
+        {preview.plan.assumptions.length > 0 && <div className="ai-assumptions" data-testid="ai-assumptions"><strong>Предположения</strong><ul>{preview.plan.assumptions.map((assumption, index) => <li key={index}>{formatAssumption(assumption)}</li>)}</ul></div>}
         {preview.notice && <p className="ai-message" role="status">{preview.notice}</p>}
         {resolution?.status === 'invalid' && <p className="ai-error">{resolution.message}</p>}
         {resolution?.status === 'unresolved' && resolution.issues.map(issue => <div key={issue.name} className="ai-issue">
@@ -79,14 +81,13 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
           const result = action.resolution;
           return <div key={action.id} className="ai-action" data-testid="ai-action" data-action-id={action.id}>
             <strong>{index + 1}. Интерпретация: {operationLabels[action.kind]}</strong>
-            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.kind === 'points' ? `${action.intent.points.length} точек с явно заданными координатами` : action.kind === 'rectangle' ? `${action.intent.name}: ${action.intent.width} × ${action.intent.height} м · ${action.intent.placement.type === 'centered_in_action_result' ? 'По центру Action ' + (action.intent.placement.polygonActionIndex + 1) : action.intent.placement.type}` : action.intent.pointNames.join(' → ')}</p>
+            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.kind === 'points' ? `${action.intent.points.length} точек с явно заданными координатами` : action.kind === 'rectangle' ? `${action.intent.name}: ${action.intent.width} × ${action.intent.height} м · ${action.intent.placement.type === 'centered_in_action_result' ? 'По центру Action ' + (action.intent.placement.polygonActionIndex + 1) : action.intent.placement.type === 'anchored_in_action_result' ? `${anchorLabels[action.intent.placement.anchor]} часть Action ${action.intent.placement.polygonActionIndex + 1}` : action.intent.placement.type}` : action.intent.pointNames.join(' → ')}</p>
             {(result.status === 'invalid' || result.status === 'blocked') && <p className="ai-error">{result.message}</p>}
             {result.status === 'ready' && <>
               {result.kind === 'bulk-dimensions' ? <ol className="ai-points" data-testid="ai-edge-list">{result.dimensions.map((edge, index) =>
                 <li key={index}>{edge.references[0]!.name} → {edge.references[1]!.name}: {formatDistance(edge.metrics.horizontal)}</li>)}</ol>
                 : <ol className="ai-points">{result.references.map((point, index) => <li key={`${point.entityId}:${point.vertexId}:${index}`}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>}
               <dl className="ai-metrics"><AiPlanMetrics result={result} /></dl>
-              {result.kind === 'rectangle' && result.assumptions.length > 0 && <div className="ai-assumptions"><strong>Предположения</strong><ul>{result.assumptions.map(assumption => <li key={assumption}>{assumption}</li>)}</ul></div>}
               {result.warnings.map(warning => <p key={warning} className="ai-message">{warning}</p>)}
             </>}
             {action.kind === 'dimension' && <label>Offset (м)<input aria-label="Offset (м)" type="number" step="0.1" min={-MAX_DIMENSION_OFFSET} max={MAX_DIMENSION_OFFSET}

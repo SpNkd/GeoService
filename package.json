@@ -17,7 +17,8 @@
     "bench:ai": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/ai.audit.ts",
     "bench:ai-dependent": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/ai-dependent.audit.ts",
     "bench:ai-reliability": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/ai-reliability.audit.ts",
-    "bench:georeferencing": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/georeferencing.audit.ts"
+    "bench:georeferencing": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/georeferencing.audit.ts",
+    "bench:ai-spatial": "node --expose-gc node_modules/vitest/vitest.mjs run --config benchmarks/vitest.config.ts benchmarks/ai-spatial.audit.ts"
   },
   "description": "Deterministic geodetic drawing editor prototype",
   "dependencies": {

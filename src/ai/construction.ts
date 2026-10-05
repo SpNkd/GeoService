@@ -1,13 +1,15 @@
 import type { DocumentCommand } from '../domain/commands';
 import { getVertex, worldVertex, type GeoDocument, type Layer, type WorldPoint } from '../domain/model';
 import { labelAnchor } from '../geometry/labels';
-import { pathLength, polygonArea } from '../geometry';
+import { bounds, pathLength, polygonArea } from '../geometry';
+import { resolvePlacement, rectangleInsidePolygon } from '../geometry/autoPlacement';
+import type { LayoutAssumption } from './assumptions';
 import type { AiAction } from './intent';
 import type { ResolvedBoundaryOutput, References, ResolutionFailure } from './resolver';
 
 export type PointsReady = References & { status: 'ready'; kind: 'points'; command: DocumentCommand; targetLayer: string };
 export type RectangleReady = References & { status: 'ready'; kind: 'rectangle'; command: DocumentCommand; targetLayer: string;
-  width: number; height: number; area: number; perimeter: number; output: ResolvedBoundaryOutput; assumptions: string[] };
+  width: number; height: number; area: number; perimeter: number; output: ResolvedBoundaryOutput; assumptions: LayoutAssumption[] };
 function targetLayer(document: GeoDocument, id: string, name: string): { layer: Layer; addition?: Layer } | ResolutionFailure {
   const existing = document.layers.find(layer => layer.id === id);
   if (existing && (!existing.visible || existing.locked)) return { status: 'invalid', message: `Слой ${existing.name} скрыт или заблокирован` };
@@ -31,23 +33,28 @@ export function resolveCreatePoints(intent: Extract<AiAction, { type: 'create_po
 }
 export function resolveCreateRectangle(intent: Extract<AiAction, { type: 'create_rectangle' }>, document: GeoDocument,
   outputs: ReadonlyMap<number, ResolvedBoundaryOutput>, actionId: string): RectangleReady | ResolutionFailure {
-  const placement = intent.placement, assumptions: string[] = [];
-  let origin: WorldPoint;
+  const placement = intent.placement, assumptions: LayoutAssumption[] = [];
+  let origin: WorldPoint, parentGeometry: WorldPoint[] | null = null;
   if (placement.type === 'lower_left') origin = { x: placement.x, y: placement.y };
-  else if (placement.type === 'local_origin') { origin = { x: 0, y: 0 }; assumptions.push(`${intent.name} создан в локальных координатах от (0,0). Это не геодезическая привязка.`); }
+  else if (placement.type === 'local_origin') { origin = { x: 0, y: 0 }; assumptions.push({ type: 'local_origin', objectName: intent.name }); }
+  else if (placement.type === 'center') origin = { x: placement.x - intent.width / 2, y: placement.y - intent.height / 2 };
   else {
-    let center: WorldPoint;
-    if (placement.type === 'center') center = { x: placement.x, y: placement.y };
-    else {
-      const output = outputs.get(placement.polygonActionIndex);
-      if (!output) return { status: 'blocked', dependencyIndex: placement.polygonActionIndex, message: `Сначала исправьте Action ${placement.polygonActionIndex + 1}: положение зависит от polygon output.` };
-      const polygon = document.entities.find(entity => entity.id === output.entityId);
-      if (!polygon || polygon.type !== 'polygon') return { status: 'invalid', message: 'Предыдущий polygon output не найден' };
-      center = labelAnchor(document, polygon);
-    }
-    origin = { x: center.x - intent.width / 2, y: center.y - intent.height / 2 };
+    const output = outputs.get(placement.polygonActionIndex);
+    if (!output) return { status: 'blocked', dependencyIndex: placement.polygonActionIndex, message: `Сначала исправьте Action ${placement.polygonActionIndex + 1}: положение зависит от polygon output.` };
+    const polygon = document.entities.find(entity => entity.id === output.entityId);
+    if (!polygon || polygon.type !== 'polygon') return { status: 'invalid', message: 'Предыдущий polygon output не найден' };
+    parentGeometry = output.references.map(ref => ref.position);
+    const anchor = placement.type === 'centered_in_action_result' ? 'center' : placement.anchor;
+    const parentBounds = bounds(parentGeometry);
+    if (!parentBounds) return { status: 'invalid', message: 'Контур участка пуст' };
+    const layout = resolvePlacement(parentBounds, intent, anchor, { center: labelAnchor(document, polygon) });
+    if (layout.status !== 'ready') return layout;
+    origin = layout.origin;
+    assumptions.push({ type: 'relative_placement', objectName: intent.name, parentName: polygon.name, anchor });
+    if (anchor !== 'center') assumptions.push({ type: 'auto_layout_inset', objectName: intent.name, anchor, nominal: layout.nominalInset, x: layout.insetX, y: layout.insetY }, { type: 'sketch_layout' });
   }
   const geometry = [origin, { x: origin.x + intent.width, y: origin.y }, { x: origin.x + intent.width, y: origin.y + intent.height }, { x: origin.x, y: origin.y + intent.height }];
+  if (parentGeometry && !rectangleInsidePolygon(geometry, parentGeometry)) return { status: 'invalid', message: 'Эскизное размещение не помещается внутри контура участка. Измените размеры или положение.' };
   if (!geometry.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)) || geometry[1]!.x === origin.x || geometry[3]!.y === origin.y) return { status: 'invalid', message: 'Размеры прямоугольника вне точности/диапазона координат' };
   const target = targetLayer(document, /дом|house/i.test(intent.name) ? 'buildings' : 'boundary', /дом|house/i.test(intent.name) ? 'Здания' : 'Граница участка');
   if ('status' in target) return target;

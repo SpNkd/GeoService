@@ -5,6 +5,7 @@ import { AI_LIMITS, aiTaskSchema, requestedPointNames, type AiAction, type AiInt
 import { pointNameIndex, resolveNamedPointReferences, resolveReferencedIntent, type BoundaryReady, type PolylineReady,
   type DimensionReady, type MeasureReady, type ResolutionFailure, type ExplicitResolutions, type PointNameIndex, type ResolvedBoundaryOutput, type ReadyResolution } from './resolver';
 import { resolveBoundaryEdgeDimensions, type BulkDimensionsReady, type ResolveContext } from './dependent';
+import type { LayoutAssumption } from './assumptions';
 interface PlanBase { id: string; text: string; basedOnDocument: GeoDocument; choices: ExplicitResolutions }
 export type AiPlan =
   | (PlanBase & { kind: 'points'; intent: Extract<AiAction, { type: 'create_points' }>; requiresConfirmation: true; resolution: ResolutionFailure | PointsReady })
@@ -17,6 +18,7 @@ export type AiPlan =
 export type MutationPlan = Extract<AiPlan, { requiresConfirmation: true }>;
 
 export interface ResolvedAiTaskPlan extends PlanBase {
+  assumptions: LayoutAssumption[];
   task: AiTaskIntent;
   actions: AiPlan[];
   resolution: { status: 'ready' } | ResolutionFailure;
@@ -31,7 +33,7 @@ export function resolveAiTaskPlan(task: AiTaskIntent, document: GeoDocument, cho
   const id = options.id ?? 'task', text = options.text ?? '';
   const base = { id, text, basedOnDocument: document, choices };
   const mutationCount = task.actions.filter(action => action.type !== 'measure_between_named_points').length;
-  const result: ResolvedAiTaskPlan = { ...base, task, actions: [], resolution: { status: 'ready' }, mutationCount,
+  const result: ResolvedAiTaskPlan = { ...base, task, assumptions: [], actions: [], resolution: { status: 'ready' }, mutationCount,
     generatedCommandCount: 0, projectedDocument: null, readOnlyCount: task.actions.length - mutationCount, requiresConfirmation: mutationCount > 0 };
   const parsed = aiTaskSchema.safeParse(task);
   if (!parsed.success) return { ...result, resolution: { status: 'invalid', message: 'Неверный semantic task или превышен budget' } };
@@ -70,6 +72,7 @@ export function resolveAiTaskPlan(task: AiTaskIntent, document: GeoDocument, cho
         catch (error) { resolution = { status: 'invalid', message: error instanceof Error ? error.message : 'Не удалось построить projected document' }; }
       }
     }
+    if (resolution.status === 'ready' && resolution.kind === 'rectangle') result.assumptions.push(...resolution.assumptions);
     if (resolution.status === 'ready' && (resolution.kind === 'boundary' || resolution.kind === 'rectangle')) boundaryOutputs.set(index, resolution.output);
     const actionBase = { ...base, id: actionId, intent };
     switch (intent.type) {
