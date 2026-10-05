@@ -1,4 +1,7 @@
-import { createHitStack, prioritizeHitOwners, type HitCandidate } from './deepSelection';
+import { createHitStack, hitOwners, selectedMoveOwner, type HitCandidate } from './deepSelection';
+import { composeScene, type RendererMode } from '../renderer/hybridScene';
+import { CanvasStratum } from '../renderer/CanvasStratum';
+import { CanvasSelectionView } from '../renderer/CanvasSelectionView';
 import { DeepSelectionView } from '../renderer/DeepSelectionView';
 import { BlockDefinitions } from '../renderer/VectorView';
 import { requireSymbol } from '../symbols/registry';
@@ -39,6 +42,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const lastTextClick = useRef<{ entityId: string; at: number; point: ScreenPoint } | null>(null);
   const frame = useRef<number | null>(null), pending = useRef<MoveInput | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [rendererMode,setRendererMode]=useState<RendererMode>(()=>import.meta.env.DEV&&new URLSearchParams(window.location.search).get('dxfRenderer')==='svg'?'svg':'canvas');
   const [draft, setDraft] = useState<GeometryAnchor[]>([]);
   const [drawCursor, setDrawCursor] = useState<WorldPoint | null>(null);
   const [marquee, setMarquee] = useState<{start:ScreenPoint;end:ScreenPoint} | null>(null);
@@ -50,6 +54,8 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const committed = state.transactionBefore ?? state.document;
   const provider = useMemo(() => createSnapProvider(committed), [committed]);
   const items = useMemo(() => renderItems(document), [document]);
+  const scene=useMemo(()=>composeScene(items,rendererMode),[items,rendererMode]);
+  const nativeRoots=useMemo(()=>rendererMode==='svg'||scene.fallback?undefined:scene.strata.filter(s=>s.kind==='svg').flatMap(s=>s.items.flatMap(({entity:e})=>e.type==='block_instance'?[e.blockDefinitionId]:e.type==='imported_graphic'?e.primitives.flatMap(p=>p.kind==='block'?[p.blockDefinitionId]:[]):[])),[scene,rendererMode]);
   const previousTool = useRef(tool);
   const announceSnap = useCallback((result: SnapResult | null) => { setSnap(result); onSnap(result); }, [onSnap]);
   useEffect(() => {
@@ -176,7 +182,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       dispatch({ type: 'transient', command: { type: 'update-entity', entityId: active.entityId, patch: { textPosition: Math.max(0.05, Math.min(0.95, t)) } } }); return;
     }
     if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text', 'symbol'].includes(tool)) setDrawCursor(anchorAt(point, undefined, shiftKey).position);
-    else announceSnap(null);
+    else { announceSnap(null); if(tool==='select'&&ref.current) ref.current.style.cursor=hitOwners(document,screenToWorld(point,viewport,size),7/viewport.pixelsPerUnit,viewport.pixelsPerUnit).length?'pointer':''; }
   };
   const flushMove = () => {
     if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
@@ -188,6 +194,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     if (disabled || ![0, 1, 2].includes(event.button)) return;
     flushMove(); event.preventDefault(); const point = local(event); onCursor(point);
     let hit = event.target instanceof Element ? event.target.closest('[data-entity-id]') : null;
+    let logicalHitId: string | undefined;
     event.currentTarget.focus();
     if (tool === 'pan' || spaceHeld || event.button !== 0) {
       drag.current = { kind: 'pan', pointerId: event.pointerId, last: point };
@@ -211,12 +218,11 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       dispatch({ type: 'select', entityId: entity.id }); dispatch({ type: 'tool', tool: 'select' }); setDrawCursor(null); return;
     }
     if(tool==='select') {
-      const hitId=hit?.getAttribute('data-entity-id'),hitEntity=hitId?document.entities.find(e=>e.id===hitId):undefined;
-      const needsStack=event.altKey||hitEntity?.source?.originalType==='HATCH'||event.target instanceof Element&&event.target.hasAttribute('data-move-body');
-      // Ordinary painted foreground clicks reuse the browser's event target. Only overlap inspection/fill fallback requests the full DOM hit stack.
-      const elements=needsStack?window.document.elementsFromPoint(event.clientX,event.clientY).filter(el=>event.currentTarget.contains(el)):[];
-      const exact=elements.filter(el=>!el.hasAttribute('data-move-body')).map(el=>el.closest('[data-entity-id]')?.getAttribute('data-entity-id')).filter((id):id is string=>!!id);
-      const owners=prioritizeHitOwners(document,exact.length?exact:hitId?[hitId]:[]);
+      const owners=hitOwners(document,screenToWorld(point,viewport,size),7/viewport.pixelsPerUnit,viewport.pixelsPerUnit);
+      if(!event.altKey&&!owners.length){const selected=selectedMoveOwner(document,screenToWorld(point,viewport,size),state.selectedEntityIds,5/viewport.pixelsPerUnit);if(selected)owners.push(selected);}
+      // SVG handles remain UI affordances; owner selection is always a world geometry query.
+      const grip=event.target instanceof Element&&event.target.closest('[data-vertex-handle],[data-dimension-text-handle]');
+      if(grip&&hit){const id=hit.getAttribute('data-entity-id');if(id){const i=owners.indexOf(id);if(i>=0)owners.splice(i,1);owners.unshift(id);}}
       if(event.altKey) {
         const previous=hitCycle.current,world=screenToWorld(point,viewport,size);
         const reuse=previous?.document===document&&previous.zoom===viewport.pixelsPerUnit&&previous.center===viewport.center&&Math.hypot(point.x-previous.point.x,point.y-previous.point.y)<=5;
@@ -228,6 +234,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       }
       hitCycle.current=null;
       const id=owners[0];
+      logicalHitId=id;
       hit=id?event.currentTarget.querySelector(`[data-entity-id="${CSS.escape(id)}"]`):null;
       if(state.deepSelection) {dispatch({type:'select',entityId:id??null}); return;}
     }
@@ -278,8 +285,8 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     }
     if (tool === 'polyline' || tool === 'polygon') { const anchor = anchorAt(point, undefined, event.shiftKey); setDraft(previous => [...previous, anchor]); setDrawCursor(anchor.position); return; }
     if (tool === 'text') { setTextDraft({ anchor: anchorAt(point), screen: point, content: '' }); return; }
-    if (hit) {
-      const entityId = hit.getAttribute('data-entity-id')!;
+    if (hit || logicalHitId) {
+      const entityId = logicalHitId ?? hit!.getAttribute('data-entity-id')!;
       const entity = document.entities.find(item => item.id === entityId);
       if (!entity) return;
       const alreadySelected = state.selectedEntityIds.includes(entityId);
@@ -376,15 +383,17 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   return <div className="canvas-wrap">
     <svg ref={ref} className={`drawing-canvas tool-${tool}`}
       data-testid="drawing-canvas" data-center-x={viewport.center.x} data-center-y={viewport.center.y} data-zoom={viewport.pixelsPerUnit}
+      data-renderer={scene.fallback?'svg-fallback':rendererMode}
       aria-label="Геодезическая схема" tabIndex={0} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={cancelDrag}
       onKeyDown={event => { if (event.key === 'Enter' && (tool === 'polyline' || tool === 'polygon') && draft.length) { event.preventDefault(); finishPath(); } }}
       onLostPointerCapture={() => { if(drag.current?.kind==='marquee') {dispatch({type:'cancel-marquee'});setMarquee(null);}  if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'cancel-transaction' }); drag.current = null; setDragging(false); }}
       onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); announceSnap(null); }}
       onDoubleClick={event => {
         if (disabled || onPickPoint || state.deepSelection || event.altKey) return;
-        const hit = event.target instanceof Element ? event.target.closest('[data-entity-id]') : null;
-        if (tool === 'select' && hit) {
-          const entity = document.entities.find(item => item.id === hit.getAttribute('data-entity-id'));
+        const area=event.currentTarget.getBoundingClientRect(),point={x:event.clientX-area.left,y:event.clientY-area.top};
+        const id=hitOwners(document,screenToWorld(point,viewport,size),7/viewport.pixelsPerUnit,viewport.pixelsPerUnit)[0];
+        if (tool === 'select' && id) {
+          const entity = document.entities.find(item => item.id === id);
           if (entity?.type === 'text' && !isLayerLocked(document, entity)) { const rect = event.currentTarget.getBoundingClientRect(); setEditingText({ entityId: entity.id, content: entity.content, screen: { x: event.clientX - rect.left, y: event.clientY - rect.top } }); }
           return;
         }
@@ -393,14 +402,13 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         const points = draft.length > 1 && distance(draft[draft.length - 1]!.position, draft[draft.length - 2]!.position) < 1e-9 ? draft.slice(0, -1) : draft;
         finishPath(points.length && distance(last.position, points[points.length - 1]!.position) < 1e-9 ? points : [...points, last]);
       }} onContextMenu={event => event.preventDefault()}>
-      <BlockDefinitions document={document} />
+      <BlockDefinitions document={document} {...(nativeRoots?{roots:nativeRoots}:{})} />
       {state.gridVisible && <Grid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep ?? 1} />}
-      {items.map(item => <EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
+      {scene.strata.map((stratum,index)=>stratum.kind==='canvas'?<CanvasStratum key={`canvas-${index}`} document={document} items={stratum.items} viewport={viewport} size={size}/>:<g key={`svg-${index}`}>{stratum.items.map(item => <EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
         selected={!state.deepSelection && state.selectedEntityIds.includes(item.entity.id) || state.orderedPointIds.includes(item.entity.id)}
         dimensionRetarget={state.dimensionRetarget?.dimensionId === item.entity.id ? state.dimensionRetarget : null}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
-        pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}
-      {state.deepSelection && <DeepSelectionView document={document} selection={state.deepSelection} viewport={viewport} size={size} />}
+        pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}</g>)}
       {/* Keep the cursor overlay mounted: inserting/removing it relayouts the entire SVG on each click. */}
       <rect data-testid="pan-cursor" x={0} y={0} width={size.width} height={size.height} fill="transparent" pointerEvents={dragging || spaceHeld || tool === 'pan' ? 'all' : 'none'} style={{cursor: dragging ? 'grabbing' : 'grab'}} />
       {marquee && <g pointerEvents="none" data-testid="marquee-selection" data-mode={marquee.end.x<marquee.start.x?'crossing':'window'}><rect x={Math.min(marquee.start.x,marquee.end.x)} y={Math.min(marquee.start.y,marquee.end.y)} width={Math.abs(marquee.end.x-marquee.start.x)} height={Math.abs(marquee.end.y-marquee.start.y)} fill={marquee.end.x<marquee.start.x?'#21836e18':'#277ec118'} stroke={marquee.end.x<marquee.start.x?'#21836e':'#277ec1'} strokeDasharray={marquee.end.x<marquee.start.x?'5 3':undefined}/><text x={Math.min(marquee.start.x,marquee.end.x)+5} y={Math.min(marquee.start.y,marquee.end.y)-7} fill="#405d6b" fontSize={11}>{marquee.end.x<marquee.start.x?'CROSSING':'WINDOW'}</text></g>}
@@ -411,6 +419,8 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       })}</g>}
       {aiReferenceIds.map(id=>{const entity=document.entities.find(e=>e.id===id);if(!entity)return null;const points=entityPoints(entity,document.vertices).map(p=>worldToScreen(p,viewport,size));return <g key={id} data-testid="ai-reference-highlight" pointerEvents="none" stroke="#b77922" strokeWidth={3} strokeDasharray="7 4" fill="#b7792210"><GeometryPath points={points} closed={entity.type==='polygon'}/></g>;})}
       {aiPreview.map((action, index) => <AiPreviewView key={action.id} result={action.result} viewport={viewport} size={size} actionNumber={aiPreview.length > 1 ? index + 1 : undefined} />)}
+      {!state.deepSelection&&scene.strata.filter(s=>s.kind==='canvas').flatMap(s=>s.items).filter(item=>state.selectedEntityIds.includes(item.entity.id)).map(item=><CanvasSelectionView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}/>)}
+      {state.deepSelection && <DeepSelectionView document={document} selection={state.deepSelection} viewport={viewport} size={size} />}
       {tool === 'symbol' && state.symbolPlacement && drawCursor && <g pointerEvents="none"><SymbolView entity={{ type: 'symbol', id: 'ghost', name: 'Ghost', layerId: state.currentLayerId, ...state.symbolPlacement, position: { x: drawCursor.x, y: drawCursor.y }, scale: 1 }} viewport={viewport} size={size} color="#21836e" ghost /></g>}
       {draft.length > 0 && <g className="drawing-preview" pointerEvents="none" stroke="#21836e" strokeWidth={1.5} strokeDasharray="5 4" fill="#21836e20">
         {(tool === 'line' || tool === 'measure') && previewPoints.length > 1 && <MeasurementLine a={previewPoints[0]!} b={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!} />}
@@ -424,6 +434,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         <text x={snapScreen.x + 12} y={snapScreen.y + 25} stroke="none" fill="#8b632f">{snap.metadata.label}</text>
       </g>}
     </svg>
+    {import.meta.env.DEV&&<label style={{position:'absolute',right:70,top:8,fontSize:10}}>DXF renderer <select aria-label="DXF renderer" value={rendererMode} onChange={event=>setRendererMode(event.target.value as RendererMode)}><option value="svg">SVG</option><option value="canvas">Canvas</option></select>{scene.fallback&&' · SVG fallback: strata limit'}</label>}
     {measurement && <div className="measurement-readout" data-testid="measurement-readout"><strong>Measure · {draft.length === 2 ? 'Готово' : 'Выберите вторую точку'}</strong>
       <span>Horizontal: <b>{formatDistance(measurement.horizontal)}</b></span><span>ΔX: {formatDistance(measurement.delta.x)}</span><span>ΔY: {formatDistance(measurement.delta.y)}</span>
       <span>Azimuth: {formatAzimuth(measurement.azimuth)}</span>{measurement.delta.z !== undefined && <><span>ΔZ: {formatDistance(measurement.delta.z)}</span><span>3D: {formatDistance(measurement.spatial!)}</span></>}<small>Esc — очистить · история не изменяется</small></div>}

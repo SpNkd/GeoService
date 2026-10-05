@@ -34,7 +34,8 @@ async function diagnostics(page:Page,d:GeoDocument){return page.evaluate(async d
   return {zoom:z,center:{x:cx,y:cy},owners};
 },d);}
 const errors=new WeakMap<Page,string[]>();
-test.beforeEach(async({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});await page.goto('/');});
+// These regressions explicitly retain the SVG fallback and its SVG bounding-box assertions.
+test.beforeEach(async({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});await page.goto('/?dxfRenderer=svg');});
 test.afterEach(({page})=>expect(errors.get(page)).toEqual([]));
 test('projected SVG owners survive exact wheel factors, pan, zoom out and Fit',async({page})=>{
   const d=scene();await open(page,d);await page.getByRole('button',{name:'Вписать',exact:true}).click();const start=await diagnostics(page,d);

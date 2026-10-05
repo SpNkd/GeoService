@@ -7,7 +7,8 @@ import { createProvenanceIndex } from '../src/dxf/provenance';
 import { readAutosaveRecord } from './helpers/autosave';
 const fixture=(name:string)=>resolve(`src/tests/fixtures/dxf/${name}.dxf`);
 const errors=new WeakMap<Page,string[]>();
-test.beforeEach(async({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});await page.goto('/');await expect(page.getByTestId('drawing-canvas')).toBeVisible();});
+// Import/schema and SVG fallback DOM contracts; Canvas import/reload acceptance lives in hybrid-renderer.spec.
+test.beforeEach(async({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});await page.goto('/?dxfRenderer=svg');await expect(page.getByTestId('drawing-canvas')).toBeVisible();});
 test.afterEach(({page})=>expect(errors.get(page)).toEqual([]));
 const drawing=(page:Page):Promise<GeoDocument>=>readAutosaveDocument(page);
 async function preview(page:Page,name:string){await page.getByRole('button',{name:'DXF',exact:true}).click();await page.getByLabel('Файл DXF',{exact:true}).setInputFiles(fixture(name));await expect(page.getByTestId('dxf-report')).toBeVisible();}

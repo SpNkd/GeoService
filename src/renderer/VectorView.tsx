@@ -5,6 +5,7 @@ import type { VectorPrimitive } from '../vectors/types';
 import { blockDefinition, blockMatrix, vectorEntityBounds, arcSweep } from '../vectors/geometry';
 import { worldToScreen, type ViewSize } from '../geometry';
 import { prepareVectorSet, vectorRenderOrigin } from './vectorPreparation';
+import { createVectorStyleResolver } from './vectorStyle';
 const blockSvgId=(id:string)=>`geo-block-${Array.from(id).map(c=>c.codePointAt(0)!.toString(16)).join('-')}`;
 function arcPath(p:Extract<VectorPrimitive,{kind:'arc'}>):string {
   const a={x:p.center.x+p.radius*Math.cos(p.startAngle),y:p.center.y+p.radius*Math.sin(p.startAngle)},sweep=arcSweep(p.startAngle,p.endAngle),end=p.startAngle+sweep,b={x:p.center.x+p.radius*Math.cos(end),y:p.center.y+p.radius*Math.sin(end)};
@@ -14,21 +15,22 @@ function arcPath(p:Extract<VectorPrimitive,{kind:'arc'}>):string {
 const pathData=(p:Extract<VectorPrimitive,{kind:'path'}>)=>vectorPath(p.points,p.closed);
 /** Prepared local SVG coordinates; nested references already account for canonical base points. */
 export const PrimitiveSet = memo(function PrimitiveSet({document,primitives,inheritAll=false}:{document:GeoDocument;primitives:VectorPrimitive[];inheritAll?:boolean}) {
-  const layers=new Map(document.layers.map(l=>[l.id,l])),styles=new Map(document.styles.map(s=>[s.id,s])),blocks=new Map(document.blocks?.map(b=>[b.id,b])??[]);
+  const blocks=new Map(document.blocks?.map(b=>[b.id,b])??[]);
+  const resolve=createVectorStyleResolver(document),parent={stroke:'currentColor',lineWeight:NaN,dash:undefined};
   // Compound fill is restricted to one HATCH, never unrelated block primitives.
   const fillGroups=new Map<string,Extract<VectorPrimitive,{kind:'path'}>[]>();
-  for(const p of primitives)if(p.kind==='path'&&p.fill&&p.fillGroup&&p.visible!==false&&(inheritAll||layers.get(p.layerId)?.name==='0'||layers.get(p.layerId)?.visible===true)){const ps=fillGroups.get(p.fillGroup)??[];ps.push(p);fillGroups.set(p.fillGroup,ps);}
+  for(const p of primitives)if(p.kind==='path'&&p.fill&&p.fillGroup&&resolve(p,parent,inheritAll).visible){const ps=fillGroups.get(p.fillGroup)??[];ps.push(p);fillGroups.set(p.fillGroup,ps);}
   return <>
-    {[...fillGroups.entries()].map(([id,ps])=>{const p=ps[0]!,layer=layers.get(p.layerId),inherit=inheritAll||layer?.name==='0',stroke=p.colorMode==='explicit'?p.stroke:p.colorMode==='byblock'||inherit?'currentColor':styles.get(layer?.styleId??'')?.stroke??'currentColor';return <path key={id} d={ps.map(pathData).join(' ')} fill={stroke} fillRule="evenodd" stroke="none" opacity={p.fillOpacity??1} pointerEvents="visiblePainted" />;})}
+    {[...fillGroups.entries()].map(([id,ps])=>{const p=ps[0]!,{stroke}=resolve(p,parent,inheritAll);return <path key={id} d={ps.map(pathData).join(' ')} fill={stroke} fillRule="evenodd" stroke="none" opacity={p.fillOpacity??1} pointerEvents="visiblePainted" />;})}
     {primitives.map((p,i)=>{
-      const layer=layers.get(p.layerId),style=styles.get(layer?.styleId??''),inherit=inheritAll||layer?.name==='0';if(p.visible===false||!inherit&&!layer?.visible)return null;
-      const stroke=p.colorMode==='explicit'?p.stroke:p.colorMode==='byblock'||inherit?'currentColor':style?.stroke??'currentColor';
-      const common={stroke,strokeWidth:p.lineWeight??(inherit?undefined:style?.lineWeight),strokeDasharray:p.dash??(inherit?undefined:style?.dash),vectorEffect:'non-scaling-stroke' as const};
+      const paint=resolve(p,parent,inheritAll);if(!paint.visible)return null;
+      const stroke=paint.stroke;
+      const common={stroke,strokeWidth:Number.isFinite(paint.lineWeight)?paint.lineWeight:undefined,strokeDasharray:paint.dash,vectorEffect:'non-scaling-stroke' as const};
       if(p.kind==='path')return <path key={i} d={pathData(p)} {...common} fill={p.fill&&!p.fillGroup?stroke:'none'} fillOpacity={p.fillOpacity??1} fillRule="evenodd" pointerEvents="visiblePainted" />;
       if(p.kind==='circle')return <circle key={i} cx={p.center.x} cy={p.center.y} r={p.radius} {...common} fill="none" />;
       if(p.kind==='arc')return <path key={i} d={arcPath(p)} {...common} fill="none" />;
       if(p.kind==='text')return <text key={i} transform={`translate(${p.position.x} ${p.position.y}) rotate(${p.rotationDeg}) scale(1 -1)`} fill={stroke} stroke="none" fontSize={p.height} fontFamily="sans-serif">{p.content.split('\n').map((line,j)=><tspan key={j} x={0} dy={j?1.2*p.height:0}>{line}</tspan>)}</text>;
-      const block=blocks.get(p.blockDefinitionId);return block?<use key={i} href={`#${blockSvgId(block.id)}`} transform={`matrix(${blockMatrix(p,{x:0,y:0}).join(' ')})`} color={stroke} strokeWidth={p.lineWeight??(inherit?undefined:style?.lineWeight)} strokeDasharray={p.dash??(inherit?undefined:style?.dash)} />:null;
+      const block=blocks.get(p.blockDefinitionId);return block?<use key={i} href={`#${blockSvgId(block.id)}`} transform={`matrix(${blockMatrix(p,{x:0,y:0}).join(' ')})`} color={stroke} strokeWidth={common.strokeWidth} strokeDasharray={common.strokeDasharray} />:null;
     })}
   </>;
 }, (a,b)=>{
@@ -38,9 +40,12 @@ export const PrimitiveSet = memo(function PrimitiveSet({document,primitives,inhe
   return a.primitives.every(p=>{const la=layersA.get(p.layerId),lb=layersB.get(p.layerId);return la===lb&&stylesA.get(la?.styleId??'')===stylesB.get(lb?.styleId??'');});
 });
 /** SVG definitions are prepared once; repeated and nested INSERTs reference them with <use>. */
-export const BlockDefinitions=memo(function BlockDefinitions({document}:{document:GeoDocument}) {
-  return <defs aria-hidden="true">{document.blocks?.map(b=><g key={b.id} id={blockSvgId(b.id)}><PrimitiveSet document={document} primitives={prepareVectorSet(document,b.primitives).primitives} /></g>)}</defs>;
-},(a,b)=>a.document.blocks===b.document.blocks&&a.document.layers===b.document.layers&&a.document.styles===b.document.styles);
+export const BlockDefinitions=memo(function BlockDefinitions({document,roots}:{document:GeoDocument;roots?:readonly string[]}) {
+  const needed=new Set<string>();
+  const visit=(id:string)=>{if(needed.has(id))return;needed.add(id);const b=blockDefinition(document,id);for(const p of b?.primitives??[])if(p.kind==='block')visit(p.blockDefinitionId);};
+  roots?.forEach(visit);
+  return <defs aria-hidden="true">{document.blocks?.filter(b=>!roots||needed.has(b.id)).map(b=><g key={b.id} id={blockSvgId(b.id)}><PrimitiveSet document={document} primitives={prepareVectorSet(document,b.primitives).primitives} /></g>)}</defs>;
+},(a,b)=>a.roots===b.roots&&a.document.blocks===b.document.blocks&&a.document.layers===b.document.layers&&a.document.styles===b.document.styles);
 const VectorContent = memo(function VectorContent({ entity, document }: { entity: Entity; document: GeoDocument }) {
   if (entity.type === 'arc' || entity.type === 'circle') {
     const primitive = { ...entity, center:{x:0,y:0}, kind: entity.type, colorMode: 'byblock' } as VectorPrimitive;

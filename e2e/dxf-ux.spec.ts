@@ -18,7 +18,8 @@ async function open(page:Page,d:GeoDocument){await page.getByLabel('Файл Geo
 async function screen(page:Page,x:number,y:number){const canvas=page.getByTestId('drawing-canvas'),b=(await canvas.boundingBox())!,z=Number(await canvas.getAttribute('data-zoom')),cx=Number(await canvas.getAttribute('data-center-x')),cy=Number(await canvas.getAttribute('data-center-y'));return {x:b.x+b.width/2+(x-cx)*z,y:b.y+b.height/2-(y-cy)*z};}
 async function alt(page:Page,p:{x:number;y:number}){await page.keyboard.down('Alt');await page.mouse.click(p.x,p.y);await page.keyboard.up('Alt');}
 const errors=new WeakMap<Page,string[]>();
-test.beforeEach(async({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});await page.goto('/');await expect(page.getByTestId('drawing-canvas')).toBeVisible();});
+// Keep the SVG fallback's DOM/paint contracts covered; hybrid-renderer.spec exercises the same interactions without bulk SVG.
+test.beforeEach(async({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});await page.goto('/?dxfRenderer=svg');await expect(page.getByTestId('drawing-canvas')).toBeVisible();});
 test.afterEach(({page})=>expect(errors.get(page)).toEqual([]));
 test('normal owner, Alt cycle TEXT/LINE, isolated highlight and read-only Move/Delete',async({page})=>{
   const d=synthetic();await open(page,d);const p=await screen(page,3,2.5);await page.mouse.click(p.x,p.y);await expect(page.getByTestId('selected-id')).toHaveText('owner');await expect(page.locator('.entity-heading h3')).toHaveText('Child');await expect(page.getByRole('heading',{name:'Блок',exact:true})).toBeVisible();

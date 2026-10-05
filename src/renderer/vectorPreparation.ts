@@ -6,13 +6,19 @@ interface PreparedSet { origin: WorldPoint; primitives: VectorPrimitive[] }
 const emptyBlocks: BlockDefinition[] = [];
 const zero = { x: 0, y: 0 };
 const caches = new WeakMap<BlockDefinition[], WeakMap<VectorPrimitive[], PreparedSet>>();
-/** Derived SVG coordinates only. Canonical geometry, provenance and world bounds stay untouched. */
+const revisions=new WeakMap<VectorPrimitive[],{dependencies:BlockDefinition[];prepared:PreparedSet}>();
+/** Derived renderer coordinates only. Canonical geometry, provenance and world bounds stay untouched. */
 export function prepareVectorSet(document: GeoDocument, primitives: VectorPrimitive[]): PreparedSet {
   const library = document.blocks ?? emptyBlocks;
   let cache = caches.get(library);
   if (!cache) { cache = new WeakMap(); caches.set(library, cache); }
   const cached = cache.get(primitives);
   if (cached) return cached;
+  const dependencies:BlockDefinition[]=[],seen=new Set<string>();
+  const visit=(ps:VectorPrimitive[])=>{for(const p of ps)if(p.kind==='block'&&!seen.has(p.blockDefinitionId)){seen.add(p.blockDefinitionId);const child=blockDefinition(document,p.blockDefinitionId);if(child){dependencies.push(child);visit(child.primitives);}}};
+  visit(primitives);
+  const revision=revisions.get(primitives);
+  if(revision&&revision.dependencies.length===dependencies.length&&dependencies.every((b,i)=>b===revision.dependencies[i])){cache.set(primitives,revision.prepared);return revision.prepared;}
   const bounds = primitiveBounds(document, primitives);
   const origin = bounds.length ? { x: bounds[0]!.x / 2 + bounds[2]!.x / 2, y: bounds[0]!.y / 2 + bounds[2]!.y / 2 } : zero;
   const relative = (p: WorldPoint): WorldPoint => ({ ...p, x: p.x - origin.x, y: p.y - origin.y });
@@ -28,6 +34,7 @@ export function prepareVectorSet(document: GeoDocument, primitives: VectorPrimit
   });
   const result = { origin, primitives: prepared };
   cache.set(primitives, result);
+  revisions.set(primitives,{dependencies,prepared:result});
   return result;
 }
 export function vectorRenderOrigin(document: GeoDocument, entity: Entity): WorldPoint {
