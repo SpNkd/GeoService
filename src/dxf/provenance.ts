@@ -65,7 +65,8 @@ export function createProvenanceIndex(document:GeoDocument) {
     if(e.type==='text')return [hit(e.content,'native_text',[e.source?.originalType??'TEXT'])];
     if(e.type==='block_instance') {
       const name=definitions.get(e.blockDefinitionId)?.sourceName??e.name;
-      return [...Object.entries(e.attributes??{}).map(([tag,text])=>hit(text,'block_attribute',[name,'ATTRIB',tag],[],layer,tag)),...derive(e.blockDefinitionId).textContent.map(t=>hit(t.text,t.attributeValue?'block_attribute':'block_text',t.path,t.primitivePath,t.layer,t.tag))];
+      const attributes=(e.attributePrimitives??[]).filter((p):p is Extract<VectorPrimitive,{kind:'text'}>=>p.kind==='text'&&p.source?.originalType==='ATTRIB'),represented=new Set(attributes.map(p=>p.attributeTag).filter((tag):tag is string=>!!tag));
+      return [...Object.entries(e.attributes??{}).filter(([tag])=>!represented.has(tag)).map(([tag,text])=>hit(text,'block_attribute',[name,'ATTRIB',tag],[],layer,tag)),...attributes.map(p=>hit(p.content,'block_attribute',[name,'ATTRIB',p.attributeTag??p.source?.handle??'ATTRIB'],[],p.source?.originalLayer??layer,p.attributeTag)),...derive(e.blockDefinitionId).textContent.filter(t=>!t.attributeValue).map(t=>hit(t.text,'block_text',t.path,t.primitivePath,t.layer,t.tag))];
     }
     if(e.type==='imported_graphic') {
       const kind=e.source?.originalType==='MULTILEADER'?'multileader':e.source?.originalType==='DIMENSION'?'dimension':'imported_text';

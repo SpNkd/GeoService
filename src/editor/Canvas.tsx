@@ -1,10 +1,11 @@
-import { createHitStack, hitOwners, selectedMoveOwner, type HitCandidate } from './deepSelection';
+import { createHitStack, hitOwners, resolveDeepSelection, selectedMoveOwner, type HitCandidate } from './deepSelection';
 import { composeScene, type RendererMode } from '../renderer/hybridScene';
 import { CanvasStratum } from '../renderer/CanvasStratum';
 import { CanvasSelectionView } from '../renderer/CanvasSelectionView';
 import { DeepSelectionView } from '../renderer/DeepSelectionView';
 import { BlockDefinitions } from '../renderer/VectorView';
 import { requireSymbol } from '../symbols/registry';
+import { blockAttributeLocalPosition, blockDefinition, blockMatrix, invertMatrix, type Matrix } from '../vectors/geometry';
 import { SymbolView } from '../renderer/SymbolView';
 import { marqueeEntities, type SelectionMode } from './marquee';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
@@ -33,7 +34,7 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; aiReferenceIds?: readonly string[] | undefined; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
+type Drag = { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
 export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], aiReferenceIds = [], onPickPoint, referencePreview }: Props) {
@@ -162,6 +163,10 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         position: { x: active.start.x + world.x - active.pointerStart.x, y: active.start.y + world.y - active.pointerStart.y, ...(active.start.z === undefined ? {} : { z: active.start.z }) } } });
       return;
     }
+    if(active?.kind==='block-attribute'&&active.pointerId===pointerId){
+      const world=screenToWorld(point,viewport,size),dx=world.x-active.pointerStart.x,dy=world.y-active.pointerStart.y,next={x:active.start.x+active.inverseLinear[0]*dx+active.inverseLinear[2]*dy,y:active.start.y+active.inverseLinear[1]*dx+active.inverseLinear[3]*dy};
+      dispatch({type:'transient',command:{type:'update-block-attribute',entityId:active.entityId,tag:active.tag,attributeIndex:active.attributeIndex,...(active.sourceHandle?{sourceHandle:active.sourceHandle}:{}),patch:{position:next}}});return;
+    }
     if (active?.kind === 'label' && active.pointerId === pointerId) {
       const world = screenToWorld(point, viewport, size);
       dispatch({ type: 'transient', command: { type: 'update-entity', entityId: active.entityId,
@@ -218,7 +223,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       dispatch({ type: 'select', entityId: entity.id }); dispatch({ type: 'tool', tool: 'select' }); setDrawCursor(null); return;
     }
     if(tool==='select') {
-      const owners=hitOwners(document,screenToWorld(point,viewport,size),7/viewport.pixelsPerUnit,viewport.pixelsPerUnit);
+      const pointerWorld=screenToWorld(point,viewport,size),owners=hitOwners(document,pointerWorld,7/viewport.pixelsPerUnit,viewport.pixelsPerUnit);
       if(!event.altKey&&!owners.length){const selected=selectedMoveOwner(document,screenToWorld(point,viewport,size),state.selectedEntityIds,5/viewport.pixelsPerUnit);if(selected)owners.push(selected);}
       // SVG handles remain UI affordances; owner selection is always a world geometry query.
       const grip=event.target instanceof Element&&event.target.closest('[data-vertex-handle],[data-dimension-text-handle]');
@@ -233,6 +238,14 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         return;
       }
       hitCycle.current=null;
+      if(state.deepSelection?.attribute&&state.deepSelection.attributeTag){
+        const active=state.deepSelection,resolved=resolveDeepSelection(document,active),owner=document.entities.find(e=>e.id===active.ownerEntityId),definition=owner?.type==='block_instance'?blockDefinition(document,owner.blockDefinitionId):undefined;
+        const exact=createHitStack(document,owners,pointerWorld,5/viewport.pixelsPerUnit).find(candidate=>candidate.selection?.attribute&&candidate.selection.attributeTag===active.attributeTag&&candidate.selection.ownerEntityId===active.ownerEntityId&&candidate.selection.primitivePath.length===active.primitivePath.length&&candidate.selection.primitivePath.every((part,i)=>part===active.primitivePath[i]));
+        if(exact&&resolved?.primitive.kind==='text'&&owner?.type==='block_instance'&&definition&&!isLayerLocked(document,owner)&&!isLayerLocked(document,{...owner,layerId:resolved.primitive.layerId})){
+          const transform=blockMatrix(owner,definition.basePoint),linear=invertMatrix([transform[0],transform[1],transform[2],transform[3],0,0]),start=blockAttributeLocalPosition(owner,definition,resolved.primitive.position);
+          if(linear){dispatch({type:'begin-transaction'});drag.current={kind:'block-attribute',pointerId:event.pointerId,entityId:owner.id,tag:active.attributeTag!,attributeIndex:active.primitivePath[0]!,...(resolved.source?.handle?{sourceHandle:resolved.source.handle}:{}),start,pointerStart:pointerWorld,inverseLinear:linear};event.currentTarget.setPointerCapture(event.pointerId);setDragging(true);return;}
+        }
+      }
       const id=owners[0];
       logicalHitId=id;
       hit=id?event.currentTarget.querySelector(`[data-entity-id="${CSS.escape(id)}"]`):null;

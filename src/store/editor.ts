@@ -70,6 +70,13 @@ export type EditorAction =
   | { type: 'zoom'; anchor: ScreenPoint; size: ViewSize; factor: number }
   | { type: 'tool'; tool: EditorTool } | { type: 'toggle-grid' };
 
+function matchesDeepAttribute(state:EditorState,command:DocumentCommand):boolean {
+  const selection=state.deepSelection;
+  if(!selection?.attribute||command.type!=='update-block-attribute'||command.entityId!==selection.ownerEntityId||command.tag!==selection.attributeTag||selection.primitivePath.length!==1||command.attributeIndex!==selection.primitivePath[0])return false;
+  const resolved=resolveDeepSelection(state.document,selection);
+  return resolved?.primitive.kind==='text'&&resolved.primitive.source?.originalType==='ATTRIB'&&resolved.primitive.attributeTag===command.tag&&(command.sourceHandle===undefined||resolved.primitive.source.handle===command.sourceHandle);
+}
+
 const HISTORY_LIMIT = 100;
 const pushHistory = (past: GeoDocument[], document: GeoDocument) => [...past.slice(-(HISTORY_LIMIT - 1)), document];
 function reconcileSelection(document: GeoDocument, selectionId: string | null): string | null {
@@ -231,7 +238,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'execute-batch':
     case 'execute': {
-      if(state.deepSelection){if(action.type==='execute-batch'||!['set-layer-visibility','set-layer-lock','move-layer','create-layer'].includes(action.command.type))return {...state,error:NESTED_MOVE_MESSAGE};state={...state,deepSelection:null,hitStackStatus:null};}
+      if(state.deepSelection){if(action.type==='execute-batch'||!['set-layer-visibility','set-layer-lock','move-layer','create-layer'].includes(action.command.type)&&!matchesDeepAttribute(state,action.command))return {...state,error:NESTED_MOVE_MESSAGE};if(!matchesDeepAttribute(state,action.command))state={...state,deepSelection:null,hitStackStatus:null};}
       if (action.expectedDocument && (state.transactionBefore || state.document !== action.expectedDocument)) {
         return { ...state, error: 'Документ изменился или активна транзакция. Пересчитайте план.' };
       }
@@ -252,12 +259,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if (!state.transactionBefore) return state;
       try {
         if (action.command.type !== 'update-vertex' && action.command.type !== 'move-vertex' && action.command.type !== 'move-text'
+          && !(action.command.type==='update-block-attribute'&&action.command.patch.value===undefined&&matchesDeepAttribute(state,action.command))
           && !(action.command.type === 'update-entity' && action.command.patch.template === undefined && action.command.patch.content === undefined && action.command.patch.name === undefined && action.command.patch.fontSize === undefined)) throw new Error('Транзакция допускает только изменение координат и смещений');
         return { ...state, document: applyCommand(state.document, action.command), error: null };
       }
       catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось изменить документ' }; }
     }
-    case 'begin-transaction': if(state.deepSelection)return {...state,error:NESTED_MOVE_MESSAGE}; return state.transactionBefore ? state : { ...state, transactionBefore: state.document };
+    case 'begin-transaction': if(state.deepSelection&&!state.deepSelection.attribute)return {...state,error:NESTED_MOVE_MESSAGE}; return state.transactionBefore ? state : { ...state, transactionBefore: state.document };
     case 'commit-transaction': {
       if (state.selectionMove) return editorReducer(state, { type: 'finish-selection-move' });
       if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };

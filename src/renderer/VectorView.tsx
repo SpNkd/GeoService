@@ -2,7 +2,7 @@ import { vectorPath } from '../vectors/path';
 import { memo } from 'react';
 import type { Entity, GeoDocument, Viewport } from '../domain/model';
 import type { VectorPrimitive } from '../vectors/types';
-import { blockDefinition, blockMatrix, vectorEntityBounds, arcSweep } from '../vectors/geometry';
+import { blockAttributeMatrix, blockDefinition, blockMatrix, multiply, transformPoint, vectorEntityBounds, arcSweep } from '../vectors/geometry';
 import { worldToScreen, type ViewSize } from '../geometry';
 import { prepareVectorSet, vectorRenderOrigin } from './vectorPreparation';
 import { createVectorStyleResolver } from './vectorStyle';
@@ -55,8 +55,8 @@ const VectorContent = memo(function VectorContent({ entity, document }: { entity
     const block = blockDefinition(document, entity.blockDefinitionId);
     if (!block) return null;
     const matrix = blockMatrix(entity, block.basePoint), origin = vectorRenderOrigin(document, entity);
-    const attributes = prepareVectorSet(document, entity.attributePrimitives ?? []);
-    return <><use href={`#${blockSvgId(block.id)}`} transform={`matrix(${[...matrix.slice(0,4),0,0].join(' ')})`} /><g transform={`translate(${entity.position.x + attributes.origin.x - origin.x} ${entity.position.y + attributes.origin.y - origin.y})`}><PrimitiveSet document={document} primitives={attributes.primitives} inheritAll /></g></>;
+    const attributes = prepareVectorSet(document, entity.attributePrimitives ?? []),attributeMatrix=blockAttributeMatrix(entity,block),attributeOrigin=transformPoint(attributes.origin,attributeMatrix),delta={x:attributeOrigin.x-origin.x,y:attributeOrigin.y-origin.y},relative=multiply([1,0,0,1,delta.x,delta.y],[attributeMatrix[0],attributeMatrix[1],attributeMatrix[2],attributeMatrix[3],0,0]);
+    return <><use href={`#${blockSvgId(block.id)}`} transform={`matrix(${[...matrix.slice(0,4),0,0].join(' ')})`} /><g transform={`matrix(${[...relative.slice(0,4),relative[4],relative[5]].join(' ')})`}><PrimitiveSet document={document} primitives={attributes.primitives} inheritAll /></g></>;
   }
   if (entity.type === 'imported_graphic') return <PrimitiveSet document={document} primitives={prepareVectorSet(document,entity.primitives).primitives} inheritAll />;
   return null;

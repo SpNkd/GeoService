@@ -8,6 +8,7 @@ import { resolveSelectionMove, projectSelectionMove, type Translation } from './
 import { requireSymbol } from '../symbols/registry';
 import { normalizeSymbolRotation } from '../symbols/types';
 import { parseCommand } from './commandSchema';
+import { blockAttributeLocalPosition } from '../vectors/geometry';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
@@ -26,6 +27,7 @@ export type DocumentCommand =
   | { type: 'update-vertex'; vertexId: string; position: WorldPoint }
   | { type: 'move-vertex'; vertexId: string; delta: WorldPoint }
   | { type: 'move-text'; entityId: string; vertexId: string; position: WorldPoint }
+  | { type: 'update-block-attribute'; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; patch: { value?: string; position?: WorldPoint } }
   | { type: 'update-entity'; entityId: string; patch: { name?: string; content?: string; template?: string; fontSize?: number; dx?: number; dy?: number; offset?: number; textPosition?: number; rotationDeg?: number; scale?: number } }
   | { type: 'set-entity-layer'; entityId: string; layerId: string }
   | { type: 'set-layer-visibility'; layerId: string; visible: boolean }
@@ -217,6 +219,27 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     const entities = document.entities.map(item => item.id === text.id ? { ...item, vertexId } : item);
     if (shared && !entities.some(item => item.id !== text.id && entityVertexIds(item).includes(old.id))) delete vertices[old.id];
     return { ...document, vertices, entities };
+  }
+  if(command.type==='update-block-attribute') {
+    const owner=document.entities.find(item=>item.id===command.entityId);
+    if(!owner||owner.type!=='block_instance')throw new Error('Экземпляр DXF блока не найден');
+    if(!Number.isInteger(command.attributeIndex)||command.attributeIndex<0)throw new Error('Путь ATTRIB некорректен');
+    if(command.patch.value!==undefined&&command.patch.value.length>10000)throw new Error('Значение ATTRIB слишком длинное');
+    if(command.patch.position&&!finitePoint(command.patch.position))throw new Error('Координаты должны быть конечными числами');
+    if(command.patch.value===undefined&&command.patch.position===undefined)throw new Error('Команда ATTRIB не содержит изменений');
+    const ownerLayer=document.layers.find(layer=>layer.id===owner.layerId);
+    if(!ownerLayer||ownerLayer.locked)throw new Error('Нельзя изменять ATTRIB на заблокированном слое вставки');
+    const source=document.blocks?.find(block=>block.id===owner.blockDefinitionId);
+    if(!source)throw new Error('Определение блока не найдено');
+    const raw=owner.attributePrimitives??[],selected=raw[command.attributeIndex];
+    if(!selected||selected.kind!=='text'||selected.source?.originalType!=='ATTRIB'||selected.attributeTag!==command.tag||command.sourceHandle!==undefined&&selected.source?.handle!==command.sourceHandle)throw new Error('Выбранный ATTRIB не совпадает с исходной геометрией');
+    const initial=owner.attributeCoordinateSpace==='block-local'?raw:raw.map(primitive=>primitive.kind==='text'&&primitive.source?.originalType==='ATTRIB'?{...primitive,position:blockAttributeLocalPosition(owner,source,primitive.position),rotationDeg:primitive.rotationDeg-owner.rotationDeg}:primitive);
+    const attributeLayer=document.layers.find(layer=>layer.id===selected.layerId);
+    if(!attributeLayer||attributeLayer.locked)throw new Error('Слой исходного ATTRIB заблокирован');
+    const attributePrimitives=initial.map((primitive,index)=>index!==command.attributeIndex||primitive.kind!=='text'?primitive:{...primitive,...(command.patch.value===undefined?{}:{content:command.patch.value}),...(command.patch.position===undefined?{}:{position:{...command.patch.position}})});
+    const attributes=command.patch.value===undefined||!Object.hasOwn(owner.attributes??{},command.tag)?owner.attributes:{...owner.attributes,[command.tag]:command.patch.value};
+    const next={...owner,attributeCoordinateSpace:'block-local' as const,attributePrimitives,...(attributes?{attributes}:{})};
+    return {...document,entities:document.entities.map(item=>item.id===owner.id?next:item)};
   }
   if (command.type === 'update-vertex' || command.type === 'move-vertex') {
     assertVertexEditable(document, command.vertexId);

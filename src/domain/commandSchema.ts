@@ -22,6 +22,7 @@ const commandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('update-vertex'), vertexId: id, position: worldPointSchema.strict() }),
   z.strictObject({ type: z.literal('move-vertex'), vertexId: id, delta: worldPointSchema.strict() }),
   z.strictObject({ type: z.literal('move-text'), entityId: id, vertexId: id, position: worldPointSchema.strict() }),
+  z.strictObject({ type: z.literal('update-block-attribute'), entityId: id, tag: id, attributeIndex: finiteNumber.int().min(0).max(200000), sourceHandle: z.string().max(256).optional(), patch: z.strictObject({ value: z.string().max(10000).optional(), position: worldPointSchema.strict().optional() }).refine(patch=>patch.value!==undefined||patch.position!==undefined,'ATTRIB update is empty') }),
   z.strictObject({ type: z.literal('update-entity'), entityId: id, patch: z.strictObject({ name: z.string().min(1).max(1000).refine(value => Boolean(value.trim()), 'Имя объекта не может быть пустым').optional(), content: z.string().min(1).max(10000).optional(), template: z.string().max(10000).optional(), dx: finiteNumber.optional(), dy: finiteNumber.optional(), offset: finiteNumber.optional(), textPosition: finiteNumber.min(0.05).max(0.95).optional(), fontSize: finiteNumber.positive().max(1000).optional(), rotationDeg: finiteNumber.optional(), scale: symbolScaleSchema.optional() }) }),
   z.strictObject({ type: z.literal('set-entity-layer'), entityId: id, layerId: id }),
   z.strictObject({ type: z.literal('set-layer-visibility'), layerId: id, visible: z.boolean() }),

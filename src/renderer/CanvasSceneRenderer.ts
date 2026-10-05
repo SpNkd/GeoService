@@ -1,7 +1,7 @@
 import type { Entity, GeoDocument, Viewport, WorldPoint } from '../domain/model';
 import { entityPoints, entityVertexIds, type Vertex } from '../domain/model';
 import { worldToScreen, type ViewSize } from '../geometry';
-import { arcSweep, blockDefinition, blockMatrix, multiply, type Matrix } from '../vectors/geometry';
+import { arcSweep, blockAttributeMatrix, blockDefinition, blockMatrix, multiply, transformPoint, type Matrix } from '../vectors/geometry';
 import { VECTOR_LIMITS, type VectorPrimitive } from '../vectors/types';
 import { prepareVectorSet, vectorRenderOrigin } from './vectorPreparation';
 import { createVectorStyleResolver, type Paint } from './vectorStyle';
@@ -140,7 +140,7 @@ export class CanvasSceneRenderer {
         const block = blockDefinition(document, e.blockDefinitionId); if (!block) continue;
         const matrix = blockMatrix(e, block.basePoint), anchor = canvasTransform(view, size, vectorRenderOrigin(document, e));
         drawList(this.compile(document, block.primitives), multiply(anchor, [...matrix.slice(0, 4), 0, 0] as unknown as Matrix), paint, false, [block.id]);
-        if (e.attributePrimitives?.length) { const list = this.compile(document, e.attributePrimitives); drawList(list, canvasTransform(view, size, { x: e.position.x + list.origin.x, y: e.position.y + list.origin.y }), paint, true, []); }
+        if (e.attributePrimitives?.length) { const list = this.compile(document, e.attributePrimitives),attribute=blockAttributeMatrix(e,block),worldOrigin=transformPoint(list.origin,attribute),anchor=canvasTransform(view,size,worldOrigin),linear:Matrix=[attribute[0],attribute[1],attribute[2],attribute[3],0,0];drawList(list,multiply(anchor,linear),paint,true,[]); }
       } else if (e.type === 'imported_graphic') {
         const list = this.compile(document, e.primitives); drawList(list, canvasTransform(view, size, vectorRenderOrigin(document, e)), paint, true, []);
       } else {

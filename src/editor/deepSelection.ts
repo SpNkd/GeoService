@@ -1,7 +1,7 @@
 import type { Entity, GeoDocument, WorldPoint } from '../domain/model';
 import type { SourceProvenance, VectorPrimitive } from '../vectors/types';
 import { VECTOR_LIMITS } from '../vectors/types';
-import { blockDefinition, blockMatrix, IDENTITY, multiply, primitiveBounds, textBounds, transformPoint, type Matrix } from '../vectors/geometry';
+import { blockAttributeMatrix, blockDefinition, blockMatrix, IDENTITY, multiply, primitiveBounds, textBounds, transformPoint, type Matrix } from '../vectors/geometry';
 import { entityBoundsPoints } from '../geometry/entityBounds';
 import { entityPoints } from '../domain/model';
 import { bounds } from '../geometry';
@@ -13,10 +13,10 @@ import { resolvedLabelPosition, resolveLabelTemplate } from '../geometry/labels'
 import { createVectorStyleResolver, type Paint } from '../renderer/vectorStyle';
 export interface DeepSelection {
   ownerEntityId: string; blockPath: string[]; primitivePath: number[];
-  attribute?: boolean; sourceType: string;
+  attribute?: boolean; attributeTag?: string; sourceType: string;
 }
 export interface HitCandidate { ownerEntityId: string; selection: DeepSelection | null }
-export const NESTED_MOVE_MESSAGE = 'Элемент является частью блока. Для перемещения выберите экземпляр блока.';
+export const NESTED_MOVE_MESSAGE = 'Элемент входит в определение блока и используется его экземплярами. Редактирование определения блока пока не поддерживается.';
 const inverse=(m:Matrix):Matrix|null=>{const d=m[0]*m[3]-m[1]*m[2];return d===0?null:[m[3]/d,-m[1]/d,-m[2]/d,m[0]/d,(m[2]*m[5]-m[3]*m[4])/d,(m[1]*m[4]-m[0]*m[5])/d];};
 const segmentDistance=(p:WorldPoint,a:WorldPoint,b:WorldPoint)=>{const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);};
 function inside(p:WorldPoint,points:WorldPoint[]) {let result=false;for(let i=0,j=points.length-1;i<points.length;j=i++){const a=points[i]!,b=points[j]!;if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)result=!result;}return result;}
@@ -96,7 +96,7 @@ export function hitOwners(document:GeoDocument,world:WorldPoint,tolerance:number
   const index=ownerIndex(document),candidates=[...index.query(queryBox(world,tolerance*2)),...(annotations.get(document)??[])].sort((a,b)=>b.order-a.order);
   return prioritizeHitOwners(document,candidates.filter(({entity:e})=>{
     const style=styles.get(e.styleId??layers.get(e.layerId)?.styleId??''),paint:Paint={stroke:style?.stroke??'#546675',lineWeight:style?.lineWeight??1.5,dash:style?.dash};
-    if(e.type==='block_instance'){const b=blockDefinition(document,e.blockDefinitionId);return !!b&&(hitSet(b.primitives,blockMatrix(e,b.basePoint),false,[b.id],paint)||hitSet(e.attributePrimitives??[],[1,0,0,1,e.position.x,e.position.y],true,[],paint));}
+    if(e.type==='block_instance'){const b=blockDefinition(document,e.blockDefinitionId);return !!b&&(hitSet(b.primitives,blockMatrix(e,b.basePoint),false,[b.id],paint)||hitSet(e.attributePrimitives??[],blockAttributeMatrix(e,b),true,[],paint));}
     if(e.type==='imported_graphic')return hitSet(e.primitives,[1,0,0,1,e.position.x,e.position.y],true,[],paint);
     if(e.type==='arc')return primitiveHit(document,{...e,kind:'arc',colorMode:'byblock'},IDENTITY,world,tolerance);
     if(e.type==='circle')return primitiveHit(document,{...e,kind:'circle',colorMode:'byblock'},IDENTITY,world,tolerance);
@@ -121,7 +121,7 @@ export function createHitStack(document:GeoDocument,ownerIds:readonly string[],w
         const block=blockDefinition(document,p.blockDefinitionId);if(!block||stack.includes(block.id)||stack.length>=VECTOR_LIMITS.depth)continue;
         const nextPath=[...blockPath,block.sourceName],nested=walk(ownerEntityId,block.primitives,multiply(matrix,blockMatrix(p,block.basePoint)),nextPath,primitivePath,[...stack,block.id],attribute);
         if(nested.length){hits.push({ownerEntityId,selection:{ownerEntityId,blockPath:nextPath,primitivePath,sourceType,attribute}},...nested);}
-      }else hits.push({ownerEntityId,selection:{ownerEntityId,blockPath,primitivePath,sourceType,attribute}});
+      }else hits.push({ownerEntityId,selection:{ownerEntityId,blockPath,primitivePath,sourceType,attribute,...(attribute&&p.kind==='text'&&p.attributeTag?{attributeTag:p.attributeTag}:{})}});
     }
     return hits;
   };
@@ -131,7 +131,7 @@ export function createHitStack(document:GeoDocument,ownerIds:readonly string[],w
     if(entity.type==='block_instance') {
       const block=blockDefinition(document,entity.blockDefinitionId);if(!block)continue;
       result.push(...walk(id,block.primitives,blockMatrix(entity,block.basePoint),[block.sourceName],[],[block.id]));
-      result.push(...walk(id,entity.attributePrimitives??[],[1,0,0,1,entity.position.x,entity.position.y],[block.sourceName,'ATTRIB'],[],[],true,true));
+      result.push(...walk(id,entity.attributePrimitives??[],blockAttributeMatrix(entity,block),[block.sourceName,'ATTRIB'],[],[],true,true));
     }
     if(entity.type==='imported_graphic')result.push(...walk(id,entity.primitives,[1,0,0,1,entity.position.x,entity.position.y],[],[],[],false,true));
   }
@@ -143,7 +143,7 @@ export function resolveDeepSelection(document:GeoDocument,selection:DeepSelectio
   if(owner.type==='block_instance'){
     const definition=blockDefinition(document,owner.blockDefinitionId);if(!definition)return null;
     primitives=selection.attribute?owner.attributePrimitives??[]:definition.primitives;
-    matrix=selection.attribute?[1,0,0,1,owner.position.x,owner.position.y]:blockMatrix(owner,definition.basePoint);
+    matrix=selection.attribute?blockAttributeMatrix(owner,definition):blockMatrix(owner,definition.basePoint);
   }else if(owner.type==='imported_graphic'){primitives=owner.primitives;matrix=[1,0,0,1,owner.position.x,owner.position.y];}else return null;
   if(selection.primitivePath.length>VECTOR_LIMITS.depth+1)return null;
   for(const [i,index] of selection.primitivePath.entries()){

@@ -17,7 +17,7 @@ export interface DimensionEntity extends EntityBase { type: 'dimension'; startVe
 export interface SymbolEntity extends EntityBase { type: 'symbol'; libraryId: string; symbolId: string; position: { x: number; y: number }; rotationDeg: number; scale: number; properties?: Record<string, string | number | boolean | null> }
 export interface ArcEntity extends EntityBase { type: 'arc'; center: WorldPoint; radius: number; startAngle: number; endAngle: number }
 export interface CircleEntity extends EntityBase { type: 'circle'; center: WorldPoint; radius: number }
-export interface BlockInstanceEntity extends EntityBase, BlockTransform { type: 'block_instance'; blockDefinitionId: string; attributes?: Record<string, string>; attributePrimitives?: VectorPrimitive[] }
+export interface BlockInstanceEntity extends EntityBase, BlockTransform { type: 'block_instance'; blockDefinitionId: string; attributes?: Record<string, string>; attributePrimitives?: VectorPrimitive[]; /** Absent in older v2 files, whose attribute positions are insert-relative MODEL offsets. */ attributeCoordinateSpace?: 'block-local' }
 export interface ImportedGraphicEntity extends EntityBase { type: 'imported_graphic'; position: WorldPoint; primitives: VectorPrimitive[]; semanticContent?: ImportedSemanticContent }
 export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity | SymbolEntity | ArcEntity | CircleEntity | BlockInstanceEntity | ImportedGraphicEntity;
 export interface SurveyXY { e: number; n: number }

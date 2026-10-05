@@ -2,13 +2,15 @@ import { NESTED_MOVE_MESSAGE, resolveDeepSelection } from '../editor/deepSelecti
 import { createProvenanceIndex } from '../dxf/provenance';
 import { SymbolProperties } from './SymbolProperties';
 import type { ViewSize } from '../geometry';
+import { formatCoordinate } from '../geometry/format';
+import { transformPoint, blockDefinition } from '../vectors/geometry';
 import { layerBounds } from '../geometry/entityBounds';
 import { documentSurveyXY, modelToAbsoluteZ } from '../geometry/georeferencing';
 import { MoveSelectionPanel } from './MoveSelectionPanel';
 import { Fragment, memo, useEffect, useMemo, useState, type Dispatch } from 'react';
 import { entityVertexIds, type Entity, type GeoDocument, type PointEntity, type TextEntity, type LabelEntity } from '../domain/model';
 import { distance, pathLength, polygonArea } from '../geometry';
-import { formatAzimuth, formatCoordinate, formatDistance, formatMeasure } from '../geometry/format';
+import { formatAzimuth, formatDistance, formatMeasure } from '../geometry/format';
 import { isLayerLocked, canEditVertex } from '../domain/commands';
 import { azimuth, polygonSelfIntersects } from '../geometry/survey';
 import { vertexFor } from '../renderer/selectors';
@@ -172,6 +174,19 @@ function LabelPresets({ entity, state, dispatch }: { entity: Entity; state: Edit
     <button aria-label="Добавить подпись" className="secondary-action" onClick={() => { try { const command = createLabelCommand(state.document, entity.id, newGeometryId, template); dispatch({ type: 'execute', command }); if (command.type === 'add-entity') dispatch({ type: 'select', entityId: command.entity.id }); } catch (error) { dispatch({ type: 'report-error', message: error instanceof Error ? error.message : 'Не удалось создать подпись' }); } }}>+ Добавить подпись</button></div>;
 }
 
+function BlockAttributeEditor({state,dispatch,tag,value,index,sourceHandle,primitive,ownerId}:{state:EditorState;dispatch:Dispatch<EditorAction>;tag:string;value:string;index:number;sourceHandle?:string;primitive:Extract<import('../vectors/types').VectorPrimitive,{kind:'text'}>;ownerId:string}) {
+  const [draft,setDraft]=useState(value),owner=state.document.entities.find(e=>e.id===ownerId),definition=owner?.type==='block_instance'?blockDefinition(state.document,owner.blockDefinitionId):undefined;
+  useEffect(()=>setDraft(value),[value]);
+  const layer=state.document.layers.find(l=>l.id===primitive.layerId),disabled=!definition||owner?.type!=='block_instance'||isLayerLocked(state.document,owner)||!layer||layer.locked;
+  const commit=()=>{if(draft===value)return;dispatch({type:'execute',command:{type:'update-block-attribute',entityId:ownerId,tag,attributeIndex:index,...(sourceHandle?{sourceHandle}:{}),patch:{value:draft}}});};
+  const model=transformPoint(primitive.position,resolveDeepSelection(state.document,state.deepSelection!)?.matrix??[1,0,0,1,0,0]);
+  const rotation=primitive.rotationDeg+(owner?.type==='block_instance'&&owner.attributeCoordinateSpace==='block-local'?owner.rotationDeg:0);
+  return <><dl className="property-facts"><dt>Владелец</dt><dd>{definition?.sourceName??owner?.name}</dd><dt>Tag</dt><dd>{tag}</dd><dt>Тип</dt><dd>Атрибут блока</dd><dt>MODEL X/Y</dt><dd>{formatCoordinate(model.x)} / {formatCoordinate(model.y)} м</dd><dt>Поворот</dt><dd>{formatCoordinate(rotation)}°</dd><dt>Высота</dt><dd>{formatCoordinate(primitive.height)} м</dd><dt>Исходный слой</dt><dd>{primitive.source?.originalLayer??layer?.name??primitive.layerId}</dd><dt>Source handle</dt><dd>{primitive.source?.handle??'—'}</dd></dl>
+    <label className="coordinate-field"><span>Значение</span><input aria-label="Значение атрибута" value={draft} disabled={disabled} maxLength={10000} onChange={event=>setDraft(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();commit();}}}/></label>
+    <button type="button" className="secondary-action" disabled={disabled||draft===value} onClick={commit}>Применить</button>
+    <p className="field-help">Enter или «Применить» сохраняет это значение у выбранной вставки. Перетащите атрибут на схеме, чтобы изменить его позицию.</p></>;
+}
+
 export const PropertyInspector = memo(function PropertyInspector({ state, dispatch, size }: { size: ViewSize; state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const entity = state.document.entities.find(item => item.id === state.selectionId);
   const semanticIndex = useMemo(()=>createProvenanceIndex(state.document),[state.document]);
@@ -187,12 +202,18 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
     <MoveSelectionPanel state={state} dispatch={dispatch} />
     {state.orderedPointIds.length >= 2 && <div className="ordered-selection"><h3>Точки по порядку · {state.orderedPointIds.length}</h3><ol>{state.orderedPointIds.map(id => <li key={id}>{state.document.entities.find(entity => entity.id === id)?.name}</li>)}</ol><div><button onClick={() => dispatch({ type: 'from-selected-points', kind: 'polyline' })}>Создать полилинию</button><button disabled={state.orderedPointIds.length < 3} onClick={() => dispatch({ type: 'from-selected-points', kind: 'polygon' })}>Создать границу</button></div></div>}
     {selectedLayer ? <LayerProperties layer={selectedLayer} state={state} dispatch={dispatch} size={size} /> : deep && state.deepSelection ? <div className="inspector-content" data-testid="deep-properties">
-      <div className="entity-heading"><div><h3>{deep.primitive.kind==='text'?deep.primitive.content:state.deepSelection.sourceType}</h3><span>Вложенный элемент · только просмотр</span></div></div>
-      <dl className="property-facts"><dt>Владелец</dt><dd>{summary?.blockName??entity?.name}</dd><dt>ID владельца</dt><dd data-testid="selected-id">{state.deepSelection.ownerEntityId}</dd>
-        <dt>Путь</dt><dd>{[...state.deepSelection.blockPath,state.deepSelection.sourceType].join(' → ')} · {state.deepSelection.primitivePath.join('.')}</dd><dt>Тип</dt><dd>{state.deepSelection.sourceType}</dd><dt>Исходный слой</dt><dd>{deep.source?.originalLayer??deep.primitive.layerId}</dd><dt>Handle</dt><dd>{deep.source?.handle??'—'}</dd>
-        {deep.primitive.kind==='text'&&<><dt>Текст</dt><dd>{deep.primitive.content}</dd></>}
-        <dt>Локальные координаты</dt><dd>{'position' in deep.primitive?`${deep.primitive.position.x} / ${deep.primitive.position.y}`:'center' in deep.primitive?`${deep.primitive.center.x} / ${deep.primitive.center.y}`:deep.primitive.points.map(p=>`${p.x} / ${p.y}`).slice(0,4).join('; ')}</dd></dl>
-      <p className="read-only-banner">{NESTED_MOVE_MESSAGE}</p><button className="secondary-action" onClick={()=>dispatch({type:'select',entityId:state.deepSelection!.ownerEntityId})}>Выбрать экземпляр блока</button>
+      {state.deepSelection.attribute&&state.deepSelection.sourceType==='ATTRIB'&&deep.primitive.kind==='text'&&state.deepSelection.attributeTag ? <>
+        <div className="entity-heading"><div><h3>Атрибут блока</h3><span>{summary?.blockName??entity?.name}</span></div></div>
+        <BlockAttributeEditor key={`${state.deepSelection.ownerEntityId}:${state.deepSelection.attributeTag}`} state={state} dispatch={dispatch} tag={state.deepSelection.attributeTag} value={deep.primitive.content} primitive={deep.primitive} index={state.deepSelection.primitivePath[0]!} ownerId={state.deepSelection.ownerEntityId} {...(deep.source?.handle?{sourceHandle:deep.source.handle}:{})}/>
+        <dl className="property-facts"><dt>ID владельца</dt><dd data-testid="selected-id">{state.deepSelection.ownerEntityId}</dd><dt>Путь</dt><dd>{[...state.deepSelection.blockPath,state.deepSelection.sourceType].join(' → ')} · {state.deepSelection.primitivePath.join('.')}</dd></dl>
+      </> : <>
+        <div className="entity-heading"><div><h3>{deep.primitive.kind==='text'?deep.primitive.content:state.deepSelection.sourceType}</h3><span>Вложенный элемент · только просмотр</span></div></div>
+        <dl className="property-facts"><dt>Владелец</dt><dd>{summary?.blockName??entity?.name}</dd><dt>ID владельца</dt><dd data-testid="selected-id">{state.deepSelection.ownerEntityId}</dd>
+          <dt>Путь</dt><dd>{[...state.deepSelection.blockPath,state.deepSelection.sourceType].join(' → ')} · {state.deepSelection.primitivePath.join('.')}</dd><dt>Тип</dt><dd>{state.deepSelection.sourceType}</dd><dt>Исходный слой</dt><dd>{deep.source?.originalLayer??deep.primitive.layerId}</dd><dt>Source handle</dt><dd>{deep.source?.handle??'—'}</dd>
+          {deep.primitive.kind==='text'&&<><dt>Текст</dt><dd>{deep.primitive.content}</dd></>}
+          <dt>MODEL X/Y</dt><dd>{'position' in deep.primitive?(()=>{const p=transformPoint(deep.primitive.position,deep.matrix);return `${formatCoordinate(p.x)} / ${formatCoordinate(p.y)} м`;})():'center' in deep.primitive?`${deep.primitive.center.x} / ${deep.primitive.center.y}`:deep.primitive.points.map(p=>`${p.x} / ${p.y}`).slice(0,4).join('; ')}</dd></dl>
+        <p className="read-only-banner">{state.deepSelection.sourceType==='ATTDEF'?'ATTDEF — шаблон определения. Его правка затронула бы экземпляры; редактор определения блока пока не поддерживается.':state.deepSelection.sourceType==='TEXT'||state.deepSelection.sourceType==='MTEXT'?'Этот текст входит в определение блока. Изменение затронуло бы все экземпляры блока. Редактор определения блока пока не реализован.':NESTED_MOVE_MESSAGE}</p>
+      </>}
     </div> : entity ? <div className="inspector-content">
       <div className="entity-heading"><span className="entity-icon"><Icon name={['arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 'symbol' : entity.type === 'polyline' ? 'line' : entity.type === 'symbol' ? 'symbol' : entity.type === 'label' ? 'text' : entity.type} size={23} /></span><div><h3>{heading}</h3><span>{subtitle}</span></div><button className="close-button" aria-label="Снять выбор" onClick={() => dispatch({ type: 'select', entityId: null })}>×</button></div>
       <div className="property-section"><h3>Общие</h3><dl className="property-facts"><dt>ID</dt><dd className="mono" data-testid="selected-id">{entity.id}</dd><dt>Тип</dt><dd>{subtitle}</dd></dl>

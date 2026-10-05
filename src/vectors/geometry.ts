@@ -1,4 +1,4 @@
-import type { Entity, GeoDocument, WorldPoint } from '../domain/model';
+import type { BlockInstanceEntity, Entity, GeoDocument, WorldPoint } from '../domain/model';
 import type { BlockDefinition, BlockTransform, VectorPrimitive } from './types';
 import { VECTOR_LIMITS } from './types';
 export type Matrix = readonly [number, number, number, number, number, number];
@@ -8,6 +8,17 @@ export function multiply(a: Matrix,b: Matrix): Matrix { return [a[0]*b[0]+a[2]*b
 export function blockMatrix(t: BlockTransform, base: WorldPoint): Matrix {
   const r=t.rotationDeg*Math.PI/180,c=Math.cos(r),s=Math.sin(r),a=c*t.scaleX,b=s*t.scaleX,d=c*t.scaleY,e=-s*t.scaleY;
   return [a,b,e,d,t.position.x-a*base.x-e*base.y,t.position.y-b*base.x-d*base.y];
+}
+export function invertMatrix(m: Matrix): Matrix | null { const d=m[0]*m[3]-m[1]*m[2];return !Number.isFinite(d)||d===0?null:[m[3]/d,-m[1]/d,-m[2]/d,m[0]/d,(m[2]*m[5]-m[3]*m[4])/d,(m[1]*m[4]-m[0]*m[5])/d]; }
+/** Old v2 attributePrimitives omitted rotation/scale; keep their historic position until edited. */
+export function blockAttributeMatrix(entity: BlockInstanceEntity, definition: BlockDefinition): Matrix {
+  return entity.attributeCoordinateSpace === 'block-local' ? blockMatrix(entity, definition.basePoint) : [1,0,0,1,entity.position.x,entity.position.y];
+}
+/** Upgrade one legacy insert-relative MODEL offset to the instance's block-local coordinates. */
+export function blockAttributeLocalPosition(entity: BlockInstanceEntity, definition: BlockDefinition, position: WorldPoint): WorldPoint {
+  const inverse=invertMatrix(blockMatrix(entity,definition.basePoint));
+  if(!inverse)throw new Error('Нельзя редактировать атрибут блока с вырожденным масштабом.');
+  return entity.attributeCoordinateSpace==='block-local'?{...position}:transformPoint({x:entity.position.x+position.x,y:entity.position.y+position.y,...(position.z===undefined?{}:{z:position.z})},inverse);
 }
 export const arcSweep=(start:number,end:number)=>{const tau=2*Math.PI;return ((end-start)%tau+tau)%tau || tau;};
 export function arcPoints(center:WorldPoint,radius:number,start=0,end=2*Math.PI):WorldPoint[] {
@@ -81,7 +92,8 @@ export function vectorEntityBounds(document: GeoDocument, entity: Entity): World
   if(entity.type==='imported_graphic')points=dependencies[0]!.map(p=>({x:p.x+entity.position.x,y:p.y+entity.position.y}));
   if(entity.type==='block_instance') {
     const block=c.definitions.get(entity.blockDefinitionId);
-    points=boxPoints([...dependencies[0]!.map(p=>transformPoint(p,blockMatrix(entity,block!.basePoint))),...dependencies[1]!.map(p=>({x:p.x+entity.position.x,y:p.y+entity.position.y}))]);
+    const attributeTransform=blockAttributeMatrix(entity,block!);
+    points=boxPoints([...dependencies[0]!.map(p=>transformPoint(p,blockMatrix(entity,block!.basePoint))),...dependencies[1]!.map(p=>transformPoint(p,attributeTransform))]);
   }
   instanceRevisions.set(entity,{points,dependencies});
   c.instances.set(entity, points); return points;
