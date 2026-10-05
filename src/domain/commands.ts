@@ -5,6 +5,8 @@ import { distance } from '../geometry';
 import { polygonSelfIntersects } from '../geometry/survey';
 import { createHorizontalReference, documentModelFrame, surveyToModelXY } from '../geometry/georeferencing';
 import { resolveSelectionMove, projectSelectionMove, type Translation } from './selectionMove';
+import { requireSymbol } from '../symbols/registry';
+import { normalizeSymbolRotation } from '../symbols/types';
 import { parseCommand } from './commandSchema';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
@@ -24,13 +26,14 @@ export type DocumentCommand =
   | { type: 'update-vertex'; vertexId: string; position: WorldPoint }
   | { type: 'move-vertex'; vertexId: string; delta: WorldPoint }
   | { type: 'move-text'; entityId: string; vertexId: string; position: WorldPoint }
-  | { type: 'update-entity'; entityId: string; patch: { name?: string; content?: string; template?: string; fontSize?: number; dx?: number; dy?: number; offset?: number; textPosition?: number } }
+  | { type: 'update-entity'; entityId: string; patch: { name?: string; content?: string; template?: string; fontSize?: number; dx?: number; dy?: number; offset?: number; textPosition?: number; rotationDeg?: number; scale?: number } }
   | { type: 'set-entity-layer'; entityId: string; layerId: string }
   | { type: 'set-layer-visibility'; layerId: string; visible: boolean }
   | { type: 'set-layer-lock'; layerId: string; locked: boolean };
 
 const finitePoint = (point: WorldPoint) => Number.isFinite(point.x) && Number.isFinite(point.y) && (point.z === undefined || Number.isFinite(point.z));
 function cloneEntity(entity: Entity): Entity {
+  if (entity.type === 'symbol') return { ...entity, position: { ...entity.position }, ...(entity.properties ? { properties: { ...entity.properties } } : {}) };
   return 'vertexIds' in entity ? { ...entity, vertexIds: [...entity.vertexIds] } as Entity : { ...entity };
 }
 function assertVertexEditable(document: GeoDocument, vertexId: string) {
@@ -48,11 +51,16 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity, index
   if (layer.locked) throw new Error('Нельзя создать объект в заблокированном слое');
   if (entity.type === 'label') {
     const target = document.entities.find(current => current.id === entity.targetId);
-    if (!target || !['point', 'line', 'polyline', 'polygon'].includes(target.type)) throw new Error('Подпись должна ссылаться на существующую точку, линию, полилинию или полигон');
+    if (!target || !['point', 'line', 'polyline', 'polygon', 'symbol'].includes(target.type)) throw new Error('Подпись должна ссылаться на существующую точку, линию, полилинию или полигон');
   }
   if (entity.styleId && !(index ? index.styles.has(entity.styleId) : document.styles.some(style => style.id === entity.styleId))) throw new Error('Стиль объекта не найден');
+  if (entity.type === 'symbol') {
+    const definition = requireSymbol(entity.libraryId, entity.symbolId);
+    if (!layer.visible) throw new Error('Нельзя создать символ в скрытом слое');
+    if (definition.allowedRotations && !definition.allowedRotations.includes(entity.rotationDeg)) throw new Error('Поворот не разрешён определением символа');
+  }
   const ids = entityVertexIds(entity);
-  const minimum = entity.type === 'label' ? 0 : entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
+  const minimum = entity.type === 'label' || entity.type === 'symbol' ? 0 : entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
   if (ids.length < minimum) throw new Error(`Для объекта типа «${entity.type}» требуется не менее ${minimum} вершин`);
   for (const id of ids) if (!Object.hasOwn(document.vertices, id)) throw new Error(`Вершина ${id} не найдена`);
   if (entity.type === 'dimension' && (!Number.isFinite(entity.offset) || distance(getVertex(document.vertices, ids[0]!), getVertex(document.vertices, ids[1]!)) === 0)) throw new Error('Размер требует две разные позиции XY и конечный offset');
@@ -229,6 +237,9 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     return { ...document, entities: document.entities.map(item => item.id === entity.id ? { ...cloneEntity(entity), layerId: destination.id } : item) };
   }
   if (command.type !== 'update-entity') { const exhaustive: never = command; throw new Error(`Неизвестная команда: ${String(exhaustive)}`); }
+  if ((command.patch.rotationDeg !== undefined || command.patch.scale !== undefined) && entity.type !== 'symbol') throw new Error('Поворот и масштаб доступны только у символа');
+  const rotationDeg = command.patch.rotationDeg === undefined ? undefined : normalizeSymbolRotation(command.patch.rotationDeg);
+  if (entity.type === 'symbol' && rotationDeg !== undefined) { const allowed = requireSymbol(entity.libraryId, entity.symbolId).allowedRotations; if (allowed && !allowed.includes(rotationDeg)) throw new Error('Поворот не разрешён определением символа'); }
   if (command.patch.content !== undefined && entity.type !== 'text') throw new Error('Только у текстовой аннотации есть содержание');
   if (command.patch.template !== undefined && entity.type !== 'label') throw new Error('Шаблон доступен только у связанной подписи');
   if ((command.patch.dx !== undefined || command.patch.dy !== undefined) && entity.type !== 'label') throw new Error('Смещение доступно только у связанной подписи');
@@ -239,12 +250,13 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   if (command.patch.template !== undefined && command.patch.template.length > 10000) throw new Error('Шаблон подписи слишком длинный');
   if ((command.patch.dx !== undefined && !Number.isFinite(command.patch.dx)) || (command.patch.dy !== undefined && !Number.isFinite(command.patch.dy)) || (command.patch.offset !== undefined && !Number.isFinite(command.patch.offset))) throw new Error('Смещение должно быть конечным числом');
   // Copy only mutable properties; runtime callers cannot replace type/IDs/references.
-  const patch = { ...(command.patch.name === undefined ? {} : { name: command.patch.name }),
+  const patch = { ...(rotationDeg === undefined ? {} : { rotationDeg }), ...(command.patch.scale === undefined ? {} : { scale: command.patch.scale }), ...(command.patch.name === undefined ? {} : { name: command.patch.name }),
     ...(command.patch.content === undefined ? {} : { content: command.patch.content }),
     ...(command.patch.template === undefined ? {} : { template: command.patch.template }),
     ...(command.patch.fontSize === undefined ? {} : { fontSize: command.patch.fontSize }),
     ...(command.patch.dx === undefined ? {} : { dx: command.patch.dx }), ...(command.patch.dy === undefined ? {} : { dy: command.patch.dy }),
     ...(command.patch.textPosition === undefined ? {} : { textPosition: command.patch.textPosition }), ...(command.patch.offset === undefined ? {} : { offset: command.patch.offset }) };
+  if (entity.type === 'symbol' && Object.entries(patch).every(([key, value]) => entity[key as keyof typeof entity] === value)) return document;
   return { ...document, entities: document.entities.map(item => item.id === entity.id ? cloneEntity({ ...entity, ...patch } as Entity) : item) };
 }
 
@@ -263,6 +275,7 @@ export function canEditVertex(document: GeoDocument, vertexId: string): boolean 
     .every(entity => !isLayerLocked(document, entity));
 }
 export function entityPosition(document: GeoDocument, entity: Entity): WorldPoint {
+  if (entity.type === 'symbol') return { ...entity.position };
   const id = entityVertexIds(entity)[0]!;
   const vertex = getVertex(document.vertices, id);
   return vertexPoint(vertex);

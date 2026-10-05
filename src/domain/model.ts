@@ -13,7 +13,8 @@ export interface PolygonEntity extends EntityBase { type: 'polygon'; vertexIds: 
 export interface TextEntity extends EntityBase { type: 'text'; vertexId: string; content: string; fontSize: number }
 export interface LabelEntity extends EntityBase { type: 'label'; targetId: string; template: string; dx: number; dy: number }
 export interface DimensionEntity extends EntityBase { type: 'dimension'; startVertexId: string; endVertexId: string; offset: number; textPosition?: number }
-export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity;
+export interface SymbolEntity extends EntityBase { type: 'symbol'; libraryId: string; symbolId: string; position: { x: number; y: number }; rotationDeg: number; scale: number; properties?: Record<string, string | number | boolean | null> }
+export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity | SymbolEntity;
 export interface SurveyXY { e: number; n: number }
 export interface RigidTransform2D { rotation: number; translation: SurveyXY; scale: 1 }
 export interface HorizontalControl { pointEntityId: string; vertexId: string; modelSnapshot: { x: number; y: number }; survey: SurveyXY }
@@ -38,7 +39,7 @@ export interface GeoDocument {
 export function entityVertexIds(entity: Entity): string[] {
   switch (entity.type) {
     case 'point': case 'text': return [entity.vertexId];
-    case 'label': return [];
+    case 'label': case 'symbol': return [];
     case 'line': case 'dimension': return [entity.startVertexId, entity.endVertexId];
     case 'polyline': case 'polygon': return entity.vertexIds;
   }

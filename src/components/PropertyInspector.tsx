@@ -1,3 +1,6 @@
+import { SymbolProperties } from './SymbolProperties';
+import type { ViewSize } from '../geometry';
+import { layerBounds } from '../geometry/entityBounds';
 import { documentSurveyXY, modelToAbsoluteZ } from '../geometry/georeferencing';
 import { MoveSelectionPanel } from './MoveSelectionPanel';
 import { memo, useEffect, useState, type Dispatch } from 'react';
@@ -12,7 +15,7 @@ import { Icon } from './Icon';
 import { createLabelCommand, newGeometryId } from '../domain/geometryIntent';
 import { resolveLabelTemplate, resolvedLabelPosition } from '../geometry/labels';
 
-const typeNames: Record<Entity['type'], string> = { point: 'Точка', line: 'Линия', polyline: 'Полилиния', polygon: 'Полигон', text: 'Текст', label: 'Связанная подпись', dimension: 'Размер' };
+const typeNames: Record<Entity['type'], string> = { point: 'Точка', line: 'Линия', polyline: 'Полилиния', polygon: 'Полигон', text: 'Текст', label: 'Связанная подпись', dimension: 'Размер', symbol: 'Символ' };
 
 function CoordinateField({ label, value, disabled, onChange, onEditStart, onEditEnd }: { label: string; value: number | undefined; disabled: boolean; onChange: (value: number) => void; onEditStart: () => void; onEditEnd: () => void }) {
   const [draft, setDraft] = useState(value === undefined ? '' : String(value));
@@ -83,7 +86,7 @@ function DimensionReferences({ entity, document, locked, dispatch }: { entity: E
   })}</div>;
 }
 
-function LayerProperties({ layer, state, dispatch }: { layer: GeoDocument['layers'][number]; state: EditorState; dispatch: Dispatch<EditorAction> }) {
+function LayerProperties({ layer, state, dispatch, size }: { size: ViewSize; layer: GeoDocument['layers'][number]; state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const [name, setName] = useState(layer.name);
   useEffect(() => setName(layer.name), [layer.name]);
   const count = state.document.entities.filter(entity => entity.layerId === layer.id).length;
@@ -92,6 +95,7 @@ function LayerProperties({ layer, state, dispatch }: { layer: GeoDocument['layer
     <div className="property-section"><h3>Свойства слоя</h3>
       <label className="layer-property-name"><span>Название</span><input aria-label="Название слоя" value={name} onChange={event => setName(event.target.value)} onBlur={() => { if (name.trim() && name !== layer.name) dispatch({ type: 'execute', command: { type: 'update-layer', layerId: layer.id, name: name.trim() } }); else setName(layer.name); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label>
       <dl className="property-facts"><dt>Объекты</dt><dd>{count}</dd><dt>Видимость</dt><dd>{layer.visible ? 'Виден' : 'Скрыт'}</dd><dt>Состояние</dt><dd>{layer.locked ? 'Заблокирован' : 'Доступен'}</dd></dl>
+      <button className="secondary-action" title="Центрировать и масштабировать вид по содержимому слоя" disabled={!layerBounds(state.document, layer.id)} onClick={() => dispatch({ type: 'fit-layer', layerId: layer.id, size })}>Вписать слой</button>
       <button className="secondary-action" disabled={!count} onClick={() => dispatch({ type: 'select-layer-objects', layerId: layer.id })}>Выбрать все объекты слоя</button><button className="secondary-action" onClick={() => dispatch({ type: 'execute', command: { type: 'delete-layer', layerId: layer.id } })}>Удалить слой</button>
     </div>
   </div>;
@@ -158,7 +162,7 @@ function TextCoordinates({ entity, document, locked, dispatch }: { entity: TextE
 }
 
 function LabelPresets({ entity, state, dispatch }: { entity: Entity; state: EditorState; dispatch: Dispatch<EditorAction> }) {
-  const presets = entity.type === 'point' ? [['Имя', '{name}'], ['Имя + Z', '{name} · Z={z}'], ['Координаты', 'X={x} · Y={y}'], ['Абсолютная высота', 'H={h_absolute}']]
+  const presets = entity.type === 'symbol' ? [['Имя', '{name}']] : entity.type === 'point' ? [['Имя', '{name}'], ['Имя + Z', '{name} · Z={z}'], ['Координаты', 'X={x} · Y={y}'], ['Абсолютная высота', 'H={h_absolute}']]
     : entity.type === 'polygon' ? [['Название', '{name}'], ['Площадь', 'S={area} м²'], ['Периметр', 'P={perimeter} м'], ['Название + площадь', '{name} · S={area} м²']]
     : [['Длина', 'L={length} м'], ['Название', '{name}'], ['Название + длина', '{name} · L={length} м']];
   const [template, setTemplate] = useState(presets[0]![1]!);
@@ -166,7 +170,7 @@ function LabelPresets({ entity, state, dispatch }: { entity: Entity; state: Edit
     <button aria-label="Добавить подпись" className="secondary-action" onClick={() => { try { const command = createLabelCommand(state.document, entity.id, newGeometryId, template); dispatch({ type: 'execute', command }); if (command.type === 'add-entity') dispatch({ type: 'select', entityId: command.entity.id }); } catch (error) { dispatch({ type: 'report-error', message: error instanceof Error ? error.message : 'Не удалось создать подпись' }); } }}>+ Добавить подпись</button></div>;
 }
 
-export const PropertyInspector = memo(function PropertyInspector({ state, dispatch }: { state: EditorState; dispatch: Dispatch<EditorAction> }) {
+export const PropertyInspector = memo(function PropertyInspector({ state, dispatch, size }: { size: ViewSize; state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const entity = state.document.entities.find(item => item.id === state.selectionId);
   const selectedLayer = state.document.layers.find(layer => layer.id === state.selectedLayerId);
   const locked = entity ? isLayerLocked(state.document, entity) : false;
@@ -175,16 +179,16 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
     {state.selectedEntityIds.length>1 && <p data-testid="group-properties"><strong>Выбрано: {state.selectedEntityIds.length} объектов</strong> · Переместить… / M</p>}
     <MoveSelectionPanel state={state} dispatch={dispatch} />
     {state.orderedPointIds.length >= 2 && <div className="ordered-selection"><h3>Точки по порядку · {state.orderedPointIds.length}</h3><ol>{state.orderedPointIds.map(id => <li key={id}>{state.document.entities.find(entity => entity.id === id)?.name}</li>)}</ol><div><button onClick={() => dispatch({ type: 'from-selected-points', kind: 'polyline' })}>Создать полилинию</button><button disabled={state.orderedPointIds.length < 3} onClick={() => dispatch({ type: 'from-selected-points', kind: 'polygon' })}>Создать границу</button></div></div>}
-    {selectedLayer ? <LayerProperties layer={selectedLayer} state={state} dispatch={dispatch} /> : entity ? <div className="inspector-content">
-      <div className="entity-heading"><span className="entity-icon"><Icon name={entity.type === 'polyline' ? 'line' : entity.type === 'label' ? 'text' : entity.type} size={23} /></span><div><h3>{entity.name}</h3><span>{typeNames[entity.type]}</span></div><button className="close-button" aria-label="Снять выбор" onClick={() => dispatch({ type: 'select', entityId: null })}>×</button></div>
+    {selectedLayer ? <LayerProperties layer={selectedLayer} state={state} dispatch={dispatch} size={size} /> : entity ? <div className="inspector-content">
+      <div className="entity-heading"><span className="entity-icon"><Icon name={entity.type === 'polyline' ? 'line' : entity.type === 'symbol' ? 'symbol' : entity.type === 'label' ? 'text' : entity.type} size={23} /></span><div><h3>{entity.name}</h3><span>{typeNames[entity.type]}</span></div><button className="close-button" aria-label="Снять выбор" onClick={() => dispatch({ type: 'select', entityId: null })}>×</button></div>
       <div className="property-section"><h3>Общие</h3><dl className="property-facts"><dt>ID</dt><dd className="mono" data-testid="selected-id">{entity.id}</dd><dt>Тип</dt><dd>{typeNames[entity.type]}</dd></dl>
         <label className="layer-field">Слой<select aria-label="Слой объекта" value={entity.layerId} disabled={locked} onChange={event => dispatch({ type: 'execute', command: { type: 'set-entity-layer', entityId: entity.id, layerId: event.target.value } })}>
           {state.document.layers.map(layer => <option key={layer.id} value={layer.id} disabled={layer.locked}>{layer.name}</option>)}
         </select></label>
         {locked && <p className="read-only-banner">Слой заблокирован · только просмотр</p>}
       </div>
-      {entity.type === 'point' ? <PointProperties key={entity.id} entity={entity} document={state.document} dispatch={dispatch} /> : entity.type === 'label' ? <LabelProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} /> : entity.type === 'text' ? <div className="property-section"><h3>Текст</h3><TextContentField entity={entity} locked={locked} dispatch={dispatch} /><TextCoordinates entity={entity} document={state.document} locked={locked} dispatch={dispatch} /></div> : <GeometryProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} />}
-      {['point', 'line', 'polyline', 'polygon'].includes(entity.type) && <LabelPresets key={`labels:${entity.id}`} entity={entity} state={state} dispatch={dispatch} />}
+      {entity.type === 'symbol' ? <SymbolProperties key={entity.id} entity={entity} document={state.document} locked={locked} dispatch={dispatch} /> : entity.type === 'point' ? <PointProperties key={entity.id} entity={entity} document={state.document} dispatch={dispatch} /> : entity.type === 'label' ? <LabelProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} /> : entity.type === 'text' ? <div className="property-section"><h3>Текст</h3><TextContentField entity={entity} locked={locked} dispatch={dispatch} /><TextCoordinates entity={entity} document={state.document} locked={locked} dispatch={dispatch} /></div> : <GeometryProperties entity={entity} document={state.document} locked={locked} dispatch={dispatch} />}
+      {['point', 'line', 'polyline', 'polygon', 'symbol'].includes(entity.type) && <LabelPresets key={`labels:${entity.id}`} entity={entity} state={state} dispatch={dispatch} />}
       {!locked && <button className="delete-object-button" onClick={() => dispatch({ type: 'execute', command: { type: 'delete-entity', entityId: entity.id } })}><Icon name="trash" size={15} />Удалить объект <span>Del</span></button>}
       <div className="property-note"><span className="live-dot" /> Объект в мировой системе координат</div>
     </div> : <div className="empty-inspector"><div className="empty-symbol"><Icon name="cursor" size={30} /></div><h3>Выберите объект</h3><p>Нажмите на точку, линию, полигон или подпись на схеме.</p><div className="empty-preview"><span>X</span><i /><span>Y</span><i /><span>Z</span><i /></div><small>Свойства и координаты появятся здесь</small></div>}

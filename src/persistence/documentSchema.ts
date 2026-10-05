@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { requireSymbol } from '../symbols/registry';
+import { symbolPositionSchema, symbolScaleSchema, symbolPropertiesSchema } from '../symbols/schema';
 import { computeRigidTransform2D, documentModelFrame } from '../geometry/georeferencing';
 import { entityVertexIds, type GeoDocument } from '../domain/model';
 
@@ -8,6 +10,7 @@ export const worldPointSchema = z.object({ x: finiteNumber, y: finiteNumber, z: 
 // Literal paint colours only: the layer swatch also uses this value in CSS background.
 const paintColour = z.string().max(100).refine(value => /^(?:[a-z]*|#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})|(?:rgb|hsl)a?\([\d\s.,%+\-/]+\))$/i.test(value.trim()), 'Ожидается цвет без URL, CSS variables или внешних ресурсов');
 const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional() };
+export const symbolEntitySchema = z.object({ ...base, type: z.literal('symbol'), libraryId: id, symbolId: id, position: symbolPositionSchema, rotationDeg: finiteNumber.min(0).lt(360), scale: symbolScaleSchema, properties: symbolPropertiesSchema.optional() });
 export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('point'), vertexId: id }),
   z.object({ ...base, type: z.literal('line'), startVertexId: id, endVertexId: id }),
@@ -16,6 +19,7 @@ export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('polygon'), vertexIds: z.tuple([id, id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000) }),
   z.object({ ...base, type: z.literal('label'), targetId: id, template: z.string().max(10000), dx: finiteNumber, dy: finiteNumber }),
+  symbolEntitySchema,
 ]);
 
 export const vertexSchema = worldPointSchema.extend({ id });
@@ -62,12 +66,13 @@ export function validateDocument(raw: unknown): GeoDocument {
   for (const [key, vertex] of Object.entries(document.vertices)) if (key !== vertex.id) throw new Error(`Vertex key ${key} does not match ID ${vertex.id}`);
   for (const layer of document.layers) if (!styles.has(layer.styleId)) throw new Error(`Layer ${layer.id} references missing style ${layer.styleId}`);
   for (const entity of document.entities) {
+    if (entity.type === 'symbol') { const definition = requireSymbol(entity.libraryId, entity.symbolId); if (definition.allowedRotations && !definition.allowedRotations.includes(entity.rotationDeg)) throw new Error(`Поворот символа ${entity.id} не разрешён определением`); }
     if (!layers.has(entity.layerId)) throw new Error(`Entity ${entity.id} references missing layer ${entity.layerId}`);
     if (entity.styleId && !styles.has(entity.styleId)) throw new Error(`Entity ${entity.id} references missing style ${entity.styleId}`);
     for (const id of entityVertexIds(entity)) if (!Object.hasOwn(document.vertices, id)) throw new Error(`Entity ${entity.id} references missing vertex ${id}`);
     if (entity.type === 'label') {
       const target = document.entities.find(candidate => candidate.id === entity.targetId);
-      if (!target || !['point', 'line', 'polyline', 'polygon'].includes(target.type)) throw new Error(`Label ${entity.id} references missing or unsupported target ${entity.targetId}`);
+      if (!target || !['point', 'line', 'polyline', 'polygon', 'symbol'].includes(target.type)) throw new Error(`Label ${entity.id} references missing or unsupported target ${entity.targetId}`);
     }
   }
   const reference = document.horizontalReference;

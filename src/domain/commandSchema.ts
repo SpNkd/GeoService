@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { symbolScaleSchema } from '../symbols/schema';
 import { entitySchema, finiteNumber, id, layerSchema, vertexSchema, worldPointSchema, surveyXYSchema, verticalReferenceSchema } from '../persistence/documentSchema';
 import type { DocumentCommand } from './commands';
 
@@ -21,7 +22,7 @@ const commandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('update-vertex'), vertexId: id, position: worldPointSchema.strict() }),
   z.strictObject({ type: z.literal('move-vertex'), vertexId: id, delta: worldPointSchema.strict() }),
   z.strictObject({ type: z.literal('move-text'), entityId: id, vertexId: id, position: worldPointSchema.strict() }),
-  z.strictObject({ type: z.literal('update-entity'), entityId: id, patch: z.strictObject({ name: z.string().min(1).max(1000).refine(value => Boolean(value.trim()), 'Имя объекта не может быть пустым').optional(), content: z.string().min(1).max(10000).optional(), template: z.string().max(10000).optional(), dx: finiteNumber.optional(), dy: finiteNumber.optional(), offset: finiteNumber.optional(), textPosition: finiteNumber.min(0.05).max(0.95).optional(), fontSize: finiteNumber.positive().max(1000).optional() }) }),
+  z.strictObject({ type: z.literal('update-entity'), entityId: id, patch: z.strictObject({ name: z.string().min(1).max(1000).refine(value => Boolean(value.trim()), 'Имя объекта не может быть пустым').optional(), content: z.string().min(1).max(10000).optional(), template: z.string().max(10000).optional(), dx: finiteNumber.optional(), dy: finiteNumber.optional(), offset: finiteNumber.optional(), textPosition: finiteNumber.min(0.05).max(0.95).optional(), fontSize: finiteNumber.positive().max(1000).optional(), rotationDeg: finiteNumber.optional(), scale: symbolScaleSchema.optional() }) }),
   z.strictObject({ type: z.literal('set-entity-layer'), entityId: id, layerId: id }),
   z.strictObject({ type: z.literal('set-layer-visibility'), layerId: id, visible: z.boolean() }),
   z.strictObject({ type: z.literal('set-layer-lock'), layerId: id, locked: z.boolean() }),

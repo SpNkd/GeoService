@@ -6,6 +6,7 @@ import { bounds, distance, pathLength, polygonArea } from './index';
 
 export function labelAnchor(document: GeoDocument, target: Entity): WorldPoint {
   if (target.type === 'label' || target.type === 'dimension' || target.type === 'text') throw new Error('Целевой объект не поддерживает подпись');
+  if (target.type === 'symbol') return { ...target.position };
   const points = entityVertexIds(target).map(id => vertexPoint(getVertex(document.vertices, id)));
   if (target.type === 'point') return points[0]!;
   if (target.type === 'line') return { x: (points[0]!.x + points[1]!.x) / 2, y: (points[0]!.y + points[1]!.y) / 2 };
@@ -38,7 +39,7 @@ export function labelAnchor(document: GeoDocument, target: Entity): WorldPoint {
 
 export function defaultLabelTemplate(target: Entity): string {
   switch (target.type) {
-    case 'point': return '{name}';
+    case 'point': case 'symbol': return '{name}';
     case 'line': case 'polyline': return 'L={length} м';
     case 'polygon': return 'S={area} м² · P={perimeter} м';
     default: throw new Error('Подписи доступны для точек, линий, полилиний и полигонов');
@@ -59,7 +60,7 @@ export function resolveLabelTemplate(document: GeoDocument, label: LabelEntity):
     if (p.z !== undefined) allowed.z = formatHeight(p.z);
   } else if (target.type === 'line') allowed.length = formatMeasure(distance(points[0]!, points[1]!), DISPLAY_PRECISION.distance);
   else if (target.type === 'polyline') allowed.length = formatMeasure(pathLength(points), DISPLAY_PRECISION.distance);
-  else { allowed.area = formatMeasure(polygonArea(points), DISPLAY_PRECISION.distance); allowed.perimeter = formatMeasure(pathLength(points, true), DISPLAY_PRECISION.distance); }
+  else if (target.type === 'polygon') { allowed.area = formatMeasure(polygonArea(points), DISPLAY_PRECISION.distance); allowed.perimeter = formatMeasure(pathLength(points, true), DISPLAY_PRECISION.distance); }
   return label.template.replace(/\{([a-z_]+)\}/gi, (token, key: string) => allowed[key] ?? token);
 }
 

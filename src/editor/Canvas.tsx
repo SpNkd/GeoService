@@ -1,3 +1,5 @@
+import { requireSymbol } from '../symbols/registry';
+import { SymbolView } from '../renderer/SymbolView';
 import { marqueeEntities, type SelectionMode } from './marquee';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
 import { resolveSelectionMove, selectionTranslation } from '../domain/selectionMove';
@@ -169,7 +171,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       const t = ((cursor.x - active.a.x) * dx + (cursor.y - active.a.y) * dy) / squaredLength;
       dispatch({ type: 'transient', command: { type: 'update-entity', entityId: active.entityId, patch: { textPosition: Math.max(0.05, Math.min(0.95, t)) } } }); return;
     }
-    if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text'].includes(tool)) setDrawCursor(anchorAt(point, undefined, shiftKey).position);
+    if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text', 'symbol'].includes(tool)) setDrawCursor(anchorAt(point, undefined, shiftKey).position);
     else announceSnap(null);
   };
   const flushMove = () => {
@@ -195,9 +197,18 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       else dispatch({ type: 'report-error', message: 'Выберите существующую вершину.' });
       return;
     }
+    if (tool === 'symbol' && state.symbolPlacement) {
+      const layer = committed.layers.find(l => l.id === state.currentLayerId);
+      if (!layer || layer.locked || !layer.visible) { dispatch({ type: 'report-error', message: 'Текущий слой скрыт или заблокирован. Выберите доступный слой.' }); return; }
+      const placement = state.symbolPlacement, definition = requireSymbol(placement.libraryId, placement.symbolId);
+      const position = anchorAt(point).position;
+      const entity = { type: 'symbol' as const, id: newGeometryId('symbol'), name: definition.name, layerId: layer.id, libraryId: placement.libraryId, symbolId: placement.symbolId, position: { x: position.x, y: position.y }, rotationDeg: placement.rotationDeg, scale: 1 };
+      dispatch({ type: 'execute', expectedDocument: committed, command: { type: 'add-entity', entity, vertices: [] } });
+      dispatch({ type: 'select', entityId: entity.id }); dispatch({ type: 'tool', tool: 'select' }); setDrawCursor(null); return;
+    }
     // Active geometry handles outrank wide annotation hit areas at the same screen position.
     if (tool === 'select') for (const entity of document.entities) {
-      if (!state.selectedEntityIds.includes(entity.id) || !['line', 'polyline', 'polygon'].includes(entity.type) || isLayerLocked(document, entity)) continue;
+      if (!state.selectedEntityIds.includes(entity.id) || !['line', 'polyline', 'polygon', 'symbol'].includes(entity.type) || isLayerLocked(document, entity)) continue;
       for (const vertexId of entityVertexIds(entity)) {
         const vertex = document.vertices[vertexId]!, screen = worldToScreen(vertex, viewport, size);
         if (Math.abs(screen.x - point.x) > 6 || Math.abs(screen.y - point.y) > 6 || !canEditVertex(document, vertexId)) continue;
@@ -248,7 +259,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (!entity) return;
       const alreadySelected = state.selectedEntityIds.includes(entityId);
       const selection = alreadySelected ? state.selectedEntityIds : [entityId];
-      const groupMove = entity.type !== 'dimension' && (selection.length > 1 || ['line', 'polyline', 'polygon'].includes(entity.type) || entity.type === 'point' && event.shiftKey && alreadySelected);
+      const groupMove = entity.type !== 'dimension' && (selection.length > 1 || ['line', 'polyline', 'polygon', 'symbol'].includes(entity.type) || entity.type === 'point' && event.shiftKey && alreadySelected);
       if (event.shiftKey && (!alreadySelected || !groupMove)) { dispatch({ type: 'select', entityId, toggle: true }); return; }
       if (!alreadySelected) dispatch({ type: 'select', entityId });
       if (groupMove) {
@@ -371,6 +382,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       })}</g>}
       {aiReferenceIds.map(id=>{const entity=document.entities.find(e=>e.id===id);if(!entity)return null;const points=entityPoints(entity,document.vertices).map(p=>worldToScreen(p,viewport,size));return <g key={id} data-testid="ai-reference-highlight" pointerEvents="none" stroke="#b77922" strokeWidth={3} strokeDasharray="7 4" fill="#b7792210"><GeometryPath points={points} closed={entity.type==='polygon'}/></g>;})}
       {aiPreview.map((action, index) => <AiPreviewView key={action.id} result={action.result} viewport={viewport} size={size} actionNumber={aiPreview.length > 1 ? index + 1 : undefined} />)}
+      {tool === 'symbol' && state.symbolPlacement && drawCursor && <g pointerEvents="none"><SymbolView entity={{ type: 'symbol', id: 'ghost', name: 'Ghost', layerId: state.currentLayerId, ...state.symbolPlacement, position: { x: drawCursor.x, y: drawCursor.y }, scale: 1 }} viewport={viewport} size={size} color="#21836e" ghost /></g>}
       {draft.length > 0 && <g className="drawing-preview" pointerEvents="none" stroke="#21836e" strokeWidth={1.5} strokeDasharray="5 4" fill="#21836e20">
         {(tool === 'line' || tool === 'measure') && previewPoints.length > 1 && <MeasurementLine a={previewPoints[0]!} b={previewPoints[tool === 'measure' && draft.length === 2 ? 1 : previewPoints.length - 1]!} />}
         {tool === 'polyline' && <GeometryPath points={previewPoints} closed={false} fill="none" />}
@@ -394,6 +406,6 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     </form>}
     <div className="canvas-caption"><span className="live-dot" /> МОДЕЛЬ <span>Метры · X / Y</span></div>
     <div className="north-arrow" aria-label={surveyAvailable ? "Survey North в MODEL viewport" : "Ось MODEL +Y; Survey не задан"} data-testid="north-arrow" data-screen-x={north.screen.x} data-screen-y={north.screen.y} data-preview={Boolean(referencePreview)}><b>{surveyAvailable ? 'N' : '+Y'}</b><svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true"><g transform={`rotate(${north.rotationDegrees})`}><path d="M0 -18L-7 13l7-5 7 5z" fill="#405d6b" /><path d="M0 -18v26l7 5z" fill="#c7d4dc" /></g></svg></div>
-    <div className="canvas-help">{sequenceHint ? `${sequenceHint}…` : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Рамка → WINDOW / ← CROSSING · Shift добавляет · Ctrl/Cmd переключает · Drag за тело — перенос · Shift + drag — X/Y · M — ΔX/ΔY · Space + drag — вид`}</div>
+    <div className="canvas-help">{sequenceHint ? `${sequenceHint}…` : tool === 'symbol' ? 'Символ: клик — вставить в текущий слой · R — поворот · Esc — отмена' : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Рамка → WINDOW / ← CROSSING · Shift добавляет · Ctrl/Cmd переключает · Drag за тело — перенос · Shift + drag — X/Y · M — Δ или MODEL X/Y · Space + drag — вид`}</div>
   </div>;
 });

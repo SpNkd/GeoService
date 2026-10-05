@@ -1,5 +1,6 @@
-type IconName = 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
+type IconName = 'symbol' | 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
 const paths: Record<IconName, string> = {
+  symbol: 'M3 6v12l18-12v12L3 6z',
   dimension: 'M3 4v16m18-16v16M3 14h18m-15-3-3 3 3 3m12-6 3 3-3 3',
   measure: 'M3 15L15 3l6 6L9 21zM7 11l3 3m0-6 3 3m0-6 3 3',
   cursor: 'M4 3l6 17 3-7 7-3L4 3z',

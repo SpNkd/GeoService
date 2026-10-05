@@ -1,3 +1,5 @@
+import { symbolBoundsPoints } from '../symbols/transforms';
+import { modelSelectionBounds } from '../geometry/entityBounds';
 import { entityPoints, getVertex, type Entity, type EntityStyle, type GeoDocument, type Layer, type Vertex } from '../domain/model';
 import { bounds } from '../geometry';
 import { alignedDimension } from '../geometry/survey';
@@ -18,6 +20,7 @@ export function renderItems(document: GeoDocument): RenderItem[] {
 }
 export function visibleBounds(document: GeoDocument) {
   return bounds(renderItems(document).flatMap(({ entity }) => {
+    if (entity.type === 'symbol') return symbolBoundsPoints(entity);
     if (entity.type === 'label') { const anchor = resolvedLabelPosition(document, entity); return anchor ? [anchor] : []; }
     const points = entityPoints(entity, document.vertices);
     if (entity.type !== 'dimension') return points;
@@ -31,12 +34,5 @@ export function vertexFor(document: GeoDocument, id: string): Vertex {
 
 /** View-level selection bounds include derived labels/dimensions, never become domain geometry. */
 export function selectionBounds(document: GeoDocument, entityIds: readonly string[]) {
-  const ids = new Set(entityIds);
-  return bounds(renderItems(document).filter(({ entity }) => ids.has(entity.id)).flatMap(({ entity }) => {
-    if (entity.type === 'label') { const anchor = resolvedLabelPosition(document, entity); return anchor ? [anchor] : []; }
-    const points = entityPoints(entity, document.vertices);
-    if (entity.type !== 'dimension') return points;
-    const dimension = alignedDimension(points[0]!, points[1]!, entity.offset);
-    return [...points, dimension.start, dimension.end];
-  }));
+  return modelSelectionBounds(document, entityIds);
 }

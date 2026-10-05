@@ -52,7 +52,7 @@ export function commandFromOrderedPoints(document: GeoDocument, pointIds: string
 
 export function createLabelCommand(document: GeoDocument, targetId: string, newId = newGeometryId, template?: string): DocumentCommand {
   const target = document.entities.find(entity => entity.id === targetId);
-  if (!target || !['point', 'line', 'polyline', 'polygon'].includes(target.type)) throw new Error('Сначала выберите точку, линию, полилинию или полигон');
+  if (!target || !['point', 'line', 'polyline', 'polygon', 'symbol'].includes(target.type)) throw new Error('Сначала выберите точку, линию, полилинию или полигон');
   let layer = document.layers.find(item => item.id === 'annotations');
   let addition: Layer | undefined;
   if (!layer) {

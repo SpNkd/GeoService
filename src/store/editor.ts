@@ -1,3 +1,6 @@
+import { requireSymbol } from '../symbols/registry';
+import { nextSymbolRotation } from '../symbols/types';
+import { layerBounds } from '../geometry/entityBounds';
 import type { GeoDocument, Viewport } from '../domain/model';
 import { applyCommand, applyCommandsAtomically, isLayerLocked, type DocumentCommand } from '../domain/commands';
 import { fitToBounds, panViewport, zoomAt, type ScreenPoint, type ViewSize } from '../geometry';
@@ -10,11 +13,13 @@ import { DEFAULT_SNAP_OPTIONS, type SnapOptions } from '../snapping';
 
 import { resolveSelectionMove, projectSelectionMove, type ResolvedSelectionMove, type Translation } from '../domain/selectionMove';
 
-export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure';
+export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure' | 'symbol';
 export type PointLabelMode = 'name' | 'name-z' | 'z';
 export interface EditorState {
+  symbolPlacement: { libraryId: string; symbolId: string; rotationDeg: number } | null;
   marqueeActive: boolean;
   moveInputOpen: boolean;
+  moveInputFocusEpoch: number;
   selectionMove: { resolved: ResolvedSelectionMove; delta: Translation; previewDocument: GeoDocument } | null;
   coordinateDisplay: 'model' | 'survey';
   dimensionRetarget: { dimensionId: string; endpoint: 'start' | 'end'; vertexId: string | null } | null;
@@ -25,6 +30,9 @@ export interface EditorState {
   orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean; ortho: boolean;
 }
 export type EditorAction =
+  | { type: 'choose-symbol'; libraryId: string; symbolId: string }
+  | { type: 'rotate-symbol' }
+  | { type: 'fit-layer'; layerId: string; size: ViewSize }
   | { type: 'begin-marquee' } | { type: 'cancel-marquee' }
   | { type: 'finish-marquee'; entityIds: string[]; mode: 'replace' | 'add' | 'toggle' }
   | { type: 'open-move-input' } | { type: 'close-move-input' }
@@ -79,7 +87,7 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { marqueeActive: false, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
@@ -87,6 +95,23 @@ export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFing
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case 'fit-layer': { const viewport = fitToBounds(layerBounds(state.document, action.layerId), action.size, 85); return viewport ? { ...state, viewport } : state; }
+    case 'choose-symbol': {
+      if (state.transactionBefore) return state;
+      try { const definition = requireSymbol(action.libraryId, action.symbolId); return { ...state, tool: 'symbol', symbolPlacement: { libraryId: action.libraryId, symbolId: action.symbolId, rotationDeg: definition.allowedRotations?.[0] ?? 0 }, error: null }; }
+      catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Символ не найден' }; }
+    }
+    case 'rotate-symbol': {
+      if (state.transactionBefore) return state;
+      if (state.tool === 'symbol' && state.symbolPlacement) {
+        const placement = state.symbolPlacement, allowed = requireSymbol(placement.libraryId, placement.symbolId).allowedRotations;
+        const rotationDeg = nextSymbolRotation(placement.rotationDeg, allowed);
+        return { ...state, symbolPlacement: { ...placement, rotationDeg } };
+      }
+      if (state.selectedEntityIds.length !== 1) return state;
+      const entity = state.document.entities.find(e => e.id === state.selectedEntityIds[0]);
+      return entity?.type === 'symbol' ? editorReducer(state, { type: 'execute', command: { type: 'update-entity', entityId: entity.id, patch: { rotationDeg: nextSymbolRotation(entity.rotationDeg, requireSymbol(entity.libraryId, entity.symbolId).allowedRotations) } } }) : state;
+    }
     case 'begin-marquee': return { ...state, marqueeActive: true };
     case 'cancel-marquee': return { ...state, marqueeActive: false };
     case 'finish-marquee': {
@@ -98,7 +123,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const newPoints = selectedEntityIds.filter(id=>!oldOrder.includes(id) && state.document.entities.some(e=>e.id===id && e.type==='point'));
       return { ...state, marqueeActive:false, selectedEntityIds, selectionId:selectedEntityIds.at(-1)??null, selectedLayerId:null, orderedPointIds:[...oldOrder,...newPoints] };
     }
-    case 'open-move-input': return state.transactionBefore ? state : { ...state, moveInputOpen: true, tool: 'select' };
+    case 'open-move-input': return state.transactionBefore ? state : { ...state, moveInputOpen: true, moveInputFocusEpoch: state.moveInputFocusEpoch + 1, tool: 'select', symbolPlacement: null };
     case 'close-move-input': return { ...state, moveInputOpen: false };
     case 'begin-selection-move': {
       if (state.transactionBefore || state.dimensionPick) return state;
@@ -266,7 +291,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return { ...state, selectionId, selectedEntityIds, selectedLayerId: null, orderedPointIds };
     }
     case 'select-layer': return state.document.layers.some(layer => layer.id === action.layerId)
-      ? { ...state, currentLayerId: action.layerId, selectedLayerId: action.layerId, selectionId: null, selectedEntityIds: [], orderedPointIds: [] } : state;
+      ? { ...state, currentLayerId: action.layerId, selectedLayerId: action.layerId, selectionId: null, selectedEntityIds: [], orderedPointIds: [], moveInputOpen: false } : state;
     case 'select-layer-objects': {
       if (!state.document.layers.some(layer => layer.id === action.layerId)) return state;
       const ids = state.document.entities.filter(entity => entity.layerId === action.layerId).map(entity => entity.id);
@@ -275,7 +300,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'viewport': return { ...state, viewport: action.viewport };
     case 'pan': return { ...state, viewport: panViewport(state.viewport, action.delta) };
     case 'zoom': return { ...state, viewport: zoomAt(state.viewport, action.size, action.anchor, action.factor) };
-    case 'tool': return { ...state, tool: action.tool };
+    case 'tool': return { ...state, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
     case 'toggle-grid': return { ...state, gridVisible: !state.gridVisible };
   }
 }

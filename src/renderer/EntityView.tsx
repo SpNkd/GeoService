@@ -1,3 +1,4 @@
+import { SymbolView } from './SymbolView';
 import { memo } from 'react';
 import type { GeoDocument, Viewport } from '../domain/model';
 import { entityPoints, entityVertexIds } from '../domain/model';
@@ -24,6 +25,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   const attributes = { stroke, strokeWidth: selected ? 2.2 : style.lineWeight, strokeDasharray: style.dash };
   let shape: React.ReactNode;
   switch (entity.type) {
+    case 'symbol': { shape = <SymbolView entity={entity} viewport={viewport} size={size} color={stroke} lineWeight={style.lineWeight} selected={selected} />; break; }
     case 'point': {
       const p = screen[0]!;
       const placeLeft = p.x > size.width - 120, placeBelow = p.y < 50;

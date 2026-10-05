@@ -6,6 +6,7 @@ export interface ResolvedSelectionMove {
   entityIds: string[];
   vertexIds: string[];
   labelOffsetIds: string[];
+  symbolIds: string[];
   affectedEntityIds: string[];
 }
 /** Resolve once for a drag; a committed command always resolves again against its own document. */
@@ -20,18 +21,20 @@ export function resolveSelectionMove(document: GeoDocument, entityIds: readonly 
   const vertices = new Set(selectedEntities.filter(entity => entity.type !== 'dimension').flatMap(entityVertexIds));
   for (const id of vertices) getVertex(document.vertices, id);
   const affected = new Set(document.entities.filter(entity => entityVertexIds(entity).some(id => vertices.has(id))).map(entity => entity.id));
+  const symbolIds = selectedEntities.filter(entity => entity.type === 'symbol').map(entity => entity.id);
+  for (const id of symbolIds) affected.add(id);
   const labelOffsetIds: string[] = [];
   for (const entity of document.entities) if (entity.type === 'label') {
     if (affected.has(entity.targetId)) affected.add(entity.id);
     const target = entities.get(entity.targetId);
     if (!target) throw new Error('Цель подписи не найдена.');
     // A selected label follows a fully translated target even if that target moves through shared topology.
-    if (selected.has(entity.id) && !selected.has(entity.targetId) && !entityVertexIds(target).every(id => vertices.has(id))) labelOffsetIds.push(entity.id);
+    if (selected.has(entity.id) && !selected.has(entity.targetId) && !(target.type === 'symbol' ? selected.has(target.id) : entityVertexIds(target).length > 0 && entityVertexIds(target).every(id => vertices.has(id)))) labelOffsetIds.push(entity.id);
   }
-  if (!vertices.size && !labelOffsetIds.length) throw new Error('Размер не перемещает исходную геометрию. Выберите геометрию или подпись.');
+  if (!vertices.size && !labelOffsetIds.length && !symbolIds.length) throw new Error('Размер не перемещает исходную геометрию. Выберите геометрию или подпись.');
   const indirectlyLocked = document.entities.find(entity => affected.has(entity.id) && !unlockedLayers.has(entity.layerId));
   if (indirectlyLocked) throw new Error(`Перемещение затронет связанный объект на заблокированном слое «${document.layers.find(layer => layer.id === indirectlyLocked.layerId)?.name ?? indirectlyLocked.layerId}».`);
-  return { entityIds: selectedEntities.map(entity => entity.id), vertexIds: [...vertices], labelOffsetIds,
+  return { entityIds: selectedEntities.map(entity => entity.id), vertexIds: [...vertices], labelOffsetIds, symbolIds,
     affectedEntityIds: document.entities.filter(entity => affected.has(entity.id) && !selected.has(entity.id)).map(entity => entity.id) };
 }
 
@@ -46,9 +49,17 @@ export function projectSelectionMove(document: GeoDocument, resolved: ResolvedSe
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('Перемещение выходит за диапазон координат.');
     if (x !== before.x || y !== before.y) { vertices[id] = { ...before, x, y }; changed = true; }
   }
-  const projected = changed ? { ...document, vertices } : document;
+  const symbols = new Set(resolved.symbolIds);
+  const translatedEntities = symbols.size ? document.entities.map(entity => {
+    if (entity.type !== 'symbol' || !symbols.has(entity.id)) return entity;
+    const position = { x: entity.position.x + delta.x, y: entity.position.y + delta.y };
+    if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) throw new Error('Перемещение выходит за диапазон координат.');
+    if (position.x === entity.position.x && position.y === entity.position.y) return entity;
+    changed = true; return { ...entity, position };
+  }) : document.entities;
+  const projected = changed ? { ...document, vertices: resolved.vertexIds.length ? vertices : document.vertices, entities: translatedEntities } : document;
   const labelIds = new Set(resolved.labelOffsetIds);
-  const entities = document.entities.map(entity => {
+  const entities = projected.entities.map(entity => {
     if (entity.type !== 'label' || !labelIds.has(entity.id)) return entity;
     const before = resolvedLabelPosition(document, entity), after = resolvedLabelPosition(projected, entity);
     if (!before || !after) throw new Error('Цель подписи не найдена.');
@@ -58,7 +69,7 @@ export function projectSelectionMove(document: GeoDocument, resolved: ResolvedSe
     if (dx === entity.dx && dy === entity.dy) return entity;
     changed = true; return { ...entity, dx, dy };
   });
-  return changed ? { ...projected, entities: labelIds.size ? entities : document.entities } : document;
+  return changed ? { ...projected, entities: labelIds.size ? entities : projected.entities } : document;
 }
 
 export function selectionTranslation(start: WorldPoint, current: WorldPoint, shift = false): Translation {
