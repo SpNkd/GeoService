@@ -47,7 +47,7 @@ export type EditorAction =
   | { type: 'cancel-dimension-pick' }
   | { type: 'finish-dimension-pick'; vertexId: string }
   | { type: 'load-json'; text: string; size: ViewSize }
-  | { type: 'replace-document'; document: GeoDocument; size: ViewSize; currentLayerId?: string }
+  | { type: 'replace-document'; document: GeoDocument; size: ViewSize; currentLayerId?: string; dirty?: boolean }
   | { type: 'mark-saved' }
   | { type: 'execute'; command: DocumentCommand; expectedDocument?: GeoDocument }
   | { type: 'execute-batch'; commands: readonly DocumentCommand[]; expectedDocument?: GeoDocument }
@@ -215,7 +215,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       try {
         const document = validateDocument(action.document); // Own the validated data; do not retain caller payload references.
         if(action.currentLayerId&&!document.layers.some(l=>l.id===action.currentLayerId))throw new Error('Imported current layer is missing');
-        return { ...initialEditorState(document), ...(action.currentLayerId?{currentLayerId:action.currentLayerId}:{}), documentEpoch: state.documentEpoch + 1,
+        return { ...initialEditorState(document), ...(action.currentLayerId?{currentLayerId:action.currentLayerId}:{}), ...(action.dirty?{savedFingerprint:''}:{}), documentEpoch: state.documentEpoch + 1,
           viewport: fitToBounds(visibleBounds(document), action.size, 85) ?? document.viewport };
       } catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Не удалось открыть документ' }; }
     }

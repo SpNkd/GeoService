@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import type { AiTaskIntent, SpatialAnchor } from '../src/ai/intent';
 import type { GeoDocument } from '../src/domain/model';
-const documentOf = (page: Page): Promise<GeoDocument> => page.evaluate(()=>JSON.parse(localStorage.getItem('geoservice.document.v2')!));
+const documentOf = (page: Page): Promise<GeoDocument> => readAutosaveDocument(page);
 const task = (anchor: SpatialAnchor, dimensions: boolean): AiTaskIntent => ({actions:[
   {type:'create_rectangle',name:'Участок',width:20,height:30,placement:{type:'local_origin'}},
   {type:'create_rectangle',name:'Дом',width:5,height:6,placement:{type:'anchored_in_action_result',anchor,polygonActionIndex:0}},

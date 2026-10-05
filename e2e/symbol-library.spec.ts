@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
 import { createNewDocument } from '../src/domain/newDocument';
 import { spatialDocument } from '../src/tests/fixtures/spatialDocument';
@@ -10,7 +11,7 @@ const errors=new WeakMap<Page,string[]>();
 test.beforeEach(({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});});
 test.afterEach(({page})=>expect(errors.get(page)).toEqual([]));
 async function load(page:Page,d:GeoDocument){await page.addInitScript(d=>localStorage.setItem('geoservice.document.v2',JSON.stringify(d)),d);await page.goto('/');await expect(page.getByTestId('drawing-canvas')).toBeVisible();}
-async function drawing(page:Page):Promise<GeoDocument>{return page.evaluate(()=>JSON.parse(localStorage.getItem('geoservice.document.v2')!));}
+async function drawing(page:Page):Promise<GeoDocument>{return readAutosaveDocument(page);}
 async function screen(page:Page,x:number,y:number){const c=page.getByTestId('drawing-canvas');await c.scrollIntoViewIfNeeded();const b=(await c.boundingBox())!,z=Number(await c.getAttribute('data-zoom')),cx=Number(await c.getAttribute('data-center-x')),cy=Number(await c.getAttribute('data-center-y'));return{x:b.x+b.width/2+(x-cx)*z,y:b.y+b.height/2-(y-cy)*z};}
 async function choose(page:Page,name:string){await page.getByRole('button',{name:'Символы',exact:true}).click();await page.getByRole('button',{name:`Вставить символ: ${name}`,exact:true}).click();}
 async function place(page:Page,name:string,x:number,y:number,rotate=false){await choose(page,name);const p=await screen(page,x,y);await page.mouse.move(p.x,p.y);await expect(page.getByTestId('symbol-ghost')).toBeVisible();if(rotate)await page.keyboard.press('r');await page.mouse.click(p.x,p.y);await expect(page.getByTestId('symbol-ghost')).toHaveCount(0);}

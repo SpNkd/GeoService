@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 
 test.beforeEach(async ({ page }) => { await page.goto('/'); await expect(page.locator('[data-entity-id="baseline-01"]')).toBeVisible(); });
 
@@ -27,13 +28,13 @@ test('Text hit target selects, drag is one undo step, and double-click editing s
   const id = await page.getByTestId('selected-id').textContent();
   const text = page.locator(`[data-entity-id="${id}"]`);
   const rect = text.locator('rect'); await rect.click(); await expect(page.getByTestId('selected-id')).toHaveText(id!);
-  const before = await page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).vertices);
+  const before = await readAutosaveDocument(page).then(document => document.vertices);
   const hit = (await rect.boundingBox())!;
   await page.mouse.move(hit.x + 4, hit.y + 6); await page.mouse.down(); await page.mouse.move(hit.x + 44, hit.y + 28, { steps: 5 }); await page.mouse.up();
-  const after = await page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).vertices);
+  const after = await readAutosaveDocument(page).then(document => document.vertices);
   expect(after).not.toEqual(before);
   await page.keyboard.press('Control+z');
-  const undo = await page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).vertices);
+  const undo = await readAutosaveDocument(page).then(document => document.vertices);
   expect(undo).toEqual(before);
   await page.keyboard.press('Control+Shift+z');
   await rect.dblclick();
@@ -65,10 +66,10 @@ test('CAD sequences resolve deterministically and linked labels follow geometry 
   const template = page.getByRole('textbox', { name: 'Шаблон подписи' }); await template.fill('Ось ограждения · L={length} м'); await template.blur();
   const hit = (await label.locator('rect').boundingBox())!;
   await page.mouse.move(hit.x + 4, hit.y + 5); await page.mouse.down(); await page.mouse.move(hit.x + 35, hit.y + 20, { steps: 4 }); await page.mouse.up();
-  const beforeMove = await page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).entities.find((entity: { type: string }) => entity.type === 'label'));
+  const beforeMove = await readAutosaveDocument(page).then(document => document.entities.find(entity => entity.type === 'label'));
   await page.keyboard.press('Control+z');
-  const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).entities.find((entity: { type: string }) => entity.type === 'label'));
-  expect(restored.dx).not.toBe(beforeMove.dx);
+  const restored = await readAutosaveDocument(page).then(document => document.entities.find(entity => entity.type === 'label'));
+  expect(restored!.dx).not.toBe(beforeMove!.dx);
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click()]);
   const savedPath = await download.path(); expect(savedPath).toBeTruthy();
   await page.getByRole('button', { name: 'Новый документ', exact: true }).click();

@@ -13,7 +13,7 @@ import { PropertyInspector } from './components/PropertyInspector';
 import { Icon } from './components/Icon';
 import { ImportDialog } from './components/ImportDialog';
 import { createNewDocument } from './domain/newDocument';
-import { persistLocalDocument, restoreLocalDocument } from './persistence/local';
+import { AutosaveError, getAutosaveInfo, loadAutosave, saveAutosave, type AutosaveInfo } from './persistence/autosave';
 import { deserializeDocument, MAX_DOCUMENT_BYTES, serializeDocument } from './persistence/serialization';
 import { applyCommand } from './domain/commands';
 import type { SnapResult } from './snapping';
@@ -25,21 +25,37 @@ import { resolveShortcut, shortcutNeedsWait, shortcutRegistry, shortcutMatchesPr
 
 const DxfDialog = lazy(() => import('./components/DxfDialog').then(module => ({ default: module.DxfDialog })));
 const GeoreferenceDialog = lazy(() => import('./components/GeoreferenceDialog').then(module => ({ default: module.GeoreferenceDialog })));
+const storageFailureMessage = (failure: AutosaveError, startup = false) => {
+  if (failure.code === 'CORRUPTED_AUTOSAVE') return failure.message;
+  if (failure.code === 'VALIDATION_FAILED') return 'Локальный документ не прошёл проверку и не был восстановлен. Открыт демодокумент.';
+  if (failure.code === 'INDEXEDDB_UNAVAILABLE') return startup
+    ? 'Автосохранение не загружено: IndexedDB недоступен. Открыт демодокумент; продолжайте работу и сохраняйте JSON вручную.'
+    : 'Автосохранение не выполнено: IndexedDB недоступен. Документ остаётся открыт. Сохраните JSON вручную.';
+  if (failure.code === 'QUOTA_EXCEEDED') return startup
+    ? 'Автосохранение не загружено: превышена квота IndexedDB. Открыт демодокумент; сохраните JSON вручную.'
+    : 'Автосохранение не выполнено: превышена квота IndexedDB. Документ остаётся открыт. Сохраните JSON вручную.';
+  return startup
+    ? `Автосохранение не загружено (${failure.code}). Документ остаётся открыт; проверьте локальное хранилище.`
+    : `Автосохранение не выполнено (${failure.code}). Документ остаётся открыт. Сохраните JSON вручную.`;
+};
 
 export default function App() {
-  const [startup] = useState(() => {
-    try { return restoreLocalDocument(localStorage, createSampleDocument); }
-    catch { return { document: createSampleDocument(), notice: 'Локальное сохранение недоступно. Используйте JSON Save.', dirty: false }; }
-  });
-  const [application, dispatch] = useReducer(applicationReducer, startup.document, (document): ApplicationState => ({
-    editor: { ...initialEditorState(document), ...(startup.dirty ? { savedFingerprint: '' } : {}) }, ai: { status: 'idle' } }));
+  const [startupDocument] = useState(createSampleDocument);
+  const [application, dispatch] = useReducer(applicationReducer, startupDocument, (document): ApplicationState => ({ editor: initialEditorState(document), ai: { status: 'idle' } }));
   const state = application.editor;
+  const [size,setSize]=useState<ViewSize>({width:1,height:1});
+  const [hydrationDone,setHydrationDone]=useState(false);
+  const [persistence,setPersistence]=useState<{state:'initializing'|'saving'|'saved'|'error';info?:AutosaveInfo;message?:string}>({state:'initializing'});
+  const skipNextAutosave=useRef(false),autosaveRevision=useRef(0),autosaveTimer=useRef<number|null>(null),pendingAutosave=useRef(false);
+  const sizeRef=useRef(size);sizeRef.current=size;
+  const latestCommitted=useRef({document:state.document,dirty:false});
   useEffect(() => { try { const step = Number(localStorage.getItem('geoservice.snap-step')); if (Number.isFinite(step) && step > 0) dispatch({ type: 'snap-options', patch: { gridStep: step } }); } catch { /* local preferences are optional */ } }, []);
-  useEffect(() => { try { localStorage.setItem('geoservice.snap-step', String(state.snapOptions.gridStep ?? 1)); } catch { /* optional */ } }, [state.snapOptions.gridStep]);
+  useEffect(() => { try { localStorage.setItem('geoservice.snap-step', String(state.snapOptions.gridStep ?? 1)); } catch { /* optional preference */ } }, [state.snapOptions.gridStep]);
+  useEffect(() => { let active=true; void loadAutosave().then(restored=>{if(!active)return;if(restored){skipNextAutosave.current=true;dispatch({type:'replace-document',document:restored.document,size:sizeRef.current,dirty:restored.dirty});setPersistence({state:'saved',info:{id:'current',persistenceVersion:1,schemaVersion:2,savedAt:restored.savedAt,approximateSerializedBytes:restored.approximateSerializedBytes,entityCount:restored.document.entities.length,dirty:restored.dirty,...(restored.document.sources?.[0]?.format?{sourceFormat:restored.document.sources[0].format}:{})}});}else setPersistence({state:'saved'});setHydrationDone(true);}).catch(error=>{if(!active)return;skipNextAutosave.current=true;const failure=error instanceof AutosaveError?error:new AutosaveError('OPEN_FAILED','IndexedDB не удалось открыть.');const message=storageFailureMessage(failure,true);setNotice(message);setPersistence({state:'error',message});setHydrationDone(true);});return()=>{active=false;};},[]);
   const aiTask = application.ai.status === 'preview' ? application.ai.plan : application.ai.status === 'applied' ? application.ai.results : null;
   const aiPreview = aiTask?.resolution.status === 'ready' && !state.transactionBefore
     ? taskPreviews(aiTask) : [];
-  const [notice, setNotice] = useState(startup.notice);
+  const [notice, setNotice] = useState<string|null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [georeferenceOpen, setGeoreferenceOpen] = useState(false);
   const [pickingControl, setPickingControl] = useState<0 | 1 | null>(null);
@@ -59,11 +75,9 @@ export default function App() {
   const committed = state.transactionBefore ?? state.document;
   const committedDirty = useMemo(() => isDocumentDirty({ document: committed, savedFingerprint: state.savedFingerprint }), [committed, state.savedFingerprint]);
   const dirty = committedDirty || Boolean(state.transactionBefore && state.document !== committed);
-  useEffect(() => {
-    try { const error = persistLocalDocument(localStorage, committed, committedDirty); if (error) setNotice(error); }
-    catch { setNotice('Локальное сохранение недоступно. Сохраните JSON вручную.'); }
-  }, [committed, committedDirty]); // A drag keeps transactionBefore stable; only its final commit is persisted.
-  const [size, setSize] = useState<ViewSize>({ width: 1, height: 1 });
+  latestCommitted.current={document:committed,dirty:committedDirty};
+  useEffect(()=>{if(!hydrationDone)return;if(skipNextAutosave.current){skipNextAutosave.current=false;return;}const revision=++autosaveRevision.current;pendingAutosave.current=true;setPersistence(previous=>previous.state==='error'?previous:{state:'saving'});if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=window.setTimeout(()=>{autosaveTimer.current=null;void saveAutosave(committed,committedDirty).then(record=>{if(revision!==autosaveRevision.current||!record)return;pendingAutosave.current=false;void getAutosaveInfo().then(info=>{if(revision===autosaveRevision.current)setPersistence(info?{state:'saved',info}:{state:'saved'});}).catch(()=>{if(revision===autosaveRevision.current)setPersistence({state:'saved'});});}).catch(error=>{if(revision!==autosaveRevision.current)return;pendingAutosave.current=false;const failure=error instanceof AutosaveError?error:new AutosaveError('WRITE_FAILED','Ошибка IndexedDB.');const message=storageFailureMessage(failure);setPersistence({state:'error',message});setNotice(message);});},500);return()=>{if(autosaveTimer.current!==null){window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;}};},[committed,committedDirty,hydrationDone]);
+  useEffect(()=>{if(!hydrationDone)return;const flush=()=>{if(!pendingAutosave.current)return;if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;const current=latestCommitted.current;void saveAutosave(current.document,current.dirty);};window.addEventListener('pagehide',flush);return()=>window.removeEventListener('pagehide',flush);},[hydrationDone]);
   const [cursor, setCursor] = useState<ScreenPoint | null>(null);
   const cursorWorld = cursor ? screenToWorld(cursor, state.viewport, size) : null;
   const cursorSurvey = cursorWorld && state.coordinateDisplay === 'survey' ? documentSurveyXY(state.document, cursorWorld) : null;
@@ -125,6 +139,7 @@ export default function App() {
     const executeBuffer = () => { const match = resolveShortcut(keyBuffer.current); clearSequence(); if (match) runShortcut(match.id); };
     const suppressed = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"], [data-shortcut-suppressed]'));
     const keydown = (event: KeyboardEvent) => {
+      if (!hydrationDone) { event.preventDefault(); return; }
       if (state.dimensionPick) {
         if (event.key === 'Escape') { event.preventDefault(); dispatch({ type: 'cancel-dimension-pick' }); return; }
         if (event.metaKey || event.ctrlKey) { if (['s', 'o', 'n', 'z', 'y'].includes(event.key.toLowerCase())) event.preventDefault(); return; }
@@ -168,7 +183,7 @@ export default function App() {
     const blur = () => { setSpaceHeld(false); clearSequence(); };
     window.addEventListener('keydown', keydown); window.addEventListener('keyup', keyup); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup); window.removeEventListener('blur', blur); clearSequence(); };
-  }, [state, shortcutsOpen, dirty, size, runShortcut, dxfOpen, georeferenceOpen, pickingControl, closeGeoreference]);
+  }, [state, shortcutsOpen, dirty, size, runShortcut, dxfOpen, georeferenceOpen, pickingControl, closeGeoreference, hydrationDone]);
   const fittedAiTask = useRef<string | null>(null);
   useEffect(() => {
     if (aiTask?.resolution.status !== 'ready' || aiTask.id === fittedAiTask.current || !aiTask.requiresConfirmation || size.width <= 1) return;
@@ -178,6 +193,7 @@ export default function App() {
   const zoom = (factor: number) => dispatch({ type: 'zoom', size, anchor: { x: size.width / 2, y: size.height / 2 }, factor });
   const step = gridStep(state.viewport.pixelsPerUnit);
   const selected = state.document.entities.find(entity => entity.id === state.selectionId);
+  if(!hydrationDone)return <main className="persistence-startup" role="status">Восстановление документа…</main>;
   return <div className="app-shell">
     <header className="app-header"><a className="brand" href="/" aria-label="GeoService — начало"><span className="brand-mark"><Icon name="crosshair" size={24} /></span>Geo<span>Service</span></a>
       <div className="header-divider" /><div className="document-title"><strong>{state.document.metadata.title}{dirty && <span className="dirty-mark" aria-label="Есть несохранённые изменения"> *</span>}</strong><span>MODEL X / Y / Z · Survey E / N · абсолютная H</span></div>
@@ -227,7 +243,7 @@ export default function App() {
     </div><div inert={georeferenceOpen || dxfOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} size={size} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
     <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (state.dimensionPick ? `Выберите существующую вершину для ${state.dimensionPick.endpoint === 'start' ? 'начала' : 'конца'} размера · Esc отмена` : null) ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (state.selectionMove ? `Перемещение: ΔX ${formatMeasure(state.selectionMove.delta.x)} · ΔY ${formatMeasure(state.selectionMove.delta.y)} м${state.selectionMove.resolved.affectedEntityIds.length ? ` · затронет ${state.selectionMove.resolved.affectedEntityIds.length} связанных объектов` : ''}` : state.selectedEntityIds.length > 1 ? `Выбрано: ${state.selectedEntityIds.length} объектов` : selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>{state.coordinateDisplay === 'model' ? 'X' : 'E'} <b data-testid="cursor-x">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.x) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.e) : '—'}</b></span><span>{state.coordinateDisplay === 'model' ? 'Y' : 'N'} <b data-testid="cursor-y">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.y) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.n) : '—'}</b></span><span>м</span></div>
-      <span className="status-grid">Привязка: {state.snapOptions.gridStep ?? 1} м · ORTHO {state.ortho ? 'ON' : 'OFF'}</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
+      <span className="status-grid">Привязка: {state.snapOptions.gridStep ?? 1} м · ORTHO {state.ortho ? 'ON' : 'OFF'}</span><span className={`persistence-status${persistence.state==='error'?' error':''}`} data-testid="persistence-status" role="status" title={persistence.info?`${persistence.info.entityCount} объектов · ${(persistence.info.approximateSerializedBytes/1024**2).toFixed(2)} MiB · ${persistence.info.savedAt}`:persistence.message}>{persistence.state==='saving'?'Сохранение…':persistence.state==='error'?'Автосохранение не выполнено':'Сохранено локально'}</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
     </footer>
     <input ref={openInput} type="file" accept=".json,application/json" aria-label="Файл GeoDocument" hidden onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;

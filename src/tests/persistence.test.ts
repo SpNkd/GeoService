@@ -3,7 +3,6 @@ import { createSampleDocument } from '../sample/document';
 import { createNewDocument } from '../domain/newDocument';
 import { validateDocument } from '../persistence/documentSchema';
 import { deserializeDocument, serializeDocument } from '../persistence/serialization';
-import { DIRTY_KEY, persistLocalDocument, restoreLocalDocument, STORAGE_KEY } from '../persistence/local';
 import { fitToBounds } from '../geometry';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
@@ -81,27 +80,10 @@ describe('document persistence boundary', () => {
     let state = initialEditorState(createSampleDocument());
     state = editorReducer(state, { type: 'execute', command: { type: 'update-vertex', vertexId: 'v-p1', position: { x: 1010, y: 2000 } } });
     expect(isDocumentDirty(state)).toBe(true);
-    persistLocalDocument({ setItem: () => {} }, state.document);
     expect(isDocumentDirty(state)).toBe(true);
     state = editorReducer(state, { type: 'mark-saved' }); expect(isDocumentDirty(state)).toBe(false);
     state = editorReducer(state, { type: 'undo' }); expect(isDocumentDirty(state)).toBe(true);
     state = editorReducer(state, { type: 'redo' }); expect(isDocumentDirty(state)).toBe(false);
-  });
-  it('restores valid autosave and falls back without crashing for corrupt or unavailable storage', () => {
-    const text = serializeDocument(createNewDocument());
-    expect(restoreLocalDocument({ getItem: key => key === STORAGE_KEY ? text : null }, createSampleDocument).document).toEqual(deserializeDocument(text));
-    expect(restoreLocalDocument({ getItem: () => '{broken' }, createSampleDocument).notice).toBeTruthy();
-    expect(restoreLocalDocument({ getItem: () => { throw new Error('denied'); } }, createSampleDocument).document).toEqual(createSampleDocument());
-    expect(persistLocalDocument({ setItem: () => { throw new Error('quota'); } }, createSampleDocument())).toContain('лимит');
-  });
-  it('persists dirty separately from canonical JSON and restores it without history', () => {
-    const saved = new Map<string, string>();
-    const storage = { setItem: (key: string, value: string) => { saved.set(key, value); }, getItem: (key: string) => saved.get(key) ?? null };
-    const document = createNewDocument();
-    expect(persistLocalDocument(storage, document, true)).toBeNull();
-    expect(saved.get(DIRTY_KEY)).toBe('true'); expect(deserializeDocument(saved.get(STORAGE_KEY)!)).toEqual(document);
-    expect(restoreLocalDocument(storage, createSampleDocument).dirty).toBe(true);
-    persistLocalDocument(storage, document, false); expect(restoreLocalDocument(storage, createSampleDocument).dirty).toBe(false);
   });
   it('bounds JSON size and prevents dangerous view scale while retaining finite coordinate values', () => {
     expect(() => deserializeDocument(' '.repeat(10 * 1024 * 1024 + 1))).toThrow('10 МБ');

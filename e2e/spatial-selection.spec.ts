@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import { spatialDocument } from '../src/tests/fixtures/spatialDocument';
 import { createNewDocument } from '../src/domain/newDocument';
 import { entityPoints, type GeoDocument } from '../src/domain/model';
@@ -8,7 +9,7 @@ const errors=new WeakMap<Page,string[]>();
 test.beforeEach(({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});});
 test.afterEach(({page})=>expect(errors.get(page)).toEqual([]));
 async function load(page:Page,d:GeoDocument){await page.addInitScript(d=>localStorage.setItem('geoservice.document.v2',JSON.stringify(d)),d);await page.goto('/');await expect(page.getByTestId('drawing-canvas')).toBeVisible();}
-async function drawing(page:Page):Promise<GeoDocument>{return page.evaluate(()=>JSON.parse(localStorage.getItem('geoservice.document.v2')!));}
+async function drawing(page:Page):Promise<GeoDocument>{return readAutosaveDocument(page);}
 async function screen(page:Page,x:number,y:number){const c=page.getByTestId('drawing-canvas');await c.scrollIntoViewIfNeeded();const b=(await c.boundingBox())!,z=Number(await c.getAttribute('data-zoom')),cx=Number(await c.getAttribute('data-center-x')),cy=Number(await c.getAttribute('data-center-y'));return{x:b.x+b.width/2+(x-cx)*z,y:b.y+b.height/2-(y-cy)*z};}
 async function marquee(page:Page,a:{x:number;y:number},b:{x:number;y:number},modifier?:string){const s=await screen(page,a.x,a.y),e=await screen(page,b.x,b.y);if(modifier)await page.keyboard.down(modifier);await page.mouse.move(s.x,s.y);await page.mouse.down();await page.mouse.move(e.x,e.y,{steps:8});await expect(page.getByTestId('marquee-selection')).toHaveAttribute('data-mode',a.x<b.x?'window':'crossing');await page.mouse.up();if(modifier)await page.keyboard.up(modifier);}
 function group(){const d=createNewDocument();d.viewport={center:{x:8,y:5},pixelsPerUnit:30};d.vertices={};d.entities=[];for(let i=0;i<5;i++){const x=i*3,a=`a${i}`,b=`b${i}`;d.vertices[a]={id:a,x,y:4};d.vertices[b]={id:b,x:x+2,y:4};d.entities.push({id:`line${i}`,type:'line',name:`Линия ${i}`,layerId:'boundary',startVertexId:a,endVertexId:b});}return d;}

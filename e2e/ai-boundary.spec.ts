@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { autosaveSnapshot } from './helpers/autosave';
 import { readFile, writeFile } from 'node:fs/promises';
 import { MockAiIntentProvider } from '../src/ai/provider';
 
@@ -27,8 +28,7 @@ async function setup(page: Page, output: unknown = boundary(), duplicates = fals
   await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);
 }
 async function snapshot(page: Page) {
-  return page.evaluate(() => ({ document: localStorage.getItem('geoservice.document.v2'), dirty: localStorage.getItem('geoservice.document.dirty.v2'),
-    writes: Reflect.get(window, '__aiWrites').length }));
+  return { ...await autosaveSnapshot(page), writes: await page.evaluate(() => Reflect.get(window, '__aiWrites').length) };
 }
 async function generate(page: Page, request = text) {
   await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(request);

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import { createSampleDocument } from '../src/sample/document';
 
 test('drag updates shared geometry without serializing drafts or writing autosave until commit', async ({ page }) => {
@@ -13,6 +14,7 @@ test('drag updates shared geometry without serializing drafts or writing autosav
   });
   await page.goto('/');
   await expect(page.locator('[data-entity-id="p1"]')).toBeVisible();
+  await expect(page.getByTestId('persistence-status')).toHaveText('Сохранено локально');
   await page.getByRole('button', { name: 'Привязки', exact: true }).click();
   const point = await page.locator('[data-entity-id="p1"] circle[r="14"]').boundingBox();
   const before = await page.locator('[data-entity-id="boundary-01"] polygon').getAttribute('points');
@@ -25,11 +27,11 @@ test('drag updates shared geometry without serializing drafts or writing autosav
   }
   await expect(page.locator('[data-entity-id="boundary-01"] polygon')).not.toHaveAttribute('points', before!);
   expect(await count()).toBe(baseline);
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).vertices['v-p1'].x)).toBe(1000);
+  expect(await readAutosaveDocument(page).then(document => document.vertices['v-p1']!.x)).toBe(1000);
   await expect(page.getByLabel('Есть несохранённые изменения')).toBeVisible();
   await page.mouse.up();
   await expect.poll(count).toBeGreaterThan(baseline);
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).vertices['v-p1'].x)).not.toBe(1000);
+  await expect.poll(() => readAutosaveDocument(page).then(document => document.vertices['v-p1']!.x)).not.toBe(1000);
   await page.keyboard.press('Control+z');
   await expect(page.locator('[data-entity-id="boundary-01"] polygon')).toHaveAttribute('points', before!);
   await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import type { GeoDocument } from '../src/domain/model';
 import { entityPoints } from '../src/domain/model';
 import { applyCommand } from '../src/domain/commands';
@@ -18,7 +19,7 @@ async function load(page: Page, document = moveDocument()) {
   await page.goto('/'); await expect(page.locator('[data-entity-id="house"]')).toBeVisible();
   return document;
 }
-async function document(page: Page): Promise<GeoDocument> { return page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!)); }
+async function document(page: Page): Promise<GeoDocument> { return readAutosaveDocument(page); }
 async function screen(page: Page, x: number, y: number) {
   const canvas = page.getByTestId('drawing-canvas'), box = (await canvas.boundingBox())!;
   const zoom = Number(await canvas.getAttribute('data-zoom')), cx = Number(await canvas.getAttribute('data-center-x')), cy = Number(await canvas.getAttribute('data-center-y'));

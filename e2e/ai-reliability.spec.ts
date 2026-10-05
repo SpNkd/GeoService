@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { autosaveSnapshot } from './helpers/autosave';
 import { createDiagnostic, type AiDiagnostic } from '../src/ai/reliability';
 import { DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODELS } from '../server/aiConfig';
 
@@ -25,7 +26,7 @@ async function setup(page: Page, scenario: 'success' | 'unsupported' | '502' | '
   });
   await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
   await expect(page.getByText('MOCK · демо')).toBeVisible();
-  const before = await page.evaluate(() => [localStorage.getItem('geoservice.document.v2'), localStorage.getItem('geoservice.document.dirty.v2')]);
+  const before = await autosaveSnapshot(page);
   await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text);
   await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
   return before;
@@ -49,7 +50,7 @@ for (const scenario of ['success', 'unsupported', '502', 'timeout', 'retry', 'fa
       if (scenario !== 'unsupported') { await expect(alert).not.toContainText('не поддерживается'); await expect(page.getByRole('button', { name: 'Повторить запрос', exact: true })).toBeVisible(); await expect(page.getByText('Подробнее', { exact: true })).toBeVisible(); }
       await expect(page.getByTestId('ai-ghost')).toHaveCount(0);
     }
-    expect(await page.evaluate(() => [localStorage.getItem('geoservice.document.v2'), localStorage.getItem('geoservice.document.dirty.v2')])).toEqual(before);
+    expect(await autosaveSnapshot(page)).toEqual(before);
     await expect(page.getByRole('button', { name: 'Отменить', exact: true })).toBeDisabled();
     await page.screenshot({ path: `test-results/ai-reliability-${scenario}.png`, fullPage: true });
   });
@@ -78,7 +79,7 @@ test('real provider manual smoke (opt-in): trace, exact semantic preview, no mut
   test.skip(process.env.AI_REAL_BROWSER_SMOKE !== '1', 'Paid network smoke requires explicit opt-in');
   await page.goto('/'); await expect(page.getByText('OpenRouter', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
-  const before = await page.evaluate(() => [localStorage.getItem('geoservice.document.v2'), localStorage.getItem('geoservice.document.dirty.v2')]);
+  const before = await autosaveSnapshot(page);
   await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text);
   await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
   await expect(page.getByTestId('ai-plan')).toContainText('3 actions', { timeout: 35000 });
@@ -87,7 +88,7 @@ test('real provider manual smoke (opt-in): trace, exact semantic preview, no mut
   const record = page.getByTestId('ai-diagnostic'); await record.locator(':scope > summary').click();
   await expect(record).toContainText('"provider": "openrouter"'); await expect(record).toContainText('"resolverStatus": "ready"');
   await expect(record).toContainText('"localValidationStatus": "valid"');
-  expect(await page.evaluate(() => [localStorage.getItem('geoservice.document.v2'), localStorage.getItem('geoservice.document.dirty.v2')])).toEqual(before);
+  expect(await autosaveSnapshot(page)).toEqual(before);
   await expect(page.locator('[data-entity-type="polygon"]')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/ai-reliability-real.png', fullPage: true });
 });

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { corruptAutosaveRecord, readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
 
 const data = 'Name\tEasting\tNorthing\tHeight\nP1\t562341.234123456\t6189345.221234567\t152.340\nP2\t562358.188\t6189349.113\t152.410\nP3\t562361.982\t6189321.551\t152.270\nP4\t562320.000\t6189330.000\t';
@@ -79,7 +80,7 @@ test('Save JSON, New and Open preserve precise geometry, and dirty New requires 
 test('broken syntax and broken references leave the current drawing intact', async ({ page }) => {
   await page.goto('/'); const polygon = page.locator('[data-entity-id="boundary-01"] polygon');
   const points = await polygon.getAttribute('points');
-  const current = await page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!));
+  const current = await readAutosaveDocument(page);
   for (const text of ['{broken', JSON.stringify({ ...current, vertices: {} })]) {
     await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from(text) });
     await expect(page.getByRole('alert')).toBeVisible(); await expect(polygon).toHaveAttribute('points', points!);
@@ -92,13 +93,14 @@ test('reload restores committed geometry; corrupt local data falls back with a n
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await newDocument(page); await preview(page); await importNow(page);
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!).entities.length)).toBe(4);
+  await expect.poll(async () => (await readAutosaveDocument(page)).entities.length).toBe(4);
   await page.reload(); await expect(page.locator('[data-entity-type="point"]')).toHaveCount(4);
   await expect(page.getByLabel('Есть несохранённые изменения')).toBeVisible();
   await selectP1(page); await expect(page.getByRole('textbox', { name: 'X', exact: true })).toHaveValue('562341.234123456');
-  await page.evaluate(() => localStorage.setItem('geoservice.document.v2', '{broken'));
+  await corruptAutosaveRecord(page);
   await page.reload(); await expect(page.locator('[data-entity-id="boundary-01"]')).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('повреждён'); expect(errors).toEqual([]);
+  await expect(page.getByTestId('persistence-status')).toHaveText('Автосохранение не выполнено');
+  await expect(page.locator('.document-notice')).toContainText('повреждена'); expect(errors).toEqual([]);
 });
 
 test('CSV file with decimal commas exposes invalid rows and duplicate warnings before explicit partial import', async ({ page }) => {

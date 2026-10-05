@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import type { GeoDocument, DimensionEntity, PolygonEntity } from '../src/domain/model';
 import { developmentMockProvider } from '../server/ai';
-const doc = (page: Page): Promise<GeoDocument> => page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!));
+const doc = (page: Page): Promise<GeoDocument> => readAutosaveDocument(page);
 async function at(page: Page, x: number, y: number) {
   const canvas = page.getByTestId('drawing-canvas'), box = (await canvas.boundingBox())!;
   const zoom = Number(await canvas.getAttribute('data-zoom')), cx = Number(await canvas.getAttribute('data-center-x')), cy = Number(await canvas.getAttribute('data-center-y'));

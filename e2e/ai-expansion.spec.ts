@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { autosaveSnapshot } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
 import { developmentMockProvider } from '../server/ai';
 const consoleErrors = new WeakMap<Page, string[]>();
@@ -25,7 +26,7 @@ async function setup(page: Page, duplicate = false) {
   await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
   await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);
 }
-async function snapshot(page: Page) { return page.evaluate(() => ({ document: localStorage.getItem('geoservice.document.v2'), dirty: localStorage.getItem('geoservice.document.dirty.v2'), writes: Reflect.get(window, '__writes').length })); }
+async function snapshot(page: Page) { return { ...await autosaveSnapshot(page), writes: await page.evaluate(() => Reflect.get(window, '__writes').length) }; }
 async function generate(page: Page, text: string) {
   await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text); await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
 }

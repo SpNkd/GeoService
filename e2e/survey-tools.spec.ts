@@ -1,10 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
 import type { GeoDocument, PointEntity, LineEntity, DimensionEntity, PolygonEntity } from '../src/domain/model';
 
 const input = 'Name\tEasting\tNorthing\tHeight\nP1\t562341\t6189345\t100\nP2\t562351\t6189345\t103\nP3\t562351\t6189365\t\nP4\t562341\t6189365\t101';
 const point = (page: Page, name: string) => page.locator(`[data-entity-type="point"][aria-label="${name}"]`);
-const doc = (page: Page): Promise<GeoDocument> => page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!));
+const doc = (page: Page): Promise<GeoDocument> => readAutosaveDocument(page);
 async function position(page: Page, name: string) {
   const box = (await point(page, name).locator('circle[r="14"]').boundingBox())!;
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -69,6 +70,7 @@ test('dimension value follows shared drag and Undo, then Save/Open/reload preser
   const downloadPromise = page.waitForEvent('download'); await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
   const path = (await (await downloadPromise).path())!, saved = JSON.parse(await readFile(path, 'utf8')) as GeoDocument;
   expect(saved.entities.find(e => e.type === 'dimension')).toEqual(dim); expect(saved.schemaVersion).toBe(2);
+  await readAutosaveDocument(page);
   await page.reload(); await expect(value).toHaveText(moved!);
   await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
   await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(path); await expect(value).toHaveText(moved!);

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
 import type { GeoDocument } from '../src/domain/model';
 const errors = new WeakMap<Page, string[]>();
@@ -9,7 +10,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
 });
 test.afterEach(({ page }) => expect(errors.get(page)).toEqual([]));
-async function document(page: Page): Promise<GeoDocument> { return page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!)); }
+async function document(page: Page): Promise<GeoDocument> { return readAutosaveDocument(page); }
 async function controls(page: Page) {
   await page.getByRole('button', { name: 'Импорт координат', exact: true }).click();
   await page.getByRole('textbox', { name: 'Вставьте координаты', exact: true }).fill('Name\tEasting\tNorthing\tHeight\nP1\t0\t0\t2.5\nP2\t30\t0\t\nP3\t30\t20\t');

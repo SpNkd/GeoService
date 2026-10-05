@@ -1,10 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
 import type { GeoDocument, DimensionEntity } from '../src/domain/model';
 import { staleControls } from '../src/geometry/georeferencing';
 
 const input = 'Name\tEasting\tNorthing\nP1\t0\t0\nP2\t10\t0\nP3\t0\t20\nP4\t20\t0';
-const document = (page: Page): Promise<GeoDocument> => page.evaluate(() => JSON.parse(localStorage.getItem('geoservice.document.v2')!));
+const document = (page: Page): Promise<GeoDocument> => readAutosaveDocument(page);
 const point = (page: Page, name: string) => page.locator(`[data-entity-type="point"][aria-label="${name}"]`);
 async function center(locator: ReturnType<Page['locator']>) {
   const box = (await locator.boundingBox())!; return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -34,7 +35,7 @@ async function documentWithDimension(page: Page, georeference = false) {
 }
 
 test('endpoint grip previews without document/autosave changes, then retargets one endpoint in one Undo/Redo', async ({ page }) => {
-  const dimension = await documentWithDimension(page), before = await document(page), storageBefore = await page.evaluate(() => localStorage.getItem('geoservice.document.v2'));
+  const dimension = await documentWithDimension(page), before = await document(page), storageBefore = JSON.stringify(before);
   const grip = page.getByTestId('dimension-start-grip'); await expect(grip).toBeVisible();
   const from = await center(grip), target = await pointCenter(page, 'P3');
   await page.mouse.move(from.x, from.y); await page.mouse.down();
@@ -42,7 +43,7 @@ test('endpoint grip previews without document/autosave changes, then retargets o
   await page.mouse.move(target.x, target.y, { steps: 8 });
   await expect(page.getByTestId('dimension-retarget-target')).toBeVisible();
   expect(await document(page)).toEqual(before);
-  expect(await page.evaluate(() => localStorage.getItem('geoservice.document.v2'))).toBe(storageBefore);
+  expect(JSON.stringify(await document(page))).toBe(storageBefore);
   await page.mouse.up();
   await expect.poll(async () => (await document(page)).entities.find(entity => entity.id === dimension.id)).toMatchObject({ startVertexId: (await document(page)).entities.find(entity => entity.type === 'point' && entity.name === 'P3') && ((await document(page)).entities.find(entity => entity.type === 'point' && entity.name === 'P3') as Extract<GeoDocument['entities'][number], { type: 'point' }>).vertexId });
   const retargeted = await document(page), entity = retargeted.entities.find(item => item.id === dimension.id) as DimensionEntity;
