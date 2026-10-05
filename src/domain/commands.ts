@@ -60,7 +60,7 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity, index
     if (definition.allowedRotations && !definition.allowedRotations.includes(entity.rotationDeg)) throw new Error('Поворот не разрешён определением символа');
   }
   const ids = entityVertexIds(entity);
-  const minimum = entity.type === 'label' || entity.type === 'symbol' ? 0 : entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
+  const minimum = ['label','symbol','arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 0 : entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
   if (ids.length < minimum) throw new Error(`Для объекта типа «${entity.type}» требуется не менее ${minimum} вершин`);
   for (const id of ids) if (!Object.hasOwn(document.vertices, id)) throw new Error(`Вершина ${id} не найдена`);
   if (entity.type === 'dimension' && (!Number.isFinite(entity.offset) || distance(getVertex(document.vertices, ids[0]!), getVertex(document.vertices, ids[1]!)) === 0)) throw new Error('Размер требует две разные позиции XY и конечный offset');
@@ -161,6 +161,8 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     if (!document.layers.some(layer => layer.id === command.layerId)) throw new Error('Слой не найден');
     const count = document.entities.filter(entity => entity.layerId === command.layerId).length;
     if (count) throw new Error(`Слой содержит ${count} объектов. Перед удалением переместите или удалите их.`);
+    const primitives=[...(document.blocks??[]).flatMap(b=>b.primitives),...document.entities.flatMap(e=>e.type==='imported_graphic'?e.primitives:e.type==='block_instance'?e.attributePrimitives??[]:[])];
+    if(primitives.some(p=>p.layerId===command.layerId))throw new Error('Слой используется геометрией внутри DXF blocks/proxies. Удаление нарушило бы ссылки.');
     if (document.layers.length === 1) throw new Error('Нельзя удалить последний слой');
     return { ...document, layers: document.layers.filter(layer => layer.id !== command.layerId) };
   }
@@ -275,7 +277,8 @@ export function canEditVertex(document: GeoDocument, vertexId: string): boolean 
     .every(entity => !isLayerLocked(document, entity));
 }
 export function entityPosition(document: GeoDocument, entity: Entity): WorldPoint {
-  if (entity.type === 'symbol') return { ...entity.position };
+  if ('position' in entity) return { ...entity.position };
+  if ('center' in entity) return { ...entity.center };
   const id = entityVertexIds(entity)[0]!;
   const vertex = getVertex(document.vertices, id);
   return vertexPoint(vertex);

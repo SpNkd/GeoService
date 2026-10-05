@@ -1,3 +1,4 @@
+import { entityBoundsPoints } from '../geometry/entityBounds';
 import { symbolBoundsPoints } from '../symbols/transforms';
 import type { GeoDocument, Viewport } from '../domain/model';
 import { entityPoints } from '../domain/model';
@@ -21,8 +22,8 @@ export function marqueeEntities(document: GeoDocument, viewport: Viewport, size:
   };
   const crossing=end.x<start.x;
   return renderItems(document).filter(({entity})=> {
-    let points=(entity.type==='symbol'?symbolBoundsPoints(entity):entityPoints(entity,document.vertices)).map(p=>worldToScreen(p,viewport,size));
-    if(entity.type==='text' || entity.type==='label') {
+    let points=(entity.type==='symbol'?symbolBoundsPoints(entity):['arc','circle','block_instance','imported_graphic'].includes(entity.type)||entity.type==='text'&&entity.height?entityBoundsPoints(document,entity):entityPoints(entity,document.vertices)).map(p=>worldToScreen(p,viewport,size));
+    if(entity.type==='text' && !entity.height || entity.type==='label') {
       const world=entity.type==='label' ? resolvedLabelPosition(document,entity) : entityPoints(entity,document.vertices)[0];
       if(!world) return false;
       const p=worldToScreen(world,viewport,size), font=entity.type==='text'?entity.fontSize:12;
@@ -39,7 +40,7 @@ export function marqueeEntities(document: GeoDocument, viewport: Viewport, size:
     }
     if(!crossing) return points.length>0 && points.every(inside);
     if(points.some(inside)) return true;
-    const closed=['polygon','text','label','dimension','symbol'].includes(entity.type);
+    const closed=['polygon','text','label','dimension','symbol','arc','circle','block_instance','imported_graphic'].includes(entity.type);
     for(let i=0;i<points.length-(closed?0:1);i++) if(intersects(points[i]!,points[(i+1)%points.length]!)) return true;
     if(closed) {
       let contains=false;

@@ -1,3 +1,5 @@
+import { sourceSchema, sourceDocumentSchema, blockDefinitionSchema, primitivesSchema, blockTransformSchema, attributesSchema } from './vectorSchema';
+import { validateVectorDocument } from '../vectors/geometry';
 import { z } from 'zod';
 import { requireSymbol } from '../symbols/registry';
 import { symbolPositionSchema, symbolScaleSchema, symbolPropertiesSchema } from '../symbols/schema';
@@ -9,7 +11,7 @@ export const finiteNumber = z.number().finite();
 export const worldPointSchema = z.object({ x: finiteNumber, y: finiteNumber, z: finiteNumber.optional() });
 // Literal paint colours only: the layer swatch also uses this value in CSS background.
 const paintColour = z.string().max(100).refine(value => /^(?:[a-z]*|#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})|(?:rgb|hsl)a?\([\d\s.,%+\-/]+\))$/i.test(value.trim()), 'Ожидается цвет без URL, CSS variables или внешних ресурсов');
-const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional() };
+const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional(), visible: z.boolean().optional(), source: sourceSchema.optional() };
 export const symbolEntitySchema = z.object({ ...base, type: z.literal('symbol'), libraryId: id, symbolId: id, position: symbolPositionSchema, rotationDeg: finiteNumber.min(0).lt(360), scale: symbolScaleSchema, properties: symbolPropertiesSchema.optional() });
 export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('point'), vertexId: id }),
@@ -17,13 +19,17 @@ export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('dimension'), startVertexId: id, endVertexId: id, offset: finiteNumber, textPosition: finiteNumber.min(0.05).max(0.95).optional() }),
   z.object({ ...base, type: z.literal('polyline'), vertexIds: z.tuple([id, id]).rest(id) }),
   z.object({ ...base, type: z.literal('polygon'), vertexIds: z.tuple([id, id, id]).rest(id) }),
-  z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000) }),
+  z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000), rotationDeg: finiteNumber.optional(), height: finiteNumber.positive().optional() }),
   z.object({ ...base, type: z.literal('label'), targetId: id, template: z.string().max(10000), dx: finiteNumber, dy: finiteNumber }),
   symbolEntitySchema,
+  z.object({ ...base, type: z.literal('arc'), center: worldPointSchema, radius: finiteNumber.positive(), startAngle: finiteNumber, endAngle: finiteNumber }),
+  z.object({ ...base, type: z.literal('circle'), center: worldPointSchema, radius: finiteNumber.positive() }),
+  z.object({ ...base, type: z.literal('block_instance'), blockDefinitionId: id, ...blockTransformSchema, attributes: attributesSchema.optional(), attributePrimitives: primitivesSchema.optional() }),
+  z.object({ ...base, type: z.literal('imported_graphic'), position: worldPointSchema, primitives: primitivesSchema }),
 ]);
 
 export const vertexSchema = worldPointSchema.extend({ id });
-export const layerSchema = z.object({ id, name: z.string().min(1).max(1000), visible: z.boolean(), locked: z.boolean(), order: finiteNumber.int(), styleId: id });
+export const layerSchema = z.object({ id, name: z.string().min(1).max(1000), visible: z.boolean(), locked: z.boolean(), order: finiteNumber.int(), styleId: id, source: sourceSchema.optional() });
 
 export const surveyXYSchema = z.strictObject({ e: finiteNumber, n: finiteNumber });
 const horizontalControlSchema = z.strictObject({ pointEntityId: id, vertexId: id, modelSnapshot: z.strictObject({ x: finiteNumber, y: finiteNumber }), survey: surveyXYSchema });
@@ -32,6 +38,8 @@ export const verticalReferenceSchema = z.strictObject({ modelZero: z.literal(0),
 
 /** Structure first; referential integrity is checked separately below. Unknown UI fields are stripped. */
 export const documentSchema = z.object({
+  sources: z.array(sourceDocumentSchema).max(100).optional(),
+  blocks: z.array(blockDefinitionSchema).max(2000).optional(),
   schemaVersion: z.literal(2),
   modelFrame: z.enum(['local', 'projected']).optional(),
   horizontalReference: horizontalReferenceSchema.optional(),
@@ -75,6 +83,7 @@ export function validateDocument(raw: unknown): GeoDocument {
       if (!target || !['point', 'line', 'polyline', 'polygon', 'symbol'].includes(target.type)) throw new Error(`Label ${entity.id} references missing or unsupported target ${entity.targetId}`);
     }
   }
+  validateVectorDocument(document);
   const reference = document.horizontalReference;
   if (reference) {
     if (documentModelFrame(document) !== 'local') throw new Error('Horizontal reference requires local modelFrame');

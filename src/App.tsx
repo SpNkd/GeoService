@@ -23,6 +23,7 @@ import { AiPanel } from './components/AiPanel';
 import type { PointLabelMode } from './store/editor';
 import { resolveShortcut, shortcutNeedsWait, shortcutRegistry, shortcutMatchesPrefix } from './editor/shortcuts';
 
+const DxfDialog = lazy(() => import('./components/DxfDialog').then(module => ({ default: module.DxfDialog })));
 const GeoreferenceDialog = lazy(() => import('./components/GeoreferenceDialog').then(module => ({ default: module.GeoreferenceDialog })));
 
 export default function App() {
@@ -45,6 +46,7 @@ export default function App() {
   const [pickedControl, setPickedControl] = useState<{ slot: 0 | 1; id: string } | null>(null);
   const [referencePreview, setReferencePreview] = useState<HorizontalReference | null>(null);
   const closeGeoreference = useCallback(() => { setGeoreferenceOpen(false); setPickingControl(null); setPickedControl(null); setReferencePreview(null); }, []);
+  const [dxfOpen,setDxfOpen]=useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [snapStatus, setSnapStatus] = useState<SnapResult | null>(null);
   const [measurementStatus, setMeasurementStatus] = useState<string | null>(null);
@@ -129,6 +131,7 @@ export default function App() {
         if (!suppressed(event.target)) event.preventDefault();
         return;
       }
+      if(dxfOpen){if(event.key==='Escape'){event.preventDefault();setDxfOpen(false);}if(event.metaKey||event.ctrlKey)event.preventDefault();return;}
       if (georeferenceOpen) {
         if (event.key === 'Escape') { event.preventDefault(); if (pickingControl !== null) setPickingControl(null); else closeGeoreference(); }
         if (event.metaKey || event.ctrlKey) { if (['s', 'o', 'n', 'z', 'y'].includes(event.key.toLowerCase())) event.preventDefault(); }
@@ -165,7 +168,7 @@ export default function App() {
     const blur = () => { setSpaceHeld(false); clearSequence(); };
     window.addEventListener('keydown', keydown); window.addEventListener('keyup', keyup); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup); window.removeEventListener('blur', blur); clearSequence(); };
-  }, [state, shortcutsOpen, dirty, size, runShortcut, georeferenceOpen, pickingControl, closeGeoreference]);
+  }, [state, shortcutsOpen, dirty, size, runShortcut, dxfOpen, georeferenceOpen, pickingControl, closeGeoreference]);
   const fittedAiTask = useRef<string | null>(null);
   useEffect(() => {
     if (aiTask?.resolution.status !== 'ready' || aiTask.id === fittedAiTask.current || !aiTask.requiresConfirmation || size.width <= 1) return;
@@ -180,11 +183,12 @@ export default function App() {
       <div className="header-divider" /><div className="document-title"><strong>{state.document.metadata.title}{dirty && <span className="dirty-mark" aria-label="Есть несохранённые изменения"> *</span>}</strong><span>MODEL X / Y / Z · Survey E / N · абсолютная H</span></div>
       <span className="header-version">Редактор · 0.3</span>
     </header>
-    <nav inert={georeferenceOpen} className="toolbar" aria-label="Инструменты редактора">
+    <nav inert={georeferenceOpen || dxfOpen} className="toolbar" aria-label="Инструменты редактора">
       <div className="tool-group document-tools">
         <button className="tool-button compact" aria-label="Новый документ" title="Новый документ · Ctrl/Cmd+N" onClick={startNew}>New</button>
         <button className="tool-button compact" aria-label="Открыть JSON" title="Открыть JSON · Ctrl/Cmd+O" onClick={() => openInput.current?.click()}>Open</button>
         <button className="tool-button compact" aria-label="Сохранить JSON" title="Сохранить JSON · Ctrl/Cmd+S" onClick={save}>Save</button>
+        <button className="tool-button compact" onClick={()=>{dispatch({type:'tool',tool:'select'});setDxfOpen(true);}}>DXF</button>
         <button className="tool-button compact import-button" aria-label="Импорт координат" onClick={() => { dispatch({ type: 'tool', tool: 'select' }); setImportOpen(true); }}>Import</button>
       </div><div className="toolbar-divider" />
       <div className="tool-group">
@@ -203,7 +207,7 @@ export default function App() {
       <button className="tool-button compact" aria-pressed={symbolsOpen || state.tool === 'symbol'} onClick={() => setSymbolsOpen(!symbolsOpen)}>Символы</button>
       <span className="toolbar-context">Слой: {state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'} · {state.document.coordinateSystem.name ?? 'Система координат'} · м</span>
     </nav>
-    <div inert={georeferenceOpen} className="survey-controls" aria-label="Привязки и подписи">
+    <div inert={georeferenceOpen || dxfOpen} className="survey-controls" aria-label="Привязки и подписи">
       <button className={`tool-button compact ${state.snapOptions.enabled ? 'active' : ''}`} aria-label="Привязки" aria-pressed={state.snapOptions.enabled} onClick={() => dispatch({ type: 'snap-options', patch: { enabled: !state.snapOptions.enabled } })}>SNAP {state.snapOptions.enabled ? 'ON' : 'OFF'}</button>
       <details className="survey-settings"><summary>Типы привязок</summary><div>
         {(['vertex', 'midpoint', 'grid'] as const).map(type => <label key={type}><input type="checkbox" checked={state.snapOptions[type]} onChange={event => dispatch({ type: 'snap-options', patch: { [type]: event.target.checked } })} />{type === 'vertex' ? 'Vertex' : type === 'midpoint' ? 'Midpoint' : 'Grid'}</label>)}
@@ -216,11 +220,11 @@ export default function App() {
       <label><input type="checkbox" checked={state.showLineLengths} onChange={() => dispatch({ type: 'toggle-line-lengths' })} />Длины линий</label>
       <span>Shift + клик: добавить в выбор</span>
     </div>
-    <main className="workspace"><LayersPanel inert={georeferenceOpen} state={state} dispatch={dispatch} onCalibrate={() => { dispatch({ type: 'tool', tool: 'select' }); setGeoreferenceOpen(true); }} /><div className="drawing-area">
-      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} aiReferenceIds={application.ai.status==='preview'?application.ai.plan.referenceEntityIds:[]} />
+    <main className="workspace"><LayersPanel inert={georeferenceOpen || dxfOpen} state={state} dispatch={dispatch} onCalibrate={() => { dispatch({ type: 'tool', tool: 'select' }); setGeoreferenceOpen(true); }} /><div className="drawing-area">
+      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={dxfOpen || importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} aiReferenceIds={application.ai.status==='preview'?application.ai.plan.referenceEntityIds:[]} />
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
-    </div><div inert={georeferenceOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} size={size} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
+    </div><div inert={georeferenceOpen || dxfOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} size={size} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
     <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (state.dimensionPick ? `Выберите существующую вершину для ${state.dimensionPick.endpoint === 'start' ? 'начала' : 'конца'} размера · Esc отмена` : null) ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (state.selectionMove ? `Перемещение: ΔX ${formatMeasure(state.selectionMove.delta.x)} · ΔY ${formatMeasure(state.selectionMove.delta.y)} м${state.selectionMove.resolved.affectedEntityIds.length ? ` · затронет ${state.selectionMove.resolved.affectedEntityIds.length} связанных объектов` : ''}` : state.selectedEntityIds.length > 1 ? `Выбрано: ${state.selectedEntityIds.length} объектов` : selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>{state.coordinateDisplay === 'model' ? 'X' : 'E'} <b data-testid="cursor-x">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.x) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.e) : '—'}</b></span><span>{state.coordinateDisplay === 'model' ? 'Y' : 'N'} <b data-testid="cursor-y">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.y) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.n) : '—'}</b></span><span>м</span></div>
       <span className="status-grid">Привязка: {state.snapOptions.gridStep ?? 1} м · ORTHO {state.ortho ? 'ON' : 'OFF'}</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
@@ -235,6 +239,7 @@ export default function App() {
       } catch (error) { setFileError(error instanceof Error ? error.message : 'Не удалось прочитать JSON'); }
     }} />
     {(fileError || notice) && <div className={`document-notice ${fileError ? 'error' : ''}`} role={fileError ? 'alert' : 'status'}><span>{fileError ?? notice}</span><button aria-label="Закрыть сообщение" onClick={() => { setFileError(null); setNotice(null); }}>×</button></div>}
+    {dxfOpen && <Suspense fallback={<div className="modal-backdrop"><p>Открываю DXF…</p></div>}><DxfDialog onClose={()=>setDxfOpen(false)} onApply={plan=>{if(dirty&&!window.confirm('Открыть другой документ? Текущие изменения не сохранены в JSON.'))return;dispatch({type:'replace-document',document:plan.document,size,currentLayerId:plan.currentLayerId});setDxfOpen(false);setFileError(null);setNotice(`DXF открыт: ${plan.document.entities.length} объектов, ${plan.report.warnings.length} предупреждений.`);}} /></Suspense>}
     {symbolsOpen && <SymbolPalette onClose={() => setSymbolsOpen(false)} onChoose={(libraryId, symbolId) => { dispatch({ type: 'choose-symbol', libraryId, symbolId }); setSymbolsOpen(false); }} />}
     {shortcutsOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setShortcutsOpen(false); }}><section className="shortcuts-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><h2 id="shortcuts-title">Keyboard shortcuts</h2>{(['Tools', 'Navigation', 'File', 'Edit'] as const).map(group => <div key={group}><h3>{group}</h3><dl>{shortcutRegistry.filter(entry => entry.group === group).map(entry => <Fragment key={entry.id}><dt>{entry.description}</dt><dd>{entry.label}</dd></Fragment>)}</dl></div>)}<button onClick={() => setShortcutsOpen(false)}>Закрыть · Esc</button></section></div>}
     {georeferenceOpen && <Suspense fallback={<div className="modal-backdrop"><p>Открываю привязку…</p></div>}><GeoreferenceDialog document={state.document} picking={pickingControl} picked={pickedControl} onPick={setPickingControl} onPreview={setReferencePreview} onClose={closeGeoreference} onApply={command => { dispatch({ type: 'execute', command }); closeGeoreference(); }} /></Suspense>}

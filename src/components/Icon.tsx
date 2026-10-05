@@ -1,5 +1,9 @@
-type IconName = 'symbol' | 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
+type IconName = 'arc' | 'circle' | 'block_instance' | 'imported_graphic' | 'symbol' | 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
 const paths: Record<IconName, string> = {
+  arc: 'M4 18a10 10 0 0116-12',
+  circle: 'M22 12a10 10 0 11-20 0 10 10 0 0120 0z',
+  block_instance: 'M3 3h18v18H3zM8 8h8v8H8z',
+  imported_graphic: 'M3 3h18v18H3zM6 16l5-7 4 4 3-6',
   symbol: 'M3 6v12l18-12v12L3 6z',
   dimension: 'M3 4v16m18-16v16M3 14h18m-15-3-3 3 3 3m12-6 3 3-3 3',
   measure: 'M3 15L15 3l6 6L9 21zM7 11l3 3m0-6 3 3m0-6 3 3',

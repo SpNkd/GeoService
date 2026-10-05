@@ -6,7 +6,8 @@ export type MoveAnchor='center'|'bottom-left'|'bottom-right'|'top-left'|'top-rig
 export function selectionModelAnchor(document:GeoDocument,ids:readonly string[],anchor:MoveAnchor='center'):WorldPoint {
   if(ids.length===1) {
     const entity=document.entities.find(e=>e.id===ids[0]);
-    if(entity?.type==='symbol') return {...entity.position};
+    if(entity && 'position' in entity) return {...entity.position};
+    if(entity && 'center' in entity) return {...entity.center};
     if(entity?.type==='point'||entity?.type==='text') return entityPoints(entity,document.vertices)[0]!;
   }
   const b=modelSelectionBounds(document,ids);

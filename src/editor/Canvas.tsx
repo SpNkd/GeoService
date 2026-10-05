@@ -1,3 +1,4 @@
+import { BlockDefinitions } from '../renderer/VectorView';
 import { requireSymbol } from '../symbols/registry';
 import { SymbolView } from '../renderer/SymbolView';
 import { marqueeEntities, type SelectionMode } from './marquee';
@@ -208,7 +209,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     }
     // Active geometry handles outrank wide annotation hit areas at the same screen position.
     if (tool === 'select') for (const entity of document.entities) {
-      if (!state.selectedEntityIds.includes(entity.id) || !['line', 'polyline', 'polygon', 'symbol'].includes(entity.type) || isLayerLocked(document, entity)) continue;
+      if (!state.selectedEntityIds.includes(entity.id) || !['line', 'polyline', 'polygon', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type) || isLayerLocked(document, entity)) continue;
       for (const vertexId of entityVertexIds(entity)) {
         const vertex = document.vertices[vertexId]!, screen = worldToScreen(vertex, viewport, size);
         if (Math.abs(screen.x - point.x) > 6 || Math.abs(screen.y - point.y) > 6 || !canEditVertex(document, vertexId)) continue;
@@ -259,7 +260,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (!entity) return;
       const alreadySelected = state.selectedEntityIds.includes(entityId);
       const selection = alreadySelected ? state.selectedEntityIds : [entityId];
-      const groupMove = entity.type !== 'dimension' && (selection.length > 1 || ['line', 'polyline', 'polygon', 'symbol'].includes(entity.type) || entity.type === 'point' && event.shiftKey && alreadySelected);
+      const groupMove = entity.type !== 'dimension' && (selection.length > 1 || ['line', 'polyline', 'polygon', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type) || entity.type === 'point' && event.shiftKey && alreadySelected);
       if (event.shiftKey && (!alreadySelected || !groupMove)) { dispatch({ type: 'select', entityId, toggle: true }); return; }
       if (!alreadySelected) dispatch({ type: 'select', entityId });
       if (groupMove) {
@@ -368,6 +369,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         const points = draft.length > 1 && distance(draft[draft.length - 1]!.position, draft[draft.length - 2]!.position) < 1e-9 ? draft.slice(0, -1) : draft;
         finishPath(points.length && distance(last.position, points[points.length - 1]!.position) < 1e-9 ? points : [...points, last]);
       }} onContextMenu={event => event.preventDefault()}>
+      <BlockDefinitions document={document} />
       {state.gridVisible && <Grid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep ?? 1} />}
       {items.map(item => <EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
         selected={state.selectedEntityIds.includes(item.entity.id) || state.orderedPointIds.includes(item.entity.id)}

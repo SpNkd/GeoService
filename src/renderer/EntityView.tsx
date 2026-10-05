@@ -1,3 +1,4 @@
+import { VectorView } from './VectorView';
 import { SymbolView } from './SymbolView';
 import { memo } from 'react';
 import type { GeoDocument, Viewport } from '../domain/model';
@@ -25,6 +26,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   const attributes = { stroke, strokeWidth: selected ? 2.2 : style.lineWeight, strokeDasharray: style.dash };
   let shape: React.ReactNode;
   switch (entity.type) {
+    case 'arc': case 'circle': case 'block_instance': case 'imported_graphic': { shape=<VectorView entity={entity} document={document} viewport={viewport} size={size} color={stroke} selected={selected} lineWeight={style.lineWeight} />; break; }
     case 'symbol': { shape = <SymbolView entity={entity} viewport={viewport} size={size} color={stroke} lineWeight={style.lineWeight} selected={selected} />; break; }
     case 'point': {
       const p = screen[0]!;
@@ -74,11 +76,11 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
       break;
     }
     case 'text': {
-      const p = screen[0]!;
-      shape = <>
-        <rect x={p.x - 7} y={p.y - entity.fontSize - 7} width={Math.max(28, entity.content.length * entity.fontSize * 0.66 + 14)} height={entity.fontSize + 14} fill={selected ? '#277ec110' : 'transparent'} stroke={selected ? selectionColor : 'transparent'} strokeDasharray="3 3" pointerEvents="all" />
-        <text x={p.x} y={p.y} fill={stroke} fontSize={entity.fontSize} className="annotation-label" pointerEvents="none">{entity.content}</text>
-      </>;
+      const p = screen[0]!,fontSize=entity.height?entity.height*viewport.pixelsPerUnit:entity.fontSize;
+      shape = <g transform={`translate(${p.x} ${p.y}) rotate(${- (entity.rotationDeg??0)})`}>
+        <rect x={-7} y={-fontSize-7} width={Math.max(28, Math.max(...entity.content.split('\n').map(line=>line.length)) * fontSize * 0.7 + 14)} height={fontSize * (1 + (entity.content.split('\n').length-1)*1.2) + 14} fill={selected ? '#277ec110' : 'transparent'} stroke={selected ? selectionColor : 'transparent'} strokeDasharray="3 3" pointerEvents="all" />
+        <text x={0} y={0} fill={stroke} fontSize={fontSize} className="annotation-label" pointerEvents="none">{entity.content.split('\n').map((line,i)=><tspan key={i} x={0} dy={i?1.2*fontSize:0}>{line}</tspan>)}</text>
+      </g>;
       break;
     }
     case 'label': {

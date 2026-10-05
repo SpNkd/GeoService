@@ -1,5 +1,5 @@
 import { symbolBoundsPoints } from '../symbols/transforms';
-import { modelSelectionBounds } from '../geometry/entityBounds';
+import { entityBoundsPoints, modelSelectionBounds } from '../geometry/entityBounds';
 import { entityPoints, getVertex, type Entity, type EntityStyle, type GeoDocument, type Layer, type Vertex } from '../domain/model';
 import { bounds } from '../geometry';
 import { alignedDimension } from '../geometry/survey';
@@ -12,7 +12,7 @@ export function renderItems(document: GeoDocument): RenderItem[] {
   const styles = new Map(document.styles.map(style => [style.id, style]));
   const visible = new Set(document.layers.filter(layer => layer.visible).map(layer => layer.id));
   const items = [...document.layers].sort((a, b) => a.order - b.order).flatMap(layer =>
-    layer.visible ? document.entities.filter(entity => entity.layerId === layer.id && (entity.type !== 'label' || visible.has(document.entities.find(target => target.id === entity.targetId)?.layerId ?? ''))).sort((a, b) => Number(a.type === 'text' || a.type === 'label') - Number(b.type === 'text' || b.type === 'label')).map(entity => ({
+    layer.visible ? document.entities.filter(entity => entity.layerId === layer.id && entity.visible !== false && (entity.type !== 'label' || visible.has(document.entities.find(target => target.id === entity.targetId)?.layerId ?? ''))).sort((a, b) => Number(a.type === 'text' || a.type === 'label') - Number(b.type === 'text' || b.type === 'label')).map(entity => ({
       entity, layer, style: styles.get(entity.styleId ?? layer.styleId) ?? fallbackStyle,
     })) : [],
   );
@@ -20,6 +20,7 @@ export function renderItems(document: GeoDocument): RenderItem[] {
 }
 export function visibleBounds(document: GeoDocument) {
   return bounds(renderItems(document).flatMap(({ entity }) => {
+    if (['arc','circle','block_instance','imported_graphic'].includes(entity.type) || entity.type === 'text' && entity.height) return entityBoundsPoints(document,entity);
     if (entity.type === 'symbol') return symbolBoundsPoints(entity);
     if (entity.type === 'label') { const anchor = resolvedLabelPosition(document, entity); return anchor ? [anchor] : []; }
     const points = entityPoints(entity, document.vertices);

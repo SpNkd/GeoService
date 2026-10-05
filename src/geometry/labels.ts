@@ -5,7 +5,7 @@ import { DISPLAY_PRECISION, formatCoordinate, formatHeight, formatMeasure } from
 import { bounds, distance, pathLength, polygonArea } from './index';
 
 export function labelAnchor(document: GeoDocument, target: Entity): WorldPoint {
-  if (target.type === 'label' || target.type === 'dimension' || target.type === 'text') throw new Error('Целевой объект не поддерживает подпись');
+  if (!['point','line','polyline','polygon','symbol'].includes(target.type)) throw new Error('Целевой объект не поддерживает подпись');
   if (target.type === 'symbol') return { ...target.position };
   const points = entityVertexIds(target).map(id => vertexPoint(getVertex(document.vertices, id)));
   if (target.type === 'point') return points[0]!;
