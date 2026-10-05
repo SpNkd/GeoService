@@ -12,6 +12,7 @@ import { blockAttributeLocalPosition } from '../vectors/geometry';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
+  | { type: 'set-entities-layer'; entityIds: string[]; layerId: string }
   | { type: 'move-entities'; entityIds: string[]; delta: Translation }
   | { type: 'set-model-frame'; frame: 'local' | 'projected' }
   | { type: 'set-horizontal-reference'; pairs: [{ pointEntityId: string; survey: SurveyXY }, { pointEntityId: string; survey: SurveyXY }] | null }
@@ -251,6 +252,15 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     if (!finitePoint(vertexPoint(next))) throw new Error('Координаты должны быть конечными числами');
     if (old.x === next.x && old.y === next.y && old.z === next.z) return document;
     return { ...document, vertices: { ...document.vertices, [old.id]: next } };
+  }
+  if (command.type === 'set-entities-layer') {
+    const target=document.layers.find(l=>l.id===command.layerId), ids=new Set(command.entityIds);
+    if(!target||target.locked)throw new Error('Целевой слой заблокирован или отсутствует');
+    const owners=document.entities.filter(e=>ids.has(e.id));
+    if(!ids.size||owners.length!==ids.size)throw new Error('Набор объектов пуст или содержит отсутствующие объекты');
+    if(owners.some(e=>isLayerLocked(document,e)))throw new Error('Исходный слой заблокирован');
+    if(owners.every(e=>e.layerId===target.id))return document;
+    return {...document,entities:document.entities.map(e=>ids.has(e.id)&&e.layerId!==target.id?{...e,layerId:target.id}:e)};
   }
   const entity = document.entities.find(item => item.id === command.entityId);
   if (!entity) throw new Error('Объект не найден');

@@ -4,7 +4,7 @@ import { VECTOR_LIMITS } from '../vectors/types';
 export interface SemanticTextHit {
   ownerEntityId: string;
   sourceKind: 'native_text' | 'multileader' | 'dimension' | 'imported_text' | 'block_text' | 'block_attribute';
-  text: string; path: string[]; primitivePath: number[]; layer: string; tag?: string;
+  text: string; path: string[]; primitivePath: number[]; layer: string; tag?: string; sourceHandle?:string; attributeIndex?:number;
 }
 interface DefinitionText { text: string; path: string[]; primitivePath: number[]; layer: string; tag?: string; attributeValue?: boolean }
 export interface DefinitionSemantics {
@@ -65,8 +65,8 @@ export function createProvenanceIndex(document:GeoDocument) {
     if(e.type==='text')return [hit(e.content,'native_text',[e.source?.originalType??'TEXT'])];
     if(e.type==='block_instance') {
       const name=definitions.get(e.blockDefinitionId)?.sourceName??e.name;
-      const attributes=(e.attributePrimitives??[]).filter((p):p is Extract<VectorPrimitive,{kind:'text'}>=>p.kind==='text'&&p.source?.originalType==='ATTRIB'),represented=new Set(attributes.map(p=>p.attributeTag).filter((tag):tag is string=>!!tag));
-      return [...Object.entries(e.attributes??{}).filter(([tag])=>!represented.has(tag)).map(([tag,text])=>hit(text,'block_attribute',[name,'ATTRIB',tag],[],layer,tag)),...attributes.map(p=>hit(p.content,'block_attribute',[name,'ATTRIB',p.attributeTag??p.source?.handle??'ATTRIB'],[],p.source?.originalLayer??layer,p.attributeTag)),...derive(e.blockDefinitionId).textContent.filter(t=>!t.attributeValue).map(t=>hit(t.text,'block_text',t.path,t.primitivePath,t.layer,t.tag))];
+      const attributes=(e.attributePrimitives??[]).flatMap((p,attributeIndex)=>p.kind==='text'&&p.source?.originalType==='ATTRIB'?[{primitive:p,attributeIndex}]:[]),represented=new Set(attributes.map(({primitive:p})=>p.attributeTag).filter((tag):tag is string=>!!tag));
+      return [...Object.entries(e.attributes??{}).filter(([tag])=>!represented.has(tag)).map(([tag,text])=>hit(text,'block_attribute',[name,'ATTRIB',tag],[],layer,tag)),...attributes.map(({primitive:p,attributeIndex})=>({...hit(p.content,'block_attribute',[name,'ATTRIB',p.attributeTag??'ATTRIB',p.source?.handle??String(attributeIndex)],[attributeIndex],p.source?.originalLayer??layer,p.attributeTag),attributeIndex,...(p.source?.handle?{sourceHandle:p.source.handle}:{})})),...derive(e.blockDefinitionId).textContent.filter(t=>!t.attributeValue).map(t=>hit(t.text,'block_text',t.path,t.primitivePath,t.layer,t.tag))];
     }
     if(e.type==='imported_graphic') {
       const kind=e.source?.originalType==='MULTILEADER'?'multileader':e.source?.originalType==='DIMENSION'?'dimension':'imported_text';
@@ -84,6 +84,7 @@ export function createProvenanceIndex(document:GeoDocument) {
     return textIndex.filter(({hit,normalized})=>(!attributes||hit.sourceKind==='block_attribute')&&(includeDefinitions||hit.sourceKind!=='block_text')&&normalized.includes(needle)).map(({hit})=>({...hit,path:[...hit.path],primitivePath:[...hit.primitivePath]}));
   };
   return {
+    getEntitySourceTypes:(id:string)=>{const e=entities.get(id);if(!e)return [];const result=new Set([e.source?.originalType??e.type]);if(e.type==='block_instance'){derive(e.blockDefinitionId).sourceTypes.forEach(t=>result.add(t));if(Object.keys(e.attributes??{}).length||e.attributePrimitives?.some(p=>p.source?.originalType==='ATTRIB'))result.add('ATTRIB');}if(e.type==='imported_graphic')for(const p of e.primitives){result.add(p.source?.originalType??p.kind);if(p.kind==='block')derive(p.blockDefinitionId).sourceTypes.forEach(t=>result.add(t));}return [...result];},
     getEntitiesBySourceLayer:(name:string)=>[...(layers.get(name)??[])],
     getEntitiesBySourceType:(type:string)=>[...(types.get(type)??[])],
     getBlockInstancesBySourceName:(name:string)=>[...(blocks.get(name)??[])],

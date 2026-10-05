@@ -5,7 +5,7 @@ import { layerBounds } from '../geometry/entityBounds';
 import type { GeoDocument, Viewport } from '../domain/model';
 import { applyCommand, applyCommandsAtomically, isLayerLocked, type DocumentCommand } from '../domain/commands';
 import { fitToBounds, panViewport, zoomAt, type ScreenPoint, type ViewSize } from '../geometry';
-import { visibleBounds } from '../renderer/selectors';
+import { selectionBounds, visibleBounds } from '../renderer/selectors';
 import { deserializeDocument, documentFingerprint } from '../persistence/serialization';
 import { commandFromOrderedPoints } from '../domain/geometryIntent';
 import { validateDocument } from '../persistence/documentSchema';
@@ -17,6 +17,7 @@ import { resolveSelectionMove, projectSelectionMove, type ResolvedSelectionMove,
 export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure' | 'symbol';
 export type PointLabelMode = 'name' | 'name-z' | 'z';
 export interface EditorState {
+  isolation: {entityIds:readonly string[];label:string} | null;
   deepSelection: DeepSelection | null;
   hitStackStatus: {index:number;count:number} | null;
   symbolPlacement: { libraryId: string; symbolId: string; rotationDeg: number } | null;
@@ -33,6 +34,10 @@ export interface EditorState {
   orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean; ortho: boolean;
 }
 export type EditorAction =
+  | {type:'select-entities';entityIds:readonly string[]}
+  | {type:'fit-entities';entityIds:readonly string[];size:ViewSize}
+  | {type:'isolate-entities';entityIds:readonly string[];label:string}
+  | {type:'exit-isolation'}
   | { type: 'deep-select'; candidate: {ownerEntityId:string;selection:DeepSelection|null}; index:number;count:number }
   | { type: 'choose-symbol'; libraryId: string; symbolId: string }
   | { type: 'rotate-symbol' }
@@ -82,7 +87,7 @@ const pushHistory = (past: GeoDocument[], document: GeoDocument) => [...past.sli
 function reconcileSelection(document: GeoDocument, selectionId: string | null): string | null {
   if (!selectionId) return null;
   const entity = document.entities.find(item => item.id === selectionId);
-  if (!entity || !document.layers.find(layer => layer.id === entity.layerId)?.visible) return null;
+  if (!entity || entity.visible===false || !document.layers.find(layer => layer.id === entity.layerId)?.visible) return null;
   if (entity.type === 'label') {
     const target = document.entities.find(item => item.id === entity.targetId);
     if (!target || !document.layers.find(layer => layer.id === target.layerId)?.visible) return null;
@@ -98,7 +103,7 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
@@ -106,8 +111,21 @@ export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFing
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case 'select-entities': {
+      if(state.transactionBefore)return state;
+      const requested=new Set(action.entityIds),ids=state.document.entities.filter(e=>requested.has(e.id)).map(e=>e.id);
+      return {...state,selectedEntityIds:ids,selectionId:ids.at(-1)??null,orderedPointIds:[],selectedLayerId:null,deepSelection:null,hitStackStatus:null,tool:'select',error:null};
+    }
+    case 'fit-entities': {const viewport=fitToBounds(selectionBounds(state.document,action.entityIds),action.size,85);return viewport?{...state,viewport}:state;}
+    case 'isolate-entities': {
+      if(state.transactionBefore)return state;
+      const known=new Set(state.document.entities.map(e=>e.id)),entityIds=[...new Set(action.entityIds)].filter(id=>known.has(id));
+      if(!entityIds.length)return state;
+      return {...state,isolation:{entityIds,label:action.label},deepSelection:null,hitStackStatus:null};
+    }
+    case 'exit-isolation':return {...state,isolation:null,deepSelection:null,hitStackStatus:null,selectionId:reconcileSelection(state.document,state.selectionId),selectedEntityIds:state.selectedEntityIds.filter(id=>reconcileSelection(state.document,id)!==null)};
     case 'deep-select': {
-      const id=reconcileSelection(state.document,action.candidate.ownerEntityId);
+      const id=reconcileSelection(editorViewDocument(state),action.candidate.ownerEntityId);
       if(!id || state.transactionBefore || action.candidate.selection && !resolveDeepSelection(state.document, action.candidate.selection))return state;
       return {...state,selectionId:id,selectedEntityIds:[id],selectedLayerId:null,orderedPointIds:[],deepSelection:action.candidate.selection,hitStackStatus:{index:action.index,count:action.count},moveInputOpen:false,error:null};
     }
@@ -131,7 +149,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'begin-marquee': return { ...state, deepSelection:null,hitStackStatus:null, marqueeActive: true };
     case 'cancel-marquee': return { ...state, marqueeActive: false };
     case 'finish-marquee': {
-      const hits = action.entityIds.filter(id => reconcileSelection(state.document,id));
+      const hits = action.entityIds.filter(id => reconcileSelection(editorViewDocument(state),id));
       const selected = new Set(action.mode === 'replace' ? [] : state.selectedEntityIds);
       for (const id of hits) { if(action.mode === 'toggle' && selected.has(id)) selected.delete(id); else selected.add(id); }
       const selectedEntityIds = [...selected];
@@ -303,8 +321,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       state={...state,deepSelection:null,hitStackStatus:null};
       if (action.entityId === null) return { ...state, selectionId: null, selectedEntityIds: [], selectedLayerId: null, orderedPointIds: [], dimensionPick: null };
       const entity = state.document.entities.find(item => item.id === action.entityId);
-      const layer = state.document.layers.find(item => item.id === entity?.layerId);
-      if (!layer?.visible) return state;
+      if (!entity || !reconcileSelection(editorViewDocument(state),entity.id)) return state;
       const orderedPointIds = action.toggle && entity?.type === 'point'
         ? state.orderedPointIds.includes(entity.id) ? state.orderedPointIds.filter(id => id !== entity.id) : [...state.orderedPointIds, entity.id]
         : action.toggle ? state.orderedPointIds : entity?.type === 'point' ? [entity.id] : [];
@@ -326,4 +343,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'tool': return { ...state,deepSelection:null,hitStackStatus:null, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
     case 'toggle-grid': return { ...state, gridVisible: !state.gridVisible };
   }
+}
+
+const isolatedViews=new WeakMap<GeoDocument,WeakMap<object,GeoDocument>>();
+/** Ephemeral owner filter; canonical layer visibility and document/history/autosave are untouched. */
+export function editorViewDocument(state:Pick<EditorState,'document'|'isolation'>,document:GeoDocument=state.document):GeoDocument {
+  if(!state.isolation)return document;
+  let cache=isolatedViews.get(document);if(!cache){cache=new WeakMap();isolatedViews.set(document,cache);}const cached=cache.get(state.isolation);if(cached)return cached;
+  const ids=new Set(state.isolation.entityIds),targets=new Set(document.entities.flatMap(e=>ids.has(e.id)&&e.type==='label'?[e.targetId]:[]));
+  const view={...document,entities:document.entities.filter(e=>ids.has(e.id)||targets.has(e.id)).map(e=>ids.has(e.id)?e.visible===false?{...e,visible:true}:e:{...e,visible:false}),layers:document.layers.map(l=>l.visible?l:{...l,visible:true})};cache.set(state.isolation,view);return view;
 }

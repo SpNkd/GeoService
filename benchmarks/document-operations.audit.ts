@@ -1,0 +1,28 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { basename } from 'node:path';
+import { expect, it } from 'vitest';
+import { importDxf } from '../src/dxf/import';
+import { resolveDocumentQuery, documentQueryIndex, defaultExcludedGroups } from '../src/documentOperations/query';
+import { resolveDocumentPlan } from '../src/documentOperations/plan';
+import type { DocumentQuery } from '../src/documentOperations/schema';
+import { applyCommand } from '../src/domain/commands';
+import { ownerBounds } from '../src/renderer/hybridScene';
+import { selectionBounds } from '../src/renderer/selectors';
+import { fitToBounds } from '../src/geometry';
+const path=process.env.DXF_REFERENCE;
+it.skipIf(!path)('reference document query acceptance and benchmark',()=>{
+  const b=readFileSync(path!),d=importDxf(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),basename(path!)).document;
+  const start=performance.now();documentQueryIndex(d);const indexBuildMs=performance.now()-start;
+  const queries:Record<string,DocumentQuery>={sourceLayer:{kind:'source_layer',name:'_ГП_ЗИС'},blocks:{kind:'block_name',name:'VOLUME'},text:{kind:'text_contains',text:'грунт',sourceType:null},attributes:{kind:'block_attribute',tag:null,value:'27.89'},buildings:{kind:'semantic_concept',concepts:['buildings']},roads:{kind:'semantic_concept',concepts:['roads']}};
+  const reports=Object.fromEntries(Object.entries(queries).map(([name,query])=>{const samples:number[]=[];let r=resolveDocumentQuery(query,d);for(let i=0;i<100;i++){const s=performance.now();r=resolveDocumentQuery(query,d);samples.push(performance.now()-s);}samples.sort((a,b)=>a-b);return [name,{medianMs:samples[50],p95Ms:samples[95],candidates:r.entityIds.length,groups:r.groups.map(g=>({source:g.source,count:g.entityIds.length,tier:g.tier,reason:g.reason,included:g.tier!=='WEAK'}))}];}));
+  const buildings=resolveDocumentQuery(queries.buildings!,d),included=resolveDocumentQuery(queries.buildings!,d,[],defaultExcludedGroups(buildings));const p=resolveDocumentPlan([{type:'select_entities',query:queries.buildings!}],d,[],'benchmark','Выбери все здания.');expect(p.matchedEntityIds).toEqual(included.entityIds);
+  const highlightStart=performance.now();for(const e of d.entities.filter(e=>included.entityIds.includes(e.id)))ownerBounds(d,e);const highlightMs=performance.now()-highlightStart;
+  const fitStart=performance.now();const fit=fitToBounds(selectionBounds(d,included.entityIds),{width:1000,height:700},85),fitMs=performance.now()-fitStart;expect(fit).not.toBeNull();
+  expect(resolveDocumentQuery(queries.sourceLayer!,d).entityIds).toHaveLength(7);expect(resolveDocumentQuery(queries.blocks!,d).entityIds).toHaveLength(62);
+  const ground=resolveDocumentQuery(queries.text!,d);expect([...ground.evidence.values()].flat().some(e=>e.text?.includes('Плодородный грунт'))).toBe(true);
+  const target=d.entities.find(e=>e.type==='block_instance'&&d.blocks?.find(b=>b.id===e.blockDefinitionId)?.sourceName==='_ТОПО'&&e.attributePrimitives?.some(p=>p.kind==='text'&&p.content==='27.89'));if(target?.type!=='block_instance')throw Error('Reference 27.89 ATTRIB missing');
+  const attributeIndex=target.attributePrimitives!.findIndex(p=>p.kind==='text'&&p.content==='27.89'),attr=target.attributePrimitives![attributeIndex]!;if(attr.kind!=='text')throw Error();const edited=applyCommand(d,{type:'update-block-attribute',entityId:target.id,attributeIndex,tag:attr.attributeTag!,patch:{value:'27.95'}});
+  expect(resolveDocumentQuery({kind:'block_attribute',tag:attr.attributeTag!,value:'27.95'},edited).entityIds).toContain(target.id);expect(resolveDocumentQuery(queries.attributes!,edited).evidence.get(target.id)?.some(e=>e.attributeIndex===attributeIndex)).not.toBe(true);
+  const report={filename:basename(path!),entities:d.entities.length,indexBuildMs,queries:reports,buildingsIncluded:included.entityIds.length,highlightMs,fitMs,groundEvidence:[...ground.evidence.values()].flat().slice(0,10).map(e=>({text:e.text,path:e.path})),editedAttribute:{tag:attr.attributeTag,handle:attr.source?.handle,newValue:'27.95',found:true}};
+  writeFileSync('docs/audit-results/document-operations-reference.json',JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2));
+},120000);

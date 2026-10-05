@@ -12,7 +12,7 @@ export type SnapCandidate = Omit<SnapResult, 'distanceScreenPx'>;
 export interface SnapProvider { query(cursor: WorldPoint, toleranceWorld: number): Iterable<SnapCandidate> }
 export function createSnapProvider(document: GeoDocument): SnapProvider & { candidates: readonly SnapCandidate[] } {
   const visible = new Set(document.layers.filter(layer => layer.visible).map(layer => layer.id));
-  const entities = document.entities.filter(entity => visible.has(entity.layerId) && entity.type !== 'text');
+  const entities = document.entities.filter(entity => visible.has(entity.layerId) && entity.visible!==false && entity.type !== 'text');
   const seen = new Set<string>(), candidates: SnapCandidate[] = [];
   // Prefer a point's readable name when a vertex also belongs to a boundary/line.
   for (const entity of [...entities.filter(entity => entity.type === 'point'), ...entities.filter(entity => entity.type !== 'point')]) {

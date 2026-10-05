@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { documentActionSchema, isDocumentAction } from '../documentOperations/schema';
+import { normalizeQuery } from '../documentOperations/aliases';
 import { SPATIAL_ANCHORS } from '../geometry/autoPlacement';
 import { AiProviderError } from './reliability';
 
@@ -39,7 +41,7 @@ export const rectanglePlacementSchema = z.discriminatedUnion('type', [
 export const createRectangleIntentSchema = z.strictObject({ type: z.literal('create_rectangle'), name: names, width: z.number().finite().positive(), height: z.number().finite().positive(), sizeSource: z.string().trim().min(1).max(240).optional(), placement: rectanglePlacementSchema });
 export const alongEdgeIntentSchema = z.strictObject({type:z.literal('create_line_along_polygon_edge'),name:names,reference:entityReferenceSchema,side:z.enum(['north','south','east','west']),offsetMeters:z.number().finite().nonnegative(),offsetSide:z.enum(['inside','outside'])});
 export const rectangleArrayIntentSchema = z.strictObject({type:z.literal('create_rectangle_array'),nameBase:names,count:z.number().int().min(1).max(50),width:z.number().finite().positive(),height:z.number().finite().positive(),sizeSource:z.string().trim().min(1).max(240).nullish(),reference:entityReferenceSchema,direction:z.enum(['north','south','east','west']),gapFromReference:gapSchema,itemGap:z.number().finite().nonnegative()});
-export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, createRectangleIntentSchema,alongEdgeIntentSchema,rectangleArrayIntentSchema]);
+export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, createRectangleIntentSchema,alongEdgeIntentSchema,rectangleArrayIntentSchema,...documentActionSchema.options]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 export const requestedPointNames = (action: AiAction): readonly string[] => 'pointNames' in action ? action.pointNames : [];
 export const clarificationSchema = z.strictObject({ status: z.literal('needs_clarification'), questions: z.array(z.string().trim().min(1).max(AI_LIMITS.clarificationQuestionLength)).min(1).max(AI_LIMITS.clarificationQuestions) });
@@ -48,7 +50,10 @@ export const aiTaskSchema = z.strictObject({ actions: z.array(aiActionSchema).mi
   .superRefine((task, ctx) => {
     if (task.actions.reduce((sum, action) => sum + ('points' in action ? action.points.length : requestedPointNames(action).length), 0) > AI_LIMITS.totalReferences)
       ctx.addIssue({ code: 'custom', message: 'Task превышает лимит ссылок' });
+    if(task.actions.some(isDocumentAction)&&!task.actions.every(isDocumentAction))ctx.addIssue({code:'custom',message:'Document operations and geometry creation require separate tasks'});
     task.actions.forEach((action, index) => {
+      if(action.type==='move_entities_to_layer'&&action.target.kind==='created_layer'&&(action.target.actionIndex>=index||task.actions[action.target.actionIndex]?.type!=='create_layer'))ctx.addIssue({code:'custom',message:'Target requires an earlier create_layer action'});
+      if('query'in action&&action.query.kind==='block_attribute'&&!action.query.tag&&!action.query.value)ctx.addIssue({code:'custom',message:'ATTRIB needs tag or value'});
       const ref = 'reference' in action ? action.reference : action.type==='create_rectangle' && 'reference' in action.placement ? action.placement.reference : null;
       if(ref?.kind==='prior_action_result' && (ref.actionIndex>=index || !['create_rectangle','create_boundary_from_named_points'].includes(task.actions[ref.actionIndex]?.type??''))) ctx.addIssue({code:'custom',message:'Spatial reference требует предыдущий polygon output'});
       if (action.type === 'create_rectangle') {
@@ -94,6 +99,19 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
   let cursor = 0;
   const nameCharacter = /[\p{L}\p{N}_-]/u;
   for (const action of parsed.data.actions) {
+    if(isDocumentAction(action)) {
+      const literals:string[]=[];
+      if(action.type==='create_layer')literals.push(action.name);
+      if(action.type==='move_entities_to_layer'&&action.target.kind==='existing_layer')literals.push(action.target.name);
+      if('query'in action) {
+        const q=action.query;
+        if('name'in q)literals.push(q.name);
+        if(q.kind==='text_contains')literals.push(q.text);
+        if(q.kind==='block_attribute'){if(q.tag)literals.push(q.tag);if(q.value)literals.push(q.value);}
+      }
+      if(literals.some(literal=>!normalizeQuery(text).includes(normalizeQuery(literal))))throw new AiProviderError('LOCAL_VALIDATION_ERROR',undefined,'Имена слоёв/блоков и значения поиска должны присутствовать в запросе.');
+      continue;
+    }
     if (action.type === 'create_points') {
       for (const point of action.points) {
         const literal = explicitPointCoordinates(text, point.name);

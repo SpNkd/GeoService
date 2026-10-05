@@ -1,3 +1,4 @@
+import { documentActionSchema } from '../src/documentOperations/schema';
 /** Server-only Vite development endpoint. Never imported by src/main.tsx or a browser module. */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
@@ -27,7 +28,12 @@ create_rectangle_array: nameBase,count(1–50),width,height,sizeSource,reference
 «Четыре грядки 1×4 южнее дома с промежутком 0,8 метра» → {"intent":{"actions":[{"type":"create_rectangle_array","nameBase":"Грядка","count":4,"width":1,"height":4,"sizeSource":null,"reference":{"kind":"named_entity","name":"Дом"},"direction":"south","gapFromReference":null,"itemGap":0.8}]},"unsupported":false}. itemGap=0.8, НЕ 0. Без указанного промежутка нельзя использовать 0: спроси число.
 Не передавай слои/catalog/selection IDs/frame/bounds. Все spatial calculations делает локальный resolver, LLM извлекает смысл. Максимум 1000 точек/ссылок суммарно.
 Критические данные отсутствуют → максимум 3 коротких вопроса до 240 символов. Например «Нарисуй участок, дом 6×4, грядки и газовую трубу с запада» → размеры участка, count/size/itemGap грядок, отступ трубы. Ответ после «Уточнение пользователя:» дополняет исходный текст.
-Unsupported для всего запроса: Move/Delete существующей geometry, layer/style changes, AI labels, PDF, rotation/scale/copy, произвольные constraints, routing вокруг препятствий, нормативное проектирование сети, collision solver. Не создавай частичную геометрию для unsupported части. Если существенные параметры полны и действия поддерживаются — actions без вопросов.`;
+Операции над существующим документом: в actions разрешены find_entities, select_entities, fit_result, isolate_result с query; create_layer с name; move_entities_to_layer с query и target; set_layer_visibility с query и visible. Не смешивай эти операции с созданием geometry в одном task.
+Query строго одно из: {kind:"semantic_concept",concepts:["buildings"]}; {kind:"source_layer",name:"_ГП_ЗИС"}; {kind:"geoservice_layer",name:"Здания"}; {kind:"block_name",name:"VOLUME"}; {kind:"source_type",sourceType:"MULTILEADER"}; {kind:"entity_type",entityType:"dimension"}; {kind:"text_contains",text:"грунт",sourceType:null}; {kind:"block_attribute",tag:null,value:"27.95"}; {kind:"entity_name",name:"Дом"}; {kind:"current_selection"}. Nullable поля обязателен null, если не указаны. text_contains sourceType:"MULTILEADER" только если запрошено искать конкретно мультивыноски. block_attribute: tag/value точные пользовательские значения, хотя бы одно не null.
+semantic concepts: buildings,roads,slopes,utilities,annotations,dimensions,text,blocks,hatches,symbols. «здания/сооружения» → buildings; «дороги/проезды» → roads; «откосы» → slopes. Это намерения, не классификация неизвестного документа. Никогда не угадывай исходные имена слоёв/блоков для semantic concept.
+«Выбери/выдели» → select_entities; «найди» → find_entities (preview и fit без selection); «покажи» → fit_result; «покажи только» → isolate_result. «Покажи все размеры» → fit_result query semantic_concept dimensions. «Выбери все мультивыноски» → select_entities source_type MULTILEADER. «Найди 27.95» → find_entities text_contains 27.95 sourceType:null. «Скрой дороги и откосы» → set_layer_visibility visible:false query semantic_concept concepts:[roads,slopes]. «Выбери всё с исходного DXF-слоя _ГП_ЗИС» → source_layer. Просто «на слое Здания» → geoservice_layer. Сохраняй явно написанные имена и значения, включая подчёркивания. Не переводить VOLUME в buildings.
+«Создай слой Здания и перенеси туда все здания» → РОВНО [{type:"create_layer",name:"Здания"},{type:"move_entities_to_layer",query:{kind:"semantic_concept",concepts:["buildings"]},target:{kind:"created_layer",actionIndex:0}}]. target created_layer только предыдущий create_layer; target existing_layer с name для существующего слоя. «Перенеси выбранные объекты в слой Архив» → move_entities_to_layer query current_selection target existing_layer Архив. Перенос в слой разрешён; перемещение координат существующих объектов запрещено. Нет IDs, predicates, expressions, SQL, JS, commands. Весь каталог и результаты queries неизвестны модели; local resolver выполняется после проверки.
+Unsupported для всего запроса: Move/Delete существующей geometry, style changes, AI labels, PDF, rotation/scale/copy, произвольные constraints, routing вокруг препятствий, нормативное проектирование сети, collision solver. Не создавай частичную геометрию для unsupported части. Если существенные параметры полны и действия поддерживаются — actions без вопросов.`;
 const ACTION_OUTPUT_SCHEMAS: Record<string, unknown>[] = Object.entries({ create_boundary_from_named_points: [3, AI_LIMITS.pointNames], create_polyline_from_named_points: [2, AI_LIMITS.pointNames],
   create_dimension_between_named_points: [2, 2], measure_between_named_points: [2, 2] }).map(([type, [minItems, maxItems]]) =>
   ({ type: 'object', properties: { type: { type: 'string', enum: [type] }, pointNames: { type: 'array',
@@ -48,6 +54,9 @@ ACTION_OUTPUT_SCHEMAS.push(strictObject({ type: { type: 'string', enum: ['create
     strictObject({ type: { type: 'string', enum: ['anchored_in_action_result'] }, polygonActionIndex: { type: 'integer', minimum: 0, maximum: AI_LIMITS.actions - 1 }, anchor: { type: 'string', enum: [...spatialAnchorSchema.options] } })] } }));
 ACTION_OUTPUT_SCHEMAS.push(strictObject({type:{type:'string',enum:['create_line_along_polygon_edge']},name:nameSchema,reference:entityRefSchema,side:{type:'string',enum:['north','south','east','west']},offsetMeters:{type:'number',minimum:0},offsetSide:{type:'string',enum:['inside','outside']}}));
 ACTION_OUTPUT_SCHEMAS.push(strictObject({type:{type:'string',enum:['create_rectangle_array']},nameBase:nameSchema,count:{type:'integer',minimum:1,maximum:50},width:{type:'number',exclusiveMinimum:0},height:{type:'number',exclusiveMinimum:0},sizeSource:{anyOf:[{type:'string',minLength:1,maxLength:240},{type:'null'}]},reference:entityRefSchema,direction:{type:'string',enum:['north','south','east','west']},gapFromReference:nullableGap,itemGap:{type:'number',description:'Exact clear gap between array items in metres. Fractional decimals MUST be preserved (e.g. 0.8). This is not gapFromReference; do not truncate to integer.'}}));
+const { $schema: _documentSchemaVersion, ...documentOutputSchema } = z.toJSONSchema(documentActionSchema); void _documentSchemaVersion;
+const providerSchema=(value:unknown):unknown=>Array.isArray(value)?value.map(providerSchema):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>key==='const'?['enum',[item]]:[key==='oneOf'?'anyOf':key,providerSchema(item)])):value;
+ACTION_OUTPUT_SCHEMAS.push(providerSchema(documentOutputSchema) as Record<string,unknown>);
 ACTION_OUTPUT_SCHEMAS.push(bulkOutputSchema);
 export const OPENAI_OUTPUT_SCHEMA = { type: 'object', properties: { intent: { anyOf: [
   { type: 'object', properties: { actions: { type: 'array', items: { anyOf: ACTION_OUTPUT_SCHEMAS }, minItems: 1, maxItems: AI_LIMITS.actions } }, required: ['actions'], additionalProperties: false },
@@ -143,6 +152,15 @@ const fixture = (type: string, ...pointNames: string[]) => ({ type, pointNames }
 /** Named fixtures only; no hidden NLP fallback. */
 export function developmentMockProvider(): MockAiIntentProvider {
   const fixtures = new Map<string, unknown>([
+    ['Выбери все здания',{actions:[{type:'select_entities',query:{kind:'semantic_concept',concepts:['buildings']}}]}],
+    ['Создай слой Здания и перенеси туда все здания',{actions:[{type:'create_layer',name:'Здания'},{type:'move_entities_to_layer',query:{kind:'semantic_concept',concepts:['buildings']},target:{kind:'created_layer',actionIndex:0}}]}],
+    ['Скрой дороги и откосы',{actions:[{type:'set_layer_visibility',query:{kind:'semantic_concept',concepts:['roads','slopes']},visible:false}]}],
+    ['Выбери все блоки VOLUME',{actions:[{type:'select_entities',query:{kind:'block_name',name:'VOLUME'}}]}],
+    ['Найди все надписи со словом грунт',{actions:[{type:'find_entities',query:{kind:'text_contains',text:'грунт',sourceType:null}}]}],
+    ['Выбери все мультивыноски',{actions:[{type:'select_entities',query:{kind:'source_type',sourceType:'MULTILEADER'}}]}],
+    ['Покажи только здания',{actions:[{type:'isolate_result',query:{kind:'semantic_concept',concepts:['buildings']}}]}],
+    ['Перенеси выбранные объекты в слой Архив',{actions:[{type:'move_entities_to_layer',query:{kind:'current_selection'},target:{kind:'existing_layer',name:'Архив'}}]}],
+
     ['Создай границу по точкам P1 P2 P3 P4', boundary('P1', 'P2', 'P3', 'P4')],
     ['Создай границу по точкам P1, P2, P3 и P4', boundary('P1', 'P2', 'P3', 'P4')],
     ['Создай границу по точкам P1, P4, P8 и P12', boundary('P1', 'P4', 'P8', 'P12')],

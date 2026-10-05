@@ -1,3 +1,5 @@
+import { editorViewDocument } from '../store/editor';
+import { DocumentQueryHighlight } from '../renderer/DocumentQueryHighlight';
 import { createHitStack, hitOwners, resolveDeepSelection, selectedMoveOwner, type HitCandidate } from './deepSelection';
 import { composeScene, type RendererMode } from '../renderer/hybridScene';
 import { CanvasStratum } from '../renderer/CanvasStratum';
@@ -32,12 +34,12 @@ import type { EditorAction, EditorState } from '../store/editor';
 interface Props {
   onPickPoint?: ((id: string) => void) | undefined; referencePreview?: HorizontalReference | undefined;
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
-  onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; aiReferenceIds?: readonly string[] | undefined; aiPreview?: { id: string; result: ReadyResolution }[];
+  onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; documentHighlightIds?:readonly string[]|undefined; aiReferenceIds?: readonly string[] | undefined; aiPreview?: { id: string; result: ReadyResolution }[];
 }
 type Drag = { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
-export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], aiReferenceIds = [], onPickPoint, referencePreview }: Props) {
+export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], aiReferenceIds = [], documentHighlightIds = [], onPickPoint, referencePreview }: Props) {
   const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
   const hitCycle = useRef<{document: typeof state.document; point: ScreenPoint; candidates: HitCandidate[]; index: number; zoom:number; center:WorldPoint} | null>(null);
   const lastTextClick = useRef<{ entityId: string; at: number; point: ScreenPoint } | null>(null);
@@ -50,9 +52,11 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const [snap, setSnap] = useState<SnapResult | null>(null);
   const [textDraft, setTextDraft] = useState<{ anchor: GeometryAnchor; screen: ScreenPoint; content: string } | null>(null);
   const [editingText, setEditingText] = useState<{ entityId: string; content: string; screen: ScreenPoint } | null>(null);
-  const { viewport, tool } = state;
-  const document = state.selectionMove?.previewDocument ?? state.document;
-  const committed = state.transactionBefore ?? state.document;
+  const { viewport, tool, isolation } = state;
+  const canonical = state.selectionMove?.previewDocument ?? state.document;
+  const document = useMemo(()=>editorViewDocument({document:canonical,isolation}),[isolation,canonical]);
+  const committedBase=state.transactionBefore??state.document;
+  const committed = useMemo(()=>editorViewDocument({document:committedBase,isolation}),[isolation,committedBase]);
   const provider = useMemo(() => createSnapProvider(committed), [committed]);
   const items = useMemo(() => renderItems(document), [document]);
   const scene=useMemo(()=>composeScene(items,rendererMode),[items,rendererMode]);
@@ -430,6 +434,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         const vertex = document.vertices[control.vertexId]!, p = worldToScreen(vertex, viewport, size), survey = modelToSurveyXY(vertex, reference.transform);
         return <g key={control.pointEntityId}><circle cx={p.x} cy={p.y} r={11} fill="none" stroke="#b77922" strokeWidth={2} strokeDasharray={referencePreview ? '3 3' : undefined} /><text x={p.x + 15} y={p.y - 12}>{i === 0 ? 'A' : 'B'} · E {survey.e.toFixed(3)} · N {survey.n.toFixed(3)}</text></g>;
       })}</g>}
+      <DocumentQueryHighlight document={state.document} entityIds={documentHighlightIds} viewport={viewport} size={size}/>
       {aiReferenceIds.map(id=>{const entity=document.entities.find(e=>e.id===id);if(!entity)return null;const points=entityPoints(entity,document.vertices).map(p=>worldToScreen(p,viewport,size));return <g key={id} data-testid="ai-reference-highlight" pointerEvents="none" stroke="#b77922" strokeWidth={3} strokeDasharray="7 4" fill="#b7792210"><GeometryPath points={points} closed={entity.type==='polygon'}/></g>;})}
       {aiPreview.map((action, index) => <AiPreviewView key={action.id} result={action.result} viewport={viewport} size={size} actionNumber={aiPreview.length > 1 ? index + 1 : undefined} />)}
       {!state.deepSelection&&scene.strata.filter(s=>s.kind==='canvas').flatMap(s=>s.items).filter(item=>state.selectedEntityIds.includes(item.entity.id)).map(item=><CanvasSelectionView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}/>)}

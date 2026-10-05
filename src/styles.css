@@ -329,3 +329,14 @@ h2, h3, p { margin: 0; }
 .persistence-startup { min-height: 100vh; display: grid; place-items: center; color: #607782; background: #f6f9fb; font-size: 13px; }
 .persistence-status { color: #607e71; white-space: nowrap; }
 .persistence-status.error { color: #a4513e; }
+
+.document-search { padding: 14px; border-bottom: 1px solid #d7dfe5; }
+.document-search summary { font-weight: 600; margin-bottom: 10px; cursor: pointer; }
+.document-search label, .document-search small, .query-result small, .query-group small { display: block; }
+.document-search input { width: 100%; margin: 6px 0; }
+.search-results { max-height: 260px; overflow: auto; }
+.query-result { border-bottom: 1px solid #d7dfe5; padding: 7px 0; }
+.query-result button { font-size: 12px; }
+.query-group { display: flex; align-items: start; gap: 7px; margin: 7px 0; font-size: 12px; }
+.query-group input { width: auto; margin-top: 3px; }
+.isolation-banner { position: absolute; top: 38px; left: 12px; padding: 8px 12px; background: #fff7e1; border: 1px solid #e6c771; border-radius: 6px; z-index: 3; font-size: 12px; }

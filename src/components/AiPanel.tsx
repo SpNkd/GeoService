@@ -1,3 +1,5 @@
+import type { ViewSize } from '../geometry';
+import { DocumentOperationsPreview } from './DocumentOperationsPreview';
 import { lazy, Suspense, memo, useEffect, useMemo, useState, type Dispatch, type FormEvent } from 'react';
 import { AiRequestRunner, HttpAiIntentProvider, providerModeSchema, type AiIntentProvider, type ProviderMode } from '../ai/provider';
 import { AI_LIMITS, readBoundedJson, utf8Bytes } from '../ai/intent';
@@ -14,8 +16,8 @@ const Diagnostics = import.meta.env.DEV ? lazy(() => import('./AiDiagnostics')) 
 const operationLabels = { array:'массив прямоугольников', 'edge-line':'линия вдоль стороны', points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
 const defaultProvider = new HttpAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
-interface Props { ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
-export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, documentEpoch, provider = defaultProvider }: Props) {
+interface Props { size:ViewSize; ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
+export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionActive, documentEpoch, provider = defaultProvider }: Props) {
   const [text, setText] = useState('Создай границу по точкам P1, P2, P3 и P4');
   const [lastDiagnostic, setLastDiagnostic] = useState<AiDiagnostic | null>(null);
   const [clarificationAnswer, setClarificationAnswer] = useState('');
@@ -46,7 +48,7 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
   return <section className="ai-panel" aria-label="AI Assistant">
     <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? 'OpenRouter' : 'Не подключён'}</span></div>
-    <p className="ai-caption">Точки · прямоугольники · граница · размеры · измерение</p>
+    <p className="ai-caption">Создание геометрии · поиск и операции над документом</p>
     <form onSubmit={generate}>
       <label htmlFor="ai-request">Запрос</label>
       <textarea id="ai-request" value={text} maxLength={AI_LIMITS.requestBytes} onChange={event => setText(event.target.value)} rows={3} />
@@ -62,6 +64,8 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
         {ai.code !== 'UNSUPPORTED' && <button type="button" className="tool-button compact" onClick={() => run(ai.originalText ?? text)}>Повторить запрос</button>}
         {import.meta.env.DEV && <details><summary>Подробнее</summary><p>{ai.id} · {ai.code ?? 'LOCAL_VALIDATION_ERROR'}</p></details>}
       </div>}
+      {(ai.status==='document-preview'||ai.status==='document-stale')&&<DocumentOperationsPreview ai={ai} dispatch={dispatch} size={size} transactionActive={transactionActive}/>}
+      {ai.status==='document-applied'&&<p role="status">{ai.text}</p>}
       {ai.status === 'applied' && <p className="ai-message">Изменения применены. Undo отменит их одной операцией.</p>}
       {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>
         <label>Слой новых объектов<select aria-label="Слой новых объектов" value={preview.plan.targetLayerId} disabled={ai.status!=='preview'||transactionActive} onChange={e=>dispatch({type:'ai-target-layer',layerId:e.target.value})}>{!preview.plan.basedOnDocument.layers.some(l=>l.id===preview.plan.targetLayerId&&l.visible&&!l.locked)&&<option value={preview.plan.targetLayerId}>Выберите доступный слой</option>}{preview.plan.basedOnDocument.layers.filter(l=>l.visible&&!l.locked).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></label>

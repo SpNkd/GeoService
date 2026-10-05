@@ -7,6 +7,7 @@ import type { DocumentCommand } from './commands';
 const entity = z.discriminatedUnion('type', [entitySchema.options[0].strict(), ...entitySchema.options.slice(1).map(option => option.strict())])
   .refine(value => !('vertexIds' in value) || value.vertexIds.length <= 50000, 'Объект превышает лимит 50 000 ссылок на вершины');
 const commandSchema = z.discriminatedUnion('type', [
+  z.strictObject({type:z.literal('set-entities-layer'),entityIds:z.array(id).min(1).max(50000),layerId:id}),
   z.strictObject({ type: z.literal('move-entities'), entityIds: z.array(id).min(1).max(50000), delta: z.strictObject({ x: finiteNumber, y: finiteNumber }) }),
   z.strictObject({ type: z.literal('set-model-frame'), frame: z.enum(['local', 'projected']) }),
   z.strictObject({ type: z.literal('set-horizontal-reference'), pairs: z.tuple([z.strictObject({ pointEntityId: id, survey: surveyXYSchema }), z.strictObject({ pointEntityId: id, survey: surveyXYSchema })]).nullable() }),

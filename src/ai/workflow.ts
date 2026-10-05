@@ -1,3 +1,6 @@
+import { isDocumentAction } from '../documentOperations/schema';
+import { applyDocumentPlan, isDocumentPlanStale, resolveDocumentPlan, type DocumentOperationsPlan } from '../documentOperations/plan';
+import type { ViewSize } from '../geometry';
 import type { GeoDocument } from '../domain/model';
 import { parseCommand } from '../domain/commandSchema';
 import { editorReducer, type EditorAction, type EditorState } from '../store/editor';
@@ -7,11 +10,11 @@ import type { RequestEvent } from './provider';
 import { resolveAiTaskPlan, refreshTask, taskCommands, type ResolvedAiTaskPlan } from './task';
 export type { AiPlan, MutationPlan, ResolvedAiTaskPlan } from './task';
 
-export type AiState = { status: 'needs_clarification'; originalText: string; questions: string[] } | { status: 'idle' } | { status: 'parsing'; id: string; text: string; targetLayerId:string; selectionEntityIds:readonly string[] }
+export type AiState = {status:'document-preview'|'document-stale';plan:DocumentOperationsPlan;notice:string|null} | {status:'document-applied';text:string} | { status: 'needs_clarification'; originalText: string; questions: string[] } | { status: 'idle' } | { status: 'parsing'; id: string; text: string; targetLayerId:string; selectionEntityIds:readonly string[] }
   | { status: 'preview' | 'stale'; plan: ResolvedAiTaskPlan; notice: string | null }
   | { status: 'applied'; id: string; results: ResolvedAiTaskPlan | null } | { status: 'error'; message: string; code?: AiErrorCode; id?: string; originalText?: string };
 export interface ApplicationState { editor: EditorState; ai: AiState }
-export type ApplicationAction = EditorAction | { type: 'ai-event'; event: RequestEvent }
+export type ApplicationAction = EditorAction | {type:'document-apply';size:ViewSize} | {type:'document-refresh'} | {type:'document-fit-preview';size:ViewSize} | {type:'document-group';actionIndex:number;groupId:string;included:boolean} | { type: 'ai-event'; event: RequestEvent }
   | { type: 'ai-cancel' } | { type: 'ai-choose'; name: string; entityId: string }
   | {type:'ai-target-layer';layerId:string} | { type: 'ai-apply' } | { type: 'ai-refresh' } | { type: 'ai-offset'; actionId?: string; offset: number };
 export type ExecutionGateResult = { status: 'blocked'; message: string } | { status: 'refreshed'; plan: ResolvedAiTaskPlan }
@@ -31,6 +34,29 @@ export function mutationExecutionGate(plan: ResolvedAiTaskPlan, editor: EditorSt
 }
 export function applicationReducer(state: ApplicationState, action: ApplicationAction): ApplicationState {
   switch (action.type) {
+    case 'document-group': {
+      if(state.ai.status!=='document-preview'||state.editor.transactionBefore||isDocumentPlanStale(state.ai.plan,state.editor))return state;
+      const plan=state.ai.plan,choices=new Map(plan.actions.map((a,i)=>[i,new Set(a.excludedGroups)]));
+      const group=plan.actions[action.actionIndex]?.result?.groups.find(g=>g.id===action.groupId);if(!group)return state;
+      const excluded=choices.get(action.actionIndex)!;if(action.included)excluded.delete(group.id);else excluded.add(group.id);
+      return {...state,ai:{...state.ai,plan:resolveDocumentPlan(plan.actions.map(a=>a.intent),state.editor.document,plan.selectionIds,plan.id,plan.text,choices)}};
+    }
+    case 'document-refresh': {
+      if((state.ai.status!=='document-preview'&&state.ai.status!=='document-stale')||state.editor.transactionBefore)return state;
+      const plan=state.ai.plan;
+      return {...state,ai:{status:'document-preview',notice:'Результат обновлён. Проверьте и подтвердите.',plan:resolveDocumentPlan(plan.actions.map(a=>a.intent),state.editor.document,state.editor.selectedEntityIds,plan.id,plan.text,new Map(plan.actions.map((a,i)=>[i,a.excludedGroups])))}};
+    }
+    case 'document-fit-preview': {
+      if(state.ai.status!=='document-preview'||state.editor.transactionBefore||isDocumentPlanStale(state.ai.plan,state.editor))return state;
+      return {...state,editor:editorReducer(state.editor,{type:'fit-entities',entityIds:state.ai.plan.matchedEntityIds,size:action.size})};
+    }
+    case 'document-apply': {
+      if(state.ai.status!=='document-preview'||state.editor.transactionBefore)return state;
+      if(isDocumentPlanStale(state.ai.plan,state.editor))return {...state,ai:{...state.ai,status:'document-stale',notice:'Обновите preview.'}};
+      const editor=applyDocumentPlan(state.ai.plan,state.editor,action.size);
+      if(editor.error)return {...state,editor,ai:{...state.ai,notice:editor.error}};
+      return {editor,ai:{status:'document-applied',text:editor.document!==state.editor.document?'Операция применена. Undo отменит весь пакет одним действием.':'Операция выполнена. Документ и история не изменены.'}};
+    }
     case 'ai-cancel': return { ...state, ai: { status: 'idle' } };
     case 'ai-event': {
       const event = action.event;
@@ -39,6 +65,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       if (event.type === 'failure') return { ...state, ai: { status: 'error', message: event.message, ...(event.code ? { code: event.code } : {}), id: event.id, originalText: state.ai.text } };
       if ('status' in event.result && event.result.status === 'needs_clarification') return { ...state, ai: { status: 'needs_clarification', originalText: state.ai.text, questions: event.result.questions } };
       if ('status' in event.result) return { ...state, ai: { status: 'error', message: 'Эта команда пока не поддерживается.', code: 'UNSUPPORTED', id: event.id, originalText: state.ai.text } };
+      if(event.result.actions.every(isDocumentAction))return {...state,ai:{status:'document-preview',notice:null,plan:resolveDocumentPlan(event.result.actions,state.editor.transactionBefore??state.editor.document,state.ai.selectionEntityIds,event.id,state.ai.text)}};
       return { ...state, ai: { status: 'preview', notice: null, plan: resolveAiTaskPlan(event.result,
         state.editor.transactionBefore ?? state.editor.document, new Map(), { id: event.id, text: state.ai.text, targetLayerId:state.ai.targetLayerId,selectionEntityIds:state.ai.selectionEntityIds }) } };
     }
@@ -88,6 +115,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       const committed = editor.transactionBefore ?? editor.document;
       const changed = committed !== (state.editor.transactionBefore ?? state.editor.document);
       let ai = state.ai;
+      if((ai.status==='document-preview'||ai.status==='document-stale')&&isDocumentPlanStale(ai.plan,{...editor,document:committed}))ai={...ai,status:'document-stale',notice:'Документ или выделение изменились. Обновите preview перед Apply.'};
       const selectionChanged=editor.selectedEntityIds.length!==state.editor.selectedEntityIds.length||editor.selectedEntityIds.some((id,i)=>id!==state.editor.selectedEntityIds[i]);
       if(selectionChanged&&(ai.status==='preview'||ai.status==='stale')&&usesSelection(ai.plan)) ai={...ai,status:'stale',notice:'Выделение изменилось. Пересчитайте план перед Apply.'};
       if (changed && (ai.status === 'preview' || ai.status === 'stale')) ai = ai.plan.requiresConfirmation
