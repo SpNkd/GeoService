@@ -294,3 +294,7 @@ h2, h3, p { margin: 0; }
 @media(max-width:850px) { .reference-controls { grid-template-columns:1fr; } }
 
 .coordinate-reference-panel select { width:100%; margin:5px 0; padding:6px; border:1px solid #cbdde7; border-radius:4px; background:white; color:#405d6b; font-size:11px; }
+
+.move-selection label { display: grid; grid-template-columns: 65px minmax(0, 1fr); align-items: center; gap: 8px; margin: 8px 0; }
+.move-selection input { min-width: 0; width: 100%; padding: 7px; border: 1px solid #cbdde7; border-radius: 4px; color: #405d6b; background: white; font: 12px monospace; }
+.move-selection button { margin-top: 6px; }

@@ -93,6 +93,7 @@ export default function App() {
     switch (id) {
       case 'select': case 'line': case 'point': case 'polyline': case 'polygon': case 'text': case 'dimension': case 'measure':
         dispatch({ type: 'tool', tool: id }); break;
+      case 'move': dispatch({ type: 'open-move-input' }); break;
       case 'ortho': dispatch({ type: 'toggle-ortho' }); break;
       case 'fit': case 'fit-extents': fit(); break;
       case 'save': save(); break;
@@ -109,8 +110,8 @@ export default function App() {
       }
       case 'cancel': window.dispatchEvent(new Event('geoservice:escape')); dispatch({ type: 'tool', tool: 'select' });
         if (state.dimensionPick) dispatch({ type: 'cancel-dimension-pick' });
-        else if (!state.dimensionRetarget) dispatch({ type: 'select', entityId: null });
-        break;
+        else if (!state.dimensionRetarget && !state.selectionMove) dispatch({ type: 'select', entityId: null });
+        dispatch({ type: 'close-move-input' }); break;
       case 'help': setShortcutsOpen(true); break;
     }
   }, [dispatch, fit, save, startNew, state]);
@@ -188,6 +189,7 @@ export default function App() {
           return <button key={tool} className={`tool-button compact ${state.tool === tool ? 'active' : ''}`} aria-label={`Инструмент: ${label}`} aria-pressed={state.tool === tool} title={`${label}${shortcut ? ` · ${shortcut}` : ''}`} onClick={() => dispatch({ type: 'tool', tool })}><Icon name={icon} size={16} />{label}</button>;
         })}
       </div><div className="toolbar-divider" />
+      <button className="tool-button compact" aria-label="Переместить выбор" title="Переместить выбор · M" disabled={!state.selectedEntityIds.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'open-move-input' })}>Move…</button>
       <button className="tool-button compact" aria-label="Отменить" title="Отменить · ⌘/Ctrl+Z" disabled={!state.past.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'undo' })}><Icon name="undo" size={16} />Undo</button>
       <button className="tool-button compact" aria-label="Повторить" title="Повторить · ⌘/Ctrl+Shift+Z" disabled={!state.future.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'redo' })}><Icon name="redo" size={16} />Redo</button>
       <div className="toolbar-divider" /><button className="tool-button compact" title="Вписать · F / ZE" onClick={fit}><Icon name="fit" size={16} />Вписать</button>
@@ -206,14 +208,14 @@ export default function App() {
       <label>Координаты <select aria-label="Отображение координат" value={state.coordinateDisplay} onChange={event => dispatch({ type: 'coordinate-display', mode: event.target.value as 'model' | 'survey' })}><option value="model">Model · X/Y</option><option value="survey">Survey · E/N</option></select></label>
       <label>Подписи точек <select aria-label="Подписи точек" value={state.pointLabelMode} onChange={event => dispatch({ type: 'point-labels', mode: event.target.value as PointLabelMode })}><option value="name">Имя</option><option value="name-z">Имя + Z</option><option value="z">Только Z</option></select></label>
       <label><input type="checkbox" checked={state.showLineLengths} onChange={() => dispatch({ type: 'toggle-line-lengths' })} />Длины линий</label>
-      <span>Shift + клик: выбрать точки по порядку</span>
+      <span>Shift + клик: добавить в выбор</span>
     </div>
     <main className="workspace"><LayersPanel inert={georeferenceOpen} state={state} dispatch={dispatch} onCalibrate={() => { dispatch({ type: 'tool', tool: 'select' }); setGeoreferenceOpen(true); }} /><div className="drawing-area">
       <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} />
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
     </div><div inert={georeferenceOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
-    <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (state.dimensionPick ? `Выберите существующую вершину для ${state.dimensionPick.endpoint === 'start' ? 'начала' : 'конца'} размера · Esc отмена` : null) ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
+    <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (state.dimensionPick ? `Выберите существующую вершину для ${state.dimensionPick.endpoint === 'start' ? 'начала' : 'конца'} размера · Esc отмена` : null) ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (state.selectionMove ? `Перемещение: ΔX ${formatMeasure(state.selectionMove.delta.x)} · ΔY ${formatMeasure(state.selectionMove.delta.y)} м${state.selectionMove.resolved.affectedEntityIds.length ? ` · затронет ${state.selectionMove.resolved.affectedEntityIds.length} связанных объектов` : ''}` : state.selectedEntityIds.length > 1 ? `Выбрано: ${state.selectedEntityIds.length} объектов` : selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>{state.coordinateDisplay === 'model' ? 'X' : 'E'} <b data-testid="cursor-x">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.x) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.e) : '—'}</b></span><span>{state.coordinateDisplay === 'model' ? 'Y' : 'N'} <b data-testid="cursor-y">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.y) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.n) : '—'}</b></span><span>м</span></div>
       <span className="status-grid">Привязка: {state.snapOptions.gridStep ?? 1} м · ORTHO {state.ortho ? 'ON' : 'OFF'}</span><span className="status-zoom" data-testid="zoom-label">{formatMeasure(state.viewport.pixelsPerUnit)} px/м</span>
     </footer>

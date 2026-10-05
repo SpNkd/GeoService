@@ -1,4 +1,5 @@
 import { documentSurveyXY, modelToAbsoluteZ } from '../geometry/georeferencing';
+import { MoveSelectionPanel } from './MoveSelectionPanel';
 import { memo, useEffect, useState, type Dispatch } from 'react';
 import { entityVertexIds, type Entity, type GeoDocument, type PointEntity, type TextEntity, type LabelEntity } from '../domain/model';
 import { distance, pathLength, polygonArea } from '../geometry';
@@ -171,6 +172,7 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
   const locked = entity ? isLayerLocked(state.document, entity) : false;
   return <aside className="right-panel" aria-label="Свойства объекта">
     <div className="panel-heading"><h2>Свойства</h2><span className="subtle">{selectedLayer ? 'Слой' : state.selectedEntityIds.length > 1 ? `${state.selectedEntityIds.length} объектов` : entity ? '1 объект' : `Текущий: ${state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'}`}</span></div>
+    <MoveSelectionPanel state={state} dispatch={dispatch} />
     {state.orderedPointIds.length >= 2 && <div className="ordered-selection"><h3>Точки по порядку · {state.orderedPointIds.length}</h3><ol>{state.orderedPointIds.map(id => <li key={id}>{state.document.entities.find(entity => entity.id === id)?.name}</li>)}</ol><div><button onClick={() => dispatch({ type: 'from-selected-points', kind: 'polyline' })}>Создать полилинию</button><button disabled={state.orderedPointIds.length < 3} onClick={() => dispatch({ type: 'from-selected-points', kind: 'polygon' })}>Создать границу</button></div></div>}
     {selectedLayer ? <LayerProperties layer={selectedLayer} state={state} dispatch={dispatch} /> : entity ? <div className="inspector-content">
       <div className="entity-heading"><span className="entity-icon"><Icon name={entity.type === 'polyline' ? 'line' : entity.type === 'label' ? 'text' : entity.type} size={23} /></span><div><h3>{entity.name}</h3><span>{typeNames[entity.type]}</span></div><button className="close-button" aria-label="Снять выбор" onClick={() => dispatch({ type: 'select', entityId: null })}>×</button></div>

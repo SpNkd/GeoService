@@ -52,7 +52,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
     case 'polyline': case 'polygon': {
       shape = <>
         {entity.type === 'polygon'
-          ? <GeometryPath points={screen} closed fill={selected ? '#277ec110' : style.fill} {...attributes} />
+          ? <><path d={`M${screen.map(p => `${p.x},${p.y}`).join('L')}Z`} fill="transparent" stroke="transparent" strokeWidth={14} pointerEvents="all" data-move-body="" /><GeometryPath points={screen} closed fill={selected ? '#277ec110' : style.fill} {...attributes} pointerEvents="none" /></>
           : <><GeometryPath points={screen} closed={false} fill="none" stroke="transparent" strokeWidth={14} /><GeometryPath points={screen} closed={false} fill="none" {...attributes} pointerEvents="none" /></>}
         {editable && screen.map((p, i) => locked && !locked.has(ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
       </>;

@@ -90,7 +90,10 @@ test('inspector pick accepts only existing vertices, supports cancel, and midpoi
 
   // A line midpoint is a valid ordinary snap candidate, but dimension retarget accepts vertex candidates only.
   await page.getByRole('button', { name: 'Инструмент: Линия', exact: true }).click(); await clickPoint(page, 'P1'); await clickPoint(page, 'P2');
+  await expect(page.locator('[data-entity-type="line"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Инструмент: Выбор', exact: true }).click();
+  // Drawing owns point clicks while its tool is active. Explicitly reselect the dimension after creating the line.
+  await page.locator('[data-entity-type="dimension"] [data-dimension-text-handle]').click();
   const endGrip = page.getByTestId('dimension-end-grip'), from = await center(endGrip), a = await pointCenter(page, 'P1'), b = await pointCenter(page, 'P2');
   await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 8 }); await page.mouse.up();
   await expect(page.getByTestId('editor-error')).toContainText('существующей вершине');

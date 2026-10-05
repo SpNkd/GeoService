@@ -1,4 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type PointerEvent } from 'react';
+import { resolveSelectionMove, selectionTranslation } from '../domain/selectionMove';
+import { selectionBounds } from '../renderer/selectors';
 import { documentModelFrame, modelToSurveyXY, surveyNorthDirection } from '../geometry/georeferencing';
 import { canEditVertex, isLayerLocked } from '../domain/commands';
 import { entityVertexIds, type HorizontalReference, type Vertex, type WorldPoint } from '../domain/model';
@@ -22,7 +24,7 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
+type Drag = { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
 export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], onPickPoint, referencePreview }: Props) {
@@ -35,8 +37,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const [snap, setSnap] = useState<SnapResult | null>(null);
   const [textDraft, setTextDraft] = useState<{ anchor: GeometryAnchor; screen: ScreenPoint; content: string } | null>(null);
   const [editingText, setEditingText] = useState<{ entityId: string; content: string; screen: ScreenPoint } | null>(null);
-  const { viewport, tool, document } = state;
-  const committed = state.transactionBefore ?? document;
+  const { viewport, tool } = state;
+  const document = state.selectionMove?.previewDocument ?? state.document;
+  const committed = state.transactionBefore ?? state.document;
   const provider = useMemo(() => createSnapProvider(committed), [committed]);
   const items = useMemo(() => renderItems(document), [document]);
   const previousTool = useRef(tool);
@@ -121,6 +124,11 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       const result = findSnapCandidate(raw, provider, viewport, { ...state.snapOptions, enabled: true, vertex: true, midpoint: false, grid: false, tolerancePx: 12 });
       announceSnap(result?.type === 'vertex' ? result : null); return;
     }
+    if (active?.kind === 'selection' && active.pointerId === pointerId) {
+      if (!active.moved && Math.hypot(point.x - active.screenStart.x, point.y - active.screenStart.y) < 3) return;
+      active.moved = true; announceSnap(null);
+      dispatch({ type: 'preview-selection-move', delta: selectionTranslation(active.start, screenToWorld(point, viewport, size), shiftKey) }); return;
+    }
     if (active?.kind === 'vertex' && active.pointerId === pointerId) {
       const position = anchorAt(point, active.vertex.id).position;
       dispatch({ type: 'transient', command: { type: 'update-vertex', vertexId: active.vertex.id,
@@ -178,10 +186,20 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       else dispatch({ type: 'report-error', message: 'Выберите существующую вершину.' });
       return;
     }
+    // Active geometry handles outrank wide annotation hit areas at the same screen position.
+    if (tool === 'select') for (const entity of document.entities) {
+      if (!state.selectedEntityIds.includes(entity.id) || !['line', 'polyline', 'polygon'].includes(entity.type) || isLayerLocked(document, entity)) continue;
+      for (const vertexId of entityVertexIds(entity)) {
+        const vertex = document.vertices[vertexId]!, screen = worldToScreen(vertex, viewport, size);
+        if (Math.abs(screen.x - point.x) > 6 || Math.abs(screen.y - point.y) > 6 || !canEditVertex(document, vertexId)) continue;
+        dispatch({ type: 'select', entityId: entity.id }); dispatch({ type: 'begin-transaction' });
+        drag.current = { kind: 'vertex', pointerId: event.pointerId, vertex };
+        event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
+      }
+    }
     // Endpoint grips have a screen-space priority probe so another entity painted above the dimension cannot steal the drag.
-    if (!event.shiftKey && state.selectionId) {
-      const selectedDimension = document.entities.find(item => item.id === state.selectionId);
-      if (selectedDimension?.type === 'dimension' && !isLayerLocked(document, selectedDimension)) {
+    if (tool === 'select') for (const selectedDimension of document.entities) {
+      if (state.selectedEntityIds.includes(selectedDimension.id) && selectedDimension.type === 'dimension' && !isLayerLocked(document, selectedDimension)) {
         for (const endpoint of ['start', 'end'] as const) {
           const vertexId = endpoint === 'start' ? selectedDimension.startVertexId : selectedDimension.endVertexId;
           const endpointScreen = worldToScreen(document.vertices[vertexId]!, viewport, size);
@@ -215,23 +233,26 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     }
     if (tool === 'polyline' || tool === 'polygon') { const anchor = anchorAt(point, undefined, event.shiftKey); setDraft(previous => [...previous, anchor]); setDrawCursor(anchor.position); return; }
     if (tool === 'text') { setTextDraft({ anchor: anchorAt(point), screen: point, content: '' }); return; }
-    // Active geometry handles outrank wide annotation hit areas at the same screen position.
-    if (!event.shiftKey) for (const entity of document.entities) {
-      if (!state.selectedEntityIds.includes(entity.id) || !['line', 'polyline', 'polygon'].includes(entity.type) || isLayerLocked(document, entity)) continue;
-      for (const vertexId of entityVertexIds(entity)) {
-        const vertex = document.vertices[vertexId]!, screen = worldToScreen(vertex, viewport, size);
-        if (Math.abs(screen.x - point.x) > 6 || Math.abs(screen.y - point.y) > 6 || !canEditVertex(document, vertexId)) continue;
-        dispatch({ type: 'select', entityId: entity.id }); dispatch({ type: 'begin-transaction' });
-        drag.current = { kind: 'vertex', pointerId: event.pointerId, vertex };
-        event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
-      }
-    }
     if (hit) {
       const entityId = hit.getAttribute('data-entity-id')!;
       const entity = document.entities.find(item => item.id === entityId);
       if (!entity) return;
-      dispatch({ type: 'select', entityId, toggle: event.shiftKey });
-      if (event.shiftKey) return;
+      const alreadySelected = state.selectedEntityIds.includes(entityId);
+      const selection = alreadySelected ? state.selectedEntityIds : [entityId];
+      const groupMove = entity.type !== 'dimension' && (selection.length > 1 || ['line', 'polyline', 'polygon'].includes(entity.type) || entity.type === 'point' && event.shiftKey && alreadySelected);
+      if (event.shiftKey && (!alreadySelected || !groupMove)) { dispatch({ type: 'select', entityId, toggle: true }); return; }
+      if (!alreadySelected) dispatch({ type: 'select', entityId });
+      if (groupMove) {
+        try { resolveSelectionMove(committed, selection); }
+        catch (error) {
+          if (event.shiftKey) dispatch({ type: 'select', entityId, toggle: true });
+          else dispatch({ type: 'report-error', message: error instanceof Error ? error.message : 'Нельзя переместить выбор' });
+          return;
+        }
+        dispatch({ type: 'begin-selection-move', entityIds: selection });
+        drag.current = { kind: 'selection', pointerId: event.pointerId, entityId, start: screenToWorld(point, viewport, size), screenStart: point, moved: false, toggleOnClick: event.shiftKey };
+        event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
+      }
       if (entity.type === 'text' && !isLayerLocked(document, entity)) {
         const previous = lastTextClick.current, now = performance.now();
         if (previous?.entityId === entity.id && now - previous.at < 450 && Math.hypot(point.x - previous.point.x, point.y - previous.point.y) < 8) {
@@ -275,7 +296,10 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     flushMove(); const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
     if (active.kind === 'dimension-retarget') dispatch({ type: 'finish-dimension-retarget', vertexId: active.candidateVertexId });
-    else if (active.kind !== 'pan') dispatch({ type: 'commit-transaction' });
+    else if (active.kind === 'selection') {
+      dispatch({ type: active.moved ? 'finish-selection-move' : 'cancel-transaction' });
+      if (!active.moved && active.toggleOnClick) dispatch({ type: 'select', entityId: active.entityId, toggle: true });
+    } else if (active.kind !== 'pan') dispatch({ type: 'commit-transaction' });
     drag.current = null; setDragging(false); announceSnap(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
@@ -296,6 +320,8 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   useEffect(() => onMeasure(measurementStatus), [measurementStatus, onMeasure]);
   const previewPoints = [...draft.map(anchor => worldToScreen(anchor.position, viewport, size)), ...(drawCursor && !(tool === 'measure' && draft.length === 2) ? [worldToScreen(drawCursor, viewport, size)] : [])];
   const snapScreen = snap ? worldToScreen(snap.worldPosition, viewport, size) : null;
+  const selectionBox = state.selectedEntityIds.length > 1 ? selectionBounds(document, state.selectedEntityIds) : null;
+  const selectionTopLeft = selectionBox && worldToScreen({ x: selectionBox.minX, y: selectionBox.maxY }, viewport, size);
   const reference = referencePreview ?? document.horizontalReference;
   const north = surveyNorthDirection(reference?.transform);
   const surveyAvailable = Boolean(reference) || documentModelFrame(document) === 'projected';
@@ -325,6 +351,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         dimensionRetarget={state.dimensionRetarget?.dimensionId === item.entity.id ? state.dimensionRetarget : null}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
         pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}
+      {selectionBox && selectionTopLeft && <rect data-testid="selection-bounds" x={selectionTopLeft.x - 7} y={selectionTopLeft.y - 7} width={(selectionBox.maxX - selectionBox.minX) * viewport.pixelsPerUnit + 14} height={(selectionBox.maxY - selectionBox.minY) * viewport.pixelsPerUnit + 14} fill="none" stroke="#277ec1" strokeWidth={1} strokeDasharray="5 4" pointerEvents="none" />}
       {reference && <g className="control-preview" pointerEvents="none" data-testid="control-markers">{reference.controls.map((control, i) => {
         const vertex = document.vertices[control.vertexId]!, p = worldToScreen(vertex, viewport, size), survey = modelToSurveyXY(vertex, reference.transform);
         return <g key={control.pointEntityId}><circle cx={p.x} cy={p.y} r={11} fill="none" stroke="#b77922" strokeWidth={2} strokeDasharray={referencePreview ? '3 3' : undefined} /><text x={p.x + 15} y={p.y - 12}>{i === 0 ? 'A' : 'B'} · E {survey.e.toFixed(3)} · N {survey.n.toFixed(3)}</text></g>;
@@ -353,6 +380,6 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     </form>}
     <div className="canvas-caption"><span className="live-dot" /> МОДЕЛЬ <span>Метры · X / Y</span></div>
     <div className="north-arrow" aria-label={surveyAvailable ? "Survey North в MODEL viewport" : "Ось MODEL +Y; Survey не задан"} data-testid="north-arrow" data-screen-x={north.screen.x} data-screen-y={north.screen.y} data-preview={Boolean(referencePreview)}><b>{surveyAvailable ? 'N' : '+Y'}</b><svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true"><g transform={`rotate(${north.rotationDegrees})`}><path d="M0 -18L-7 13l7-5 7 5z" fill="#405d6b" /><path d="M0 -18v26l7 5z" fill="#c7d4dc" /></g></svg></div>
-    <div className="canvas-help">{sequenceHint ? `${sequenceHint}…` : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Текущий слой: ${document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'} · Shift + клик — точки по порядку · Колесо — масштаб · Space + drag — вид`}</div>
+    <div className="canvas-help">{sequenceHint ? `${sequenceHint}…` : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Shift + клик — добавить в выбор · Drag за тело — перенос · Shift + drag — X/Y · M — ΔX/ΔY · Space + drag — вид`}</div>
   </div>;
 });

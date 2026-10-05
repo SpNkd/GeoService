@@ -4,10 +4,12 @@ import { encodeDocument } from '../persistence/serialization';
 import { distance } from '../geometry';
 import { polygonSelfIntersects } from '../geometry/survey';
 import { createHorizontalReference, documentModelFrame, surveyToModelXY } from '../geometry/georeferencing';
+import { resolveSelectionMove, projectSelectionMove, type Translation } from './selectionMove';
 import { parseCommand } from './commandSchema';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
+  | { type: 'move-entities'; entityIds: string[]; delta: Translation }
   | { type: 'set-model-frame'; frame: 'local' | 'projected' }
   | { type: 'set-horizontal-reference'; pairs: [{ pointEntityId: string; survey: SurveyXY }, { pointEntityId: string; survey: SurveyXY }] | null }
   | { type: 'set-vertical-reference'; reference: VerticalReference | null }
@@ -90,6 +92,7 @@ function applyEntityAdditions(document: GeoDocument, commands: readonly Extract<
 
 export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   const command = parseCommand(raw);
+  if (command.type === 'move-entities') return projectSelectionMove(document, resolveSelectionMove(document, command.entityIds), command.delta);
   if (command.type === 'update-dimension-reference') {
     const entity = document.entities.find(item => item.id === command.dimensionId);
     if (!entity || entity.type !== 'dimension') throw new Error('Размер не найден');

@@ -28,3 +28,15 @@ export function visibleBounds(document: GeoDocument) {
 export function vertexFor(document: GeoDocument, id: string): Vertex {
   return getVertex(document.vertices, id);
 }
+
+/** View-level selection bounds include derived labels/dimensions, never become domain geometry. */
+export function selectionBounds(document: GeoDocument, entityIds: readonly string[]) {
+  const ids = new Set(entityIds);
+  return bounds(renderItems(document).filter(({ entity }) => ids.has(entity.id)).flatMap(({ entity }) => {
+    if (entity.type === 'label') { const anchor = resolvedLabelPosition(document, entity); return anchor ? [anchor] : []; }
+    const points = entityPoints(entity, document.vertices);
+    if (entity.type !== 'dimension') return points;
+    const dimension = alignedDimension(points[0]!, points[1]!, entity.offset);
+    return [...points, dimension.start, dimension.end];
+  }));
+}
