@@ -14,7 +14,7 @@ import { Icon } from './components/Icon';
 import { ImportDialog } from './components/ImportDialog';
 import { createNewDocument } from './domain/newDocument';
 import { AutosaveError, getAutosaveInfo, loadAutosave, saveAutosave, type AutosaveInfo } from './persistence/autosave';
-import { deserializeDocument, MAX_DOCUMENT_BYTES, serializeDocument } from './persistence/serialization';
+import { assertDocumentByteSize, deserializeDocument, serializeDocument } from './persistence/serialization';
 import { applyCommand } from './domain/commands';
 import type { SnapResult } from './snapping';
 import { applicationReducer, type ApplicationState } from './ai/workflow';
@@ -250,7 +250,7 @@ export default function App() {
     <input ref={openInput} type="file" accept=".json,application/json" aria-label="Файл GeoDocument" hidden onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       try {
-        if (file.size > MAX_DOCUMENT_BYTES) throw new Error('JSON превышает лимит 10 МБ');
+        assertDocumentByteSize(file.size);
         const loaded = deserializeDocument(await file.text());
         if (dirty && !window.confirm('Открыть другой документ? Текущие изменения не сохранены в JSON.')) return;
         dispatch({ type: 'replace-document', document: loaded, size }); setFileError(null); setNotice('Документ открыт.');

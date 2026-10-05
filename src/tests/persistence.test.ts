@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createSampleDocument } from '../sample/document';
 import { createNewDocument } from '../domain/newDocument';
 import { validateDocument } from '../persistence/documentSchema';
-import { deserializeDocument, serializeDocument } from '../persistence/serialization';
+import { assertDocumentByteSize, MAX_DOCUMENT_BYTES, deserializeDocument, serializeDocument } from '../persistence/serialization';
 import { fitToBounds } from '../geometry';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
@@ -86,7 +86,9 @@ describe('document persistence boundary', () => {
     state = editorReducer(state, { type: 'redo' }); expect(isDocumentDirty(state)).toBe(false);
   });
   it('bounds JSON size and prevents dangerous view scale while retaining finite coordinate values', () => {
-    expect(() => deserializeDocument(' '.repeat(10 * 1024 * 1024 + 1))).toThrow('10 МБ');
+    expect(() => assertDocumentByteSize(MAX_DOCUMENT_BYTES)).not.toThrow();
+    expect(() => assertDocumentByteSize(MAX_DOCUMENT_BYTES + 1)).toThrow('100 MiB');
+    expect(() => assertDocumentByteSize(-1)).toThrow('Некорректный');
     const document = createNewDocument(); document.viewport.pixelsPerUnit = 1e-300;
     expect(() => validateDocument(document)).toThrow('viewport.pixelsPerUnit');
   });

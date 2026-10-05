@@ -62,6 +62,11 @@ export function validateDocument(raw: unknown): GeoDocument {
     throw new Error(`Неверный документ: ${issue.path.join('.') || 'GeoDocument'} — ${issue.message}`);
   }
   const document = result.data as GeoDocument;
+  validateDocumentSemantics(document);
+  return document;
+}
+/** Referential/geometry checks on structurally validated canonical data. */
+export function validateDocumentSemantics(document: GeoDocument): void {
   for (const [kind, items] of [['layer', document.layers], ['entity', document.entities], ['style', document.styles]] as const) {
     const seen = new Set<string>();
     for (const item of items) {
@@ -99,5 +104,4 @@ export function validateDocument(raw: unknown): GeoDocument {
     const actual = reference.transform, computed = expected.transform;
     if (Math.abs(actual.rotation - computed.rotation) > 1e-12 || Math.abs(actual.translation.e - computed.translation.e) > 1e-8 || Math.abs(actual.translation.n - computed.translation.n) > 1e-8) throw new Error('Transform does not match committed control snapshots');
   }
-  return document;
 }

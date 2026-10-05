@@ -4,6 +4,7 @@ import type { Entity, GeoDocument, Viewport } from '../domain/model';
 import type { VectorPrimitive } from '../vectors/types';
 import { blockDefinition, blockMatrix, vectorEntityBounds, arcSweep } from '../vectors/geometry';
 import { worldToScreen, type ViewSize } from '../geometry';
+import { prepareVectorSet, vectorRenderOrigin } from './vectorPreparation';
 const blockSvgId=(id:string)=>`geo-block-${Array.from(id).map(c=>c.codePointAt(0)!.toString(16)).join('-')}`;
 function arcPath(p:Extract<VectorPrimitive,{kind:'arc'}>):string {
   const a={x:p.center.x+p.radius*Math.cos(p.startAngle),y:p.center.y+p.radius*Math.sin(p.startAngle)},sweep=arcSweep(p.startAngle,p.endAngle),end=p.startAngle+sweep,b={x:p.center.x+p.radius*Math.cos(end),y:p.center.y+p.radius*Math.sin(end)};
@@ -11,6 +12,7 @@ function arcPath(p:Extract<VectorPrimitive,{kind:'arc'}>):string {
   return `M${a.x},${a.y}A${p.radius},${p.radius} 0 ${sweep>Math.PI?1:0} 1 ${b.x},${b.y}`;
 }
 const pathData=(p:Extract<VectorPrimitive,{kind:'path'}>)=>vectorPath(p.points,p.closed);
+/** Prepared local SVG coordinates; nested references already account for canonical base points. */
 export const PrimitiveSet = memo(function PrimitiveSet({document,primitives,inheritAll=false}:{document:GeoDocument;primitives:VectorPrimitive[];inheritAll?:boolean}) {
   const layers=new Map(document.layers.map(l=>[l.id,l])),styles=new Map(document.styles.map(s=>[s.id,s])),blocks=new Map(document.blocks?.map(b=>[b.id,b])??[]);
   // Compound fill is restricted to one HATCH, never unrelated block primitives.
@@ -26,7 +28,7 @@ export const PrimitiveSet = memo(function PrimitiveSet({document,primitives,inhe
       if(p.kind==='circle')return <circle key={i} cx={p.center.x} cy={p.center.y} r={p.radius} {...common} fill="none" />;
       if(p.kind==='arc')return <path key={i} d={arcPath(p)} {...common} fill="none" />;
       if(p.kind==='text')return <text key={i} transform={`translate(${p.position.x} ${p.position.y}) rotate(${p.rotationDeg}) scale(1 -1)`} fill={stroke} stroke="none" fontSize={p.height} fontFamily="sans-serif">{p.content.split('\n').map((line,j)=><tspan key={j} x={0} dy={j?1.2*p.height:0}>{line}</tspan>)}</text>;
-      const block=blocks.get(p.blockDefinitionId);return block?<use key={i} href={`#${blockSvgId(block.id)}`} transform={`matrix(${blockMatrix(p,block.basePoint).join(' ')})`} color={stroke} strokeWidth={p.lineWeight??(inherit?undefined:style?.lineWeight)} strokeDasharray={p.dash??(inherit?undefined:style?.dash)} />:null;
+      const block=blocks.get(p.blockDefinitionId);return block?<use key={i} href={`#${blockSvgId(block.id)}`} transform={`matrix(${blockMatrix(p,{x:0,y:0}).join(' ')})`} color={stroke} strokeWidth={p.lineWeight??(inherit?undefined:style?.lineWeight)} strokeDasharray={p.dash??(inherit?undefined:style?.dash)} />:null;
     })}
   </>;
 }, (a,b)=>{
@@ -37,7 +39,7 @@ export const PrimitiveSet = memo(function PrimitiveSet({document,primitives,inhe
 });
 /** SVG definitions are prepared once; repeated and nested INSERTs reference them with <use>. */
 export const BlockDefinitions=memo(function BlockDefinitions({document}:{document:GeoDocument}) {
-  return <defs aria-hidden="true">{document.blocks?.map(b=><g key={b.id} id={blockSvgId(b.id)}><PrimitiveSet document={document} primitives={b.primitives} /></g>)}</defs>;
+  return <defs aria-hidden="true">{document.blocks?.map(b=><g key={b.id} id={blockSvgId(b.id)}><PrimitiveSet document={document} primitives={prepareVectorSet(document,b.primitives).primitives} /></g>)}</defs>;
 },(a,b)=>a.document.blocks===b.document.blocks&&a.document.layers===b.document.layers&&a.document.styles===b.document.styles);
 const VectorContent = memo(function VectorContent({ entity, document }: { entity: Entity; document: GeoDocument }) {
   if (entity.type === 'arc' || entity.type === 'circle') {
@@ -47,9 +49,11 @@ const VectorContent = memo(function VectorContent({ entity, document }: { entity
   if (entity.type === 'block_instance') {
     const block = blockDefinition(document, entity.blockDefinitionId);
     if (!block) return null;
-    return <><use href={`#${blockSvgId(block.id)}`} transform={`matrix(${blockMatrix({...entity,position:{x:0,y:0}}, block.basePoint).join(' ')})`} /><PrimitiveSet document={document} primitives={entity.attributePrimitives ?? []} inheritAll /></>;
+    const matrix = blockMatrix(entity, block.basePoint), origin = vectorRenderOrigin(document, entity);
+    const attributes = prepareVectorSet(document, entity.attributePrimitives ?? []);
+    return <><use href={`#${blockSvgId(block.id)}`} transform={`matrix(${[...matrix.slice(0,4),0,0].join(' ')})`} /><g transform={`translate(${entity.position.x + attributes.origin.x - origin.x} ${entity.position.y + attributes.origin.y - origin.y})`}><PrimitiveSet document={document} primitives={attributes.primitives} inheritAll /></g></>;
   }
-  if (entity.type === 'imported_graphic') return <PrimitiveSet document={document} primitives={entity.primitives} inheritAll />;
+  if (entity.type === 'imported_graphic') return <PrimitiveSet document={document} primitives={prepareVectorSet(document,entity.primitives).primitives} inheritAll />;
   return null;
 }, (a,b)=>{
   if(a.document.blocks!==b.document.blocks||a.document.layers!==b.document.layers||a.document.styles!==b.document.styles)return false;
@@ -60,7 +64,7 @@ const VectorContent = memo(function VectorContent({ entity, document }: { entity
   return x.type==='arc'&&y.type==='arc'&&x.radius===y.radius&&x.startAngle===y.startAngle&&x.endAngle===y.endAngle;
 });
 export function VectorView({entity,document,viewport,size,color,selected,lineWeight=1}:{entity:Entity;document:GeoDocument;viewport:Viewport;size:ViewSize;color:string;selected:boolean;lineWeight?:number}) {
-  const origin=entity.type==='arc'||entity.type==='circle'?entity.center:entity.type==='block_instance'||entity.type==='imported_graphic'?entity.position:{x:0,y:0},anchor=worldToScreen(origin,viewport,size);
+  const anchor=worldToScreen(vectorRenderOrigin(document,entity),viewport,size);
   const screen = vectorEntityBounds(document, entity).map(p => worldToScreen(p, viewport, size)), pp = viewport.pixelsPerUnit;
   const xs=screen.map(p=>p.x),ys=screen.map(p=>p.y),x=Math.min(...xs),y=Math.min(...ys),w=Math.max(...xs)-x,h=Math.max(...ys)-y;
   return <g color={color} strokeWidth={lineWeight}>

@@ -79,8 +79,10 @@ test('Save JSON, New and Open preserve precise geometry, and dirty New requires 
 
 test('broken syntax and broken references leave the current drawing intact', async ({ page }) => {
   await page.goto('/'); const polygon = page.locator('[data-entity-id="boundary-01"] polygon');
-  const points = await polygon.getAttribute('points');
   const current = await readAutosaveDocument(page);
+  // Capture the established camera after hydration/ResizeObserver Fit, not the 1px startup viewport.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const points = await polygon.getAttribute('points');
   for (const text of ['{broken', JSON.stringify({ ...current, vertices: {} })]) {
     await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from(text) });
     await expect(page.getByRole('alert')).toBeVisible(); await expect(polygon).toHaveAttribute('points', points!);

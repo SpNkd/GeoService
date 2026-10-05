@@ -155,14 +155,14 @@ describe('geometry and persistence audit regressions', () => {
     expect(polygonSelfIntersects([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 10, y: 10 }])).toBe(true);
     expect(polygonSelfIntersects([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }])).toBe(false);
   });
-  it('saves a compact-readable 50k document within the same byte limit and enforces command capacity', () => {
+  it('saves a 50k document within the portable byte limit and enforces command capacity', () => {
     const d = createNewDocument();
     for (let i = 0; i < 50000; i++) {
       const id = `v${i}`; d.vertices[id] = { id, x: 562000 + i, y: 6189000, z: 100 };
       d.entities.push({ type: 'point', id: `p${i}`, name: `P${i}`, layerId: 'survey-points', vertexId: id });
     }
     const bytes = (text: string) => new TextEncoder().encode(text).length;
-    expect(bytes(JSON.stringify(d))).toBeLessThan(MAX_DOCUMENT_BYTES); expect(bytes(JSON.stringify(d, null, 2))).toBeGreaterThan(MAX_DOCUMENT_BYTES);
+    expect(bytes(JSON.stringify(d))).toBeLessThan(MAX_DOCUMENT_BYTES); expect(bytes(JSON.stringify(d, null, 2))).toBeGreaterThan(10 * 1024 * 1024);
     const saved = serializeDocument(deserializeDocument(JSON.stringify(d))); expect(bytes(saved)).toBeLessThan(MAX_DOCUMENT_BYTES);
     expect(deserializeDocument(saved)).toEqual(d);
     expect(() => applyCommand(d, { type: 'add-entity', entity: { type: 'point', id: 'extra', name: 'Extra', layerId: 'survey-points', vertexId: 'v0' }, vertices: [] })).toThrow(/50 000/);

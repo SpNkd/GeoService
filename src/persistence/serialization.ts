@@ -2,9 +2,14 @@ import type { GeoDocument } from '../domain/model';
 import { validateDocument } from './documentSchema';
 import { migrateToCurrent } from './migrations';
 
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+/** Portable JSON safety budget; geometry complexity is bounded separately by the runtime schema. */
+export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
+export function assertDocumentByteSize(bytes: number): void {
+  if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('Некорректный размер JSON');
+  if (bytes > MAX_DOCUMENT_BYTES) throw new Error(`JSON: размер ${bytes.toLocaleString('ru-RU')} байт (${(bytes / 1024**2).toFixed(2)} MiB) превышает максимум 100 MiB (${MAX_DOCUMENT_BYTES.toLocaleString('ru-RU')} байт)`);
+}
 export function assertDocumentSize(text: string): void {
-  if (new TextEncoder().encode(text).length > MAX_DOCUMENT_BYTES) throw new Error('JSON превышает лимит 10 МБ');
+  assertDocumentByteSize(new TextEncoder().encode(text).length);
 }
 export function deserializeDocument(text: string): GeoDocument {
   assertDocumentSize(text);
