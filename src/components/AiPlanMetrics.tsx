@@ -1,3 +1,4 @@
+import type { ArrayReady } from '../ai/spatial';
 import type { BulkDimensionsReady } from '../ai/dependent';
 import type { ReadyResolution } from '../ai/resolver';
 import { formatAzimuth, formatDistance, formatMeasure } from '../geometry/format';
@@ -18,8 +19,9 @@ function MeasureMetrics({ result }: { result: Extract<ReadyResolution, { kind: '
     <dt>ΔY</dt><dd>{formatDistance(m.delta.y)}</dd><dt>Azimuth</dt><dd>{formatAzimuth(m.azimuth)}</dd>
     {m.delta.z !== undefined && <><dt>ΔZ</dt><dd>{formatDistance(m.delta.z)}</dd><dt>3D distance</dt><dd>{formatDistance(m.spatial!)}</dd></>}</>;
 }
-export function AiPlanMetrics({ result }: { result: ReadyResolution | BulkDimensionsReady }) {
+export function AiPlanMetrics({ result }: { result: ReadyResolution | BulkDimensionsReady | ArrayReady }) {
   switch (result.kind) {
+    case 'array':return <><dt>Прямоугольников</dt><dd>{result.rectangles.length}</dd><dt>Целевой слой</dt><dd>{result.targetLayer}</dd></>;
     case 'bulk-dimensions': return <><dt>Dimensions</dt><dd>{result.dimensions.length}</dd><dt>Total edges</dt><dd>{result.references.length}</dd><dt>Offset</dt><dd>Auto · наружу</dd></>;
     case 'points': return <><dt>Точек</dt><dd>{result.references.length}</dd><dt>Целевой слой</dt><dd>{result.targetLayer}</dd></>;
     case 'rectangle': return <><dt>Width × Height</dt><dd>{result.width} × {result.height} м</dd><dt>Area</dt><dd>{formatMeasure(result.area, 3)} м²</dd><dt>Perimeter</dt><dd>{formatDistance(result.perimeter)}</dd></>;

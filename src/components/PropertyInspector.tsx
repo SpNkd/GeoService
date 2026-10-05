@@ -172,6 +172,7 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
   const locked = entity ? isLayerLocked(state.document, entity) : false;
   return <aside className="right-panel" aria-label="Свойства объекта">
     <div className="panel-heading"><h2>Свойства</h2><span className="subtle">{selectedLayer ? 'Слой' : state.selectedEntityIds.length > 1 ? `${state.selectedEntityIds.length} объектов` : entity ? '1 объект' : `Текущий: ${state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'}`}</span></div>
+    {state.selectedEntityIds.length>1 && <p data-testid="group-properties"><strong>Выбрано: {state.selectedEntityIds.length} объектов</strong> · Переместить… / M</p>}
     <MoveSelectionPanel state={state} dispatch={dispatch} />
     {state.orderedPointIds.length >= 2 && <div className="ordered-selection"><h3>Точки по порядку · {state.orderedPointIds.length}</h3><ol>{state.orderedPointIds.map(id => <li key={id}>{state.document.entities.find(entity => entity.id === id)?.name}</li>)}</ol><div><button onClick={() => dispatch({ type: 'from-selected-points', kind: 'polyline' })}>Создать полилинию</button><button disabled={state.orderedPointIds.length < 3} onClick={() => dispatch({ type: 'from-selected-points', kind: 'polygon' })}>Создать границу</button></div></div>}
     {selectedLayer ? <LayerProperties layer={selectedLayer} state={state} dispatch={dispatch} /> : entity ? <div className="inspector-content">

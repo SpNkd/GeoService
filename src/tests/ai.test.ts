@@ -113,7 +113,8 @@ describe('pure name resolver', () => {
     const doc = drawing(); doc.layers = doc.layers.filter(layer => layer.id !== 'boundary'); const result = ready(doc);
     expect(result.command).toMatchObject({ layer: { id: 'boundary', styleId: 'boundary', locked: false, visible: true } });
     const app = applicationReducer(preview(state(doc)), { type: 'ai-apply' });
-    expect(app.editor.past).toHaveLength(1); expect(app.editor.document.layers.some(layer => layer.id === 'boundary')).toBe(true);
+    expect(app.editor.past).toHaveLength(1); expect(app.editor.document.layers.some(layer => layer.id === 'boundary')).toBe(false);
+    expect(app.editor.document.entities.at(-1)?.layerId).toBe(app.editor.currentLayerId);
     expect(applicationReducer(app, { type: 'undo' }).editor.document.layers).toEqual(doc.layers);
   });
   it('includes hidden duplicate points and permits locked references with warnings', () => {

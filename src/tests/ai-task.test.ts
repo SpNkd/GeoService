@@ -67,12 +67,13 @@ it('one ambiguity issue and choice are shared across every action', () => {
   expect(task(chosen).resolution.status).toBe('ready');
   for (const action of task(chosen).actions) if (action.resolution.status === 'ready') expect(action.resolution.references[0]!.entityId).toBe('duplicate');
 });
-it('boundary + dimension + polyline commits once with stable IDs and one newly shared layer', () => {
+it('boundary + dimension + polyline commits once with stable IDs on the current layer', () => {
   const d = doc(); d.layers = d.layers.filter(layer => layer.id !== 'boundary');
   const state = preview([boundary, dimension, line], d), before = serializeDocument(d);
   const applied = applicationReducer(state, { type: 'ai-apply' }); expect(applied.ai.status).toBe('applied');
   expect(applied.editor.past).toHaveLength(1); expect(applied.editor.document.entities).toHaveLength(d.entities.length + 3);
-  expect(applied.editor.document.layers.filter(l => l.id === 'boundary')).toHaveLength(1);
+  expect(applied.editor.document.layers).toEqual(d.layers);
+  expect(applied.editor.document.entities.slice(-3).every(e=>e.layerId===state.editor.currentLayerId)).toBe(true);
   expect(serializeDocument(d)).toBe(before); const undone = applicationReducer(applied, { type: 'undo' }); expect(undone.editor.document).toBe(d);
   expect(applicationReducer(undone, { type: 'redo' }).editor.document).toBe(applied.editor.document);
 });

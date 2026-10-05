@@ -21,7 +21,15 @@ export const bulkDimensionsIntentSchema = z.strictObject({ type: z.literal('crea
 export const createPointsIntentSchema = z.strictObject({ type: z.literal('create_points'), points: z.array(z.strictObject({ name: names, x: z.number().finite(), y: z.number().finite(), z: z.number().finite().optional() })).min(1).max(AI_LIMITS.pointsPerAction) });
 export const spatialAnchorSchema = z.enum(SPATIAL_ANCHORS);
 export type SpatialAnchor = z.infer<typeof spatialAnchorSchema>;
+export const entityReferenceSchema = z.discriminatedUnion('kind', [
+  z.strictObject({kind:z.literal('named_entity'),name:names}), z.strictObject({kind:z.literal('current_selection')}),
+  z.strictObject({kind:z.literal('prior_action_result'),actionIndex:z.number().int().min(0).max(AI_LIMITS.actions-1)}),
+]);
+export type EntityReference = z.infer<typeof entityReferenceSchema>;
+const gapSchema = z.number().finite().nonnegative().nullish();
 export const rectanglePlacementSchema = z.discriminatedUnion('type', [
+  z.strictObject({type:z.literal('relative_to_entity'),reference:entityReferenceSchema,direction:spatialAnchorSchema,gapMeters:gapSchema}),
+  z.strictObject({type:z.literal('inside_entity'),reference:entityReferenceSchema,anchor:z.enum(['center',...SPATIAL_ANCHORS])}),
   z.strictObject({ type: z.literal('lower_left'), x: z.number().finite(), y: z.number().finite() }),
   z.strictObject({ type: z.literal('center'), x: z.number().finite(), y: z.number().finite() }),
   z.strictObject({ type: z.literal('local_origin') }),
@@ -29,7 +37,9 @@ export const rectanglePlacementSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('anchored_in_action_result'), polygonActionIndex: z.number().int().min(0).max(AI_LIMITS.actions - 1), anchor: spatialAnchorSchema }),
 ]);
 export const createRectangleIntentSchema = z.strictObject({ type: z.literal('create_rectangle'), name: names, width: z.number().finite().positive(), height: z.number().finite().positive(), sizeSource: z.string().trim().min(1).max(240).optional(), placement: rectanglePlacementSchema });
-export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, createRectangleIntentSchema]);
+export const alongEdgeIntentSchema = z.strictObject({type:z.literal('create_line_along_polygon_edge'),name:names,reference:entityReferenceSchema,side:z.enum(['north','south','east','west']),offsetMeters:z.number().finite().nonnegative(),offsetSide:z.enum(['inside','outside'])});
+export const rectangleArrayIntentSchema = z.strictObject({type:z.literal('create_rectangle_array'),nameBase:names,count:z.number().int().min(1).max(50),width:z.number().finite().positive(),height:z.number().finite().positive(),sizeSource:z.string().trim().min(1).max(240).nullish(),reference:entityReferenceSchema,direction:z.enum(['north','south','east','west']),gapFromReference:gapSchema,itemGap:z.number().finite().nonnegative()});
+export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, createRectangleIntentSchema,alongEdgeIntentSchema,rectangleArrayIntentSchema]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 export const requestedPointNames = (action: AiAction): readonly string[] => 'pointNames' in action ? action.pointNames : [];
 export const clarificationSchema = z.strictObject({ status: z.literal('needs_clarification'), questions: z.array(z.string().trim().min(1).max(AI_LIMITS.clarificationQuestionLength)).min(1).max(AI_LIMITS.clarificationQuestions) });
@@ -39,6 +49,8 @@ export const aiTaskSchema = z.strictObject({ actions: z.array(aiActionSchema).mi
     if (task.actions.reduce((sum, action) => sum + ('points' in action ? action.points.length : requestedPointNames(action).length), 0) > AI_LIMITS.totalReferences)
       ctx.addIssue({ code: 'custom', message: 'Task превышает лимит ссылок' });
     task.actions.forEach((action, index) => {
+      const ref = 'reference' in action ? action.reference : action.type==='create_rectangle' && 'reference' in action.placement ? action.placement.reference : null;
+      if(ref?.kind==='prior_action_result' && (ref.actionIndex>=index || !['create_rectangle','create_boundary_from_named_points'].includes(task.actions[ref.actionIndex]?.type??''))) ctx.addIssue({code:'custom',message:'Spatial reference требует предыдущий polygon output'});
       if (action.type === 'create_rectangle') {
         const placement = action.placement;
         if ((placement.type === 'centered_in_action_result' || placement.type === 'anchored_in_action_result') && (placement.polygonActionIndex >= index || !['create_boundary_from_named_points', 'create_rectangle'].includes(task.actions[placement.polygonActionIndex]?.type ?? ''))) ctx.addIssue({ code: 'custom', message: 'Прямоугольник требует предыдущий polygon output' });
@@ -96,6 +108,10 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
         const placement = action.placement, pair = explicitAxes(text); if (!pair.some(p => p.x === placement.x && p.y === placement.y)) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, 'Положение прямоугольника должно быть задано явно.');
       }
       if (action.placement.type === 'centered_in_action_result' && !/центр|середин|center/i.test(text)) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, 'Уточните положение дома на участке.');
+      continue;
+    }
+    if(action.type==='create_rectangle_array') {
+      if(!explicitSize(text,action.width,action.height,action.sizeSource??undefined)) throw new AiProviderError('LOCAL_VALIDATION_ERROR',undefined,'Размеры массива должны быть явно заданы.');
       continue;
     }
     if (!('pointNames' in action)) continue;

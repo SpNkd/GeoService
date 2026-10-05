@@ -28,22 +28,22 @@ function idsFor(entities: GeoDocument['entities']) {
   if (!ids || ids.size !== entities.length) { ids = new Set(entities.map(entity => entity.id)); entityIds.set(entities, ids); }
   return ids;
 }
-export interface ResolvedReference { name: string; entityId: string; vertexId: string; position: WorldPoint; layer: string }
-export type ResolutionIssue = { kind: 'missing'; name: string } | { kind: 'ambiguous'; name: string; candidates: ResolvedReference[] };
+export interface ResolvedReference { name: string; entityId: string; vertexId: string; position: WorldPoint; layer: string; entityType?: string; bounds?: import('../geometry').Bounds }
+export type ResolutionIssue = ({ kind: 'missing'; name: string } | { kind: 'ambiguous'; name: string; candidates: ResolvedReference[] }) & { scope?: 'entity'; displayName?: string };
 export type ResolutionFailure = { status: 'blocked'; dependencyIndex: number; message: string } | { status: 'unresolved'; issues: ResolutionIssue[] } | { status: 'invalid'; message: string };
 export interface References { references: ResolvedReference[]; geometry: WorldPoint[]; warnings: string[] }
 export type ReferenceResolution = ResolutionFailure | ({ status: 'resolved' } & References);
 export interface ResolvedPolygonOutput { readonly kind: 'created_polygon'; readonly entityId: string;
   readonly vertexIds: readonly string[]; readonly references: readonly ResolvedReference[] }
 export type ResolvedBoundaryOutput = ResolvedPolygonOutput;
-export type BoundaryReady = { status: 'ready'; kind: 'boundary'; perimeter: number; area: number; output: ResolvedBoundaryOutput; targetLayer: 'boundary'; command: DocumentCommand } & References;
-export type PolylineReady = { status: 'ready'; kind: 'polyline'; length: number; segments: number; targetLayer: 'boundary'; command: DocumentCommand } & References;
-export type DimensionReady = { status: 'ready'; kind: 'dimension'; metrics: ReturnType<typeof measurePair>; offset: number; targetLayer: 'dimensions'; command: DocumentCommand } & References;
+export type BoundaryReady = { status: 'ready'; kind: 'boundary'; perimeter: number; area: number; output: ResolvedBoundaryOutput; targetLayer: string; command: DocumentCommand } & References;
+export type PolylineReady = { status: 'ready'; kind: 'polyline'; length: number; segments: number; targetLayer: string; command: DocumentCommand } & References;
+export type DimensionReady = { status: 'ready'; kind: 'dimension'; metrics: ReturnType<typeof measurePair>; offset: number; targetLayer: string; command: DocumentCommand } & References;
 export type MeasureReady = { status: 'ready'; kind: 'measure'; metrics: ReturnType<typeof measurePair> } & References;
 export type ReadyResolution = BoundaryReady | PolylineReady | DimensionReady | MeasureReady | PointsReady | RectangleReady;
 export type Resolution = ResolutionFailure | ReadyResolution;
 export type BoundaryResolution = ResolutionFailure | BoundaryReady;
-export type ResolverOptions = { entityId?: string; index?: PointNameIndex; offset?: number };
+export type ResolverOptions = { entityId?: string; index?: PointNameIndex; offset?: number; targetLayerId?: string };
 
 /** Exact, ordered and pure; every operation shares missing/ambiguous/hidden/locked semantics. */
 export function resolveNamedPointReferences(pointNames: readonly string[], document: GeoDocument,
@@ -75,8 +75,9 @@ export const MAX_DIMENSION_OFFSET = 10000;
 
 function mutationCommand(document: GeoDocument, kind: 'boundary' | 'polyline' | 'dimension', refs: References, options: ResolverOptions):
   { command: DocumentCommand; warnings: string[] } | { message: string } {
-  const layerId = kind === 'dimension' ? 'dimensions' : 'boundary';
+  const layerId = options.targetLayerId ?? (kind === 'dimension' ? 'dimensions' : 'boundary');
   const target = document.layers.find(layer => layer.id === layerId);
+  if (options.targetLayerId && !target) return { message: 'Выберите существующий доступный слой новых объектов.' };
   if (target && (!target.visible || target.locked)) return { message: `Слой ${layerId} скрыт или заблокирован. Сделайте его видимым и доступным.` };
   const style = document.styles.find(style => style.id === (kind === 'dimension' ? 'annotation' : 'boundary')) ?? document.styles[0];
   if (!target && !style) return { message: `Нет стиля для нового слоя ${layerId}` };
@@ -102,14 +103,14 @@ function boundary(refs: References, document: GeoDocument, options: ResolverOpti
   if (mutation.command.type !== 'add-entity') throw new Error('Boundary output/command mismatch');
   const output: ResolvedBoundaryOutput = { kind: 'created_polygon', entityId: mutation.command.entity.id,
     vertexIds: refs.references.map(ref => ref.vertexId), references: refs.references };
-  return { ...refs, ...mutation, status: 'ready', kind: 'boundary', area, perimeter, output, targetLayer: 'boundary' };
+  return { ...refs, ...mutation, status: 'ready', kind: 'boundary', area, perimeter, output, targetLayer: options.targetLayerId ?? 'boundary' };
 }
 function polyline(refs: References, document: GeoDocument, options: ResolverOptions): ResolutionFailure | PolylineReady {
   const length = pathLength(refs.geometry);
   if (!Number.isFinite(length)) return { status: 'invalid', message: 'Неконечная длина полилинии' };
   const mutation = mutationCommand(document, 'polyline', refs, options);
   if ('message' in mutation) return { status: 'invalid', message: mutation.message };
-  return { ...refs, ...mutation, status: 'ready', kind: 'polyline', length, segments: refs.references.length - 1, targetLayer: 'boundary' };
+  return { ...refs, ...mutation, status: 'ready', kind: 'polyline', length, segments: refs.references.length - 1, targetLayer: options.targetLayerId ?? 'boundary' };
 }
 function pair(refs: References) {
   const metrics = measurePair(refs.geometry[0]!, refs.geometry[1]!);
@@ -123,7 +124,7 @@ function dimension(refs: References, document: GeoDocument, options: ResolverOpt
   if (!Number.isFinite(offset) || Math.abs(offset) > MAX_DIMENSION_OFFSET) return { status: 'invalid', message: 'Смещение должно быть конечным и не превышать ±10000 м' };
   const mutation = mutationCommand(document, 'dimension', refs, { ...options, offset });
   if ('message' in mutation) return { status: 'invalid', message: mutation.message };
-  return { ...refs, ...mutation, status: 'ready', kind: 'dimension', metrics, offset, targetLayer: 'dimensions' };
+  return { ...refs, ...mutation, status: 'ready', kind: 'dimension', metrics, offset, targetLayer: options.targetLayerId ?? 'dimensions' };
 }
 function measure(refs: References): ResolutionFailure | MeasureReady {
   const metrics = pair(refs);

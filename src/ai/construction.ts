@@ -1,3 +1,6 @@
+import { entityPoints } from '../domain/model';
+import { spatialFrame, spatialRectangle } from '../geometry/spatialLayout';
+import { resolveEntityReference, type EntityReferenceContext } from './entityReferences';
 import type { DocumentCommand } from '../domain/commands';
 import { getVertex, worldVertex, type GeoDocument, type Layer, type WorldPoint } from '../domain/model';
 import { labelAnchor } from '../geometry/labels';
@@ -18,13 +21,14 @@ function targetLayer(document: GeoDocument, id: string, name: string): { layer: 
     styleId: document.styles.find(style => style.id === (id === 'survey-points' ? 'survey-point' : id === 'buildings' ? 'building' : 'boundary'))?.id ?? document.styles[0]!.id };
   return { layer, addition: layer };
 }
-export function resolveCreatePoints(intent: Extract<AiAction, { type: 'create_points' }>, document: GeoDocument, actionId: string): PointsReady | ResolutionFailure {
+export function resolveCreatePoints(intent: Extract<AiAction, { type: 'create_points' }>, document: GeoDocument, actionId: string, targetLayerId?: string): PointsReady | ResolutionFailure {
+  if(targetLayerId && !document.layers.some(l=>l.id===targetLayerId)) return {status:'invalid',message:'Выберите существующий слой новых объектов.'};
   const names = intent.points.map(point => point.name);
   if (new Set(names).size !== names.length) return { status: 'invalid', message: 'Имена создаваемых точек повторяются' };
   const existing = new Set(document.entities.filter(entity => entity.type === 'point').map(entity => entity.name.trim()));
   const duplicate = names.find(name => existing.has(name));
   if (duplicate) return { status: 'invalid', message: `Точка «${duplicate}» уже существует. Укажите другое имя.` };
-  const target = targetLayer(document, 'survey-points', 'Геодезические точки'); if ('status' in target) return target;
+  const target = targetLayer(document, targetLayerId ?? 'survey-points', 'Геодезические точки'); if ('status' in target) return target;
   const points = intent.points.map((point, index) => ({ entity: { id: `${actionId}-point-${index + 1}`, type: 'point' as const, name: point.name,
     layerId: target.layer.id, vertexId: `${actionId}-vertex-${index + 1}` }, vertex: worldVertex(`${actionId}-vertex-${index + 1}`, { x: point.x, y: point.y, ...(point.z === undefined ? {} : { z: point.z }) }) }));
   const references = points.map(({ entity, vertex }) => ({ name: entity.name, entityId: entity.id, vertexId: vertex.id, position: { x: vertex.x, y: vertex.y, ...(vertex.z === undefined ? {} : { z: vertex.z }) }, layer: target.layer.name }));
@@ -32,12 +36,25 @@ export function resolveCreatePoints(intent: Extract<AiAction, { type: 'create_po
     command: { type: 'import-points', points, ...(target.addition ? { layer: target.addition } : {}) } };
 }
 export function resolveCreateRectangle(intent: Extract<AiAction, { type: 'create_rectangle' }>, document: GeoDocument,
-  outputs: ReadonlyMap<number, ResolvedBoundaryOutput>, actionId: string): RectangleReady | ResolutionFailure {
+  outputs: ReadonlyMap<number, ResolvedBoundaryOutput>, actionId: string, options: {targetLayerId?: string; context?: EntityReferenceContext} = {}): RectangleReady | ResolutionFailure {
+  if(options.targetLayerId && !document.layers.some(l=>l.id===options.targetLayerId)) return {status:'invalid',message:'Выберите существующий слой новых объектов.'};
   const placement = intent.placement, assumptions: LayoutAssumption[] = [];
   let origin: WorldPoint, parentGeometry: WorldPoint[] | null = null;
   if (placement.type === 'lower_left') origin = { x: placement.x, y: placement.y };
   else if (placement.type === 'local_origin') { origin = { x: 0, y: 0 }; assumptions.push({ type: 'local_origin', objectName: intent.name }); }
   else if (placement.type === 'center') origin = { x: placement.x - intent.width / 2, y: placement.y - intent.height / 2 };
+  else if (placement.type === 'relative_to_entity' || placement.type === 'inside_entity') {
+    if (!options.context) return {status:'invalid',message:'Нет локального контекста ссылки'};
+    const ref=resolveEntityReference(placement.reference,options.context,placement.type==='inside_entity');
+    if(ref.status!=='resolved') return ref;
+    const frame=spatialFrame(options.context.baseDocument), geometry=entityPoints(ref.entity,ref.document.vertices);
+    const direction=placement.type==='inside_entity'?placement.anchor:placement.direction;
+    const gap=placement.type==='relative_to_entity'?placement.gapMeters:undefined;
+    const layout=spatialRectangle(geometry,intent.width,intent.height,direction,frame,placement.type==='inside_entity',gap,placement.type==='inside_entity'&&ref.entity.type==='polygon'?labelAnchor(ref.document,ref.entity):undefined);
+    if(layout.status!=='ready') return layout;
+    origin=layout.origin;
+    assumptions.push({type:'spatial',message:`Объект: «${ref.entity.name}». Направление: ${direction}. Направления: ${frame.name}. ${frame.stale?'Геопривязка устарела; используем MODEL. ':''}${layout.inset??`Gap: ${layout.gap.toFixed(3)} м (${gap==null?'Auto, эскизный':'явный'}). Центрирование по перпендикулярной оси.`}${direction.includes('_')?' Диагональ: одинаковый gap по двум осям.':''} Прямоугольник сохраняет оси MODEL.`});
+  }
   else {
     const output = outputs.get(placement.polygonActionIndex);
     if (!output) return { status: 'blocked', dependencyIndex: placement.polygonActionIndex, message: `Сначала исправьте Action ${placement.polygonActionIndex + 1}: положение зависит от polygon output.` };
@@ -47,16 +64,24 @@ export function resolveCreateRectangle(intent: Extract<AiAction, { type: 'create
     const anchor = placement.type === 'centered_in_action_result' ? 'center' : placement.anchor;
     const parentBounds = bounds(parentGeometry);
     if (!parentBounds) return { status: 'invalid', message: 'Контур участка пуст' };
-    const layout = resolvePlacement(parentBounds, intent, anchor, { center: labelAnchor(document, polygon) });
-    if (layout.status !== 'ready') return layout;
-    origin = layout.origin;
-    assumptions.push({ type: 'relative_placement', objectName: intent.name, parentName: polygon.name, anchor });
-    if (anchor !== 'center') assumptions.push({ type: 'auto_layout_inset', objectName: intent.name, anchor, nominal: layout.nominalInset, x: layout.insetX, y: layout.insetY }, { type: 'sketch_layout' });
+    const frame = spatialFrame(document);
+    if (frame.name === 'SURVEY' || frame.stale) {
+      const layout = spatialRectangle(parentGeometry, intent.width, intent.height, anchor, frame, true, undefined, labelAnchor(document, polygon));
+      if (layout.status !== 'ready') return layout;
+      origin = layout.origin;
+      assumptions.push({type:'spatial',message:`Объект: «${polygon.name}». Направление: ${anchor}. Направления: ${frame.name}. ${frame.stale?'Геопривязка устарела; используем MODEL. ':''}${layout.inset} Эскизное размещение.`});
+    } else {
+      const layout = resolvePlacement(parentBounds, intent, anchor, { center: labelAnchor(document, polygon) });
+      if (layout.status !== 'ready') return layout;
+      origin = layout.origin;
+      assumptions.push({ type: 'relative_placement', objectName: intent.name, parentName: polygon.name, anchor });
+      if (anchor !== 'center') assumptions.push({ type: 'auto_layout_inset', objectName: intent.name, anchor, nominal: layout.nominalInset, x: layout.insetX, y: layout.insetY }, { type: 'sketch_layout' });
+    }
   }
   const geometry = [origin, { x: origin.x + intent.width, y: origin.y }, { x: origin.x + intent.width, y: origin.y + intent.height }, { x: origin.x, y: origin.y + intent.height }];
   if (parentGeometry && !rectangleInsidePolygon(geometry, parentGeometry)) return { status: 'invalid', message: 'Эскизное размещение не помещается внутри контура участка. Измените размеры или положение.' };
   if (!geometry.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)) || geometry[1]!.x === origin.x || geometry[3]!.y === origin.y) return { status: 'invalid', message: 'Размеры прямоугольника вне точности/диапазона координат' };
-  const target = targetLayer(document, /дом|house/i.test(intent.name) ? 'buildings' : 'boundary', /дом|house/i.test(intent.name) ? 'Здания' : 'Граница участка');
+  const target = targetLayer(document, options.targetLayerId ?? (/дом|house/i.test(intent.name) ? 'buildings' : 'boundary'), /дом|house/i.test(intent.name) ? 'Здания' : 'Граница участка');
   if ('status' in target) return target;
   const vertices = geometry.map((point, index) => worldVertex(`${actionId}-corner-${index + 1}`, point));
   const entity = { id: `geometry-${actionId}`, type: 'polygon' as const, name: intent.name, layerId: target.layer.id, vertexIds: vertices.map(vertex => vertex.id) as [string, string, string, ...string[]] };

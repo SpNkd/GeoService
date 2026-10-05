@@ -89,11 +89,14 @@ it.each([NaN, Infinity, 10001, -10001])('invalid preview offset blocks Apply: %s
   const app = preview(types[2]), adjusted = applicationReducer(app, { type: 'ai-offset', offset });
   expect(plan(adjusted).resolution.status).toBe('invalid'); expect(applicationReducer(adjusted, { type: 'ai-apply' }).editor).toBe(app.editor);
 });
-it('locked sources allowed; locked/hidden dimensions target blocks; absent layer created atomically', () => {
+it('locked sources allowed; AI uses current layer while standalone dimension policy stays available', () => {
   const doc = drawing(); doc.layers.find(l => l.id === 'survey-points')!.locked = true;
   const app = preview(types[2], doc); expect(plan(app).resolution.status).toBe('ready');
-  const applied = applicationReducer(app, { type: 'ai-apply' }); expect(applied.editor.document.layers.find(l => l.id === 'dimensions')).toMatchObject({ locked: false, visible: true });
-  const locked = applyCommand(applied.editor.document, { type: 'set-layer-lock', layerId: 'dimensions', locked: true });
+  const applied = applicationReducer(app, { type: 'ai-apply' }); expect(applied.editor.document.entities.at(-1)?.layerId).toBe(app.editor.currentLayerId);
+  expect(applied.editor.document.layers.some(l=>l.id==='dimensions')).toBe(false);
+  const standalone=resolveIntent(intent(types[2]),doc);if(standalone.status!=='ready'||standalone.kind!=='dimension') throw Error('dimension');
+  const withDimensions=applyCommand(doc,standalone.command);
+  const locked = applyCommand(withDimensions, { type: 'set-layer-lock', layerId: 'dimensions', locked: true });
   expect(resolveIntent(intent(types[2]), locked).status).toBe('invalid');
 });
 it('measure derives all metrics, remains read-only and updates only on committed revisions', () => {

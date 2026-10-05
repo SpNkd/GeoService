@@ -1,5 +1,5 @@
 import { documentSurveyXY } from './geometry/georeferencing';
-import type { HorizontalReference } from './domain/model';
+import { entityPoints, type HorizontalReference } from './domain/model';
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { bounds, fitToBounds, gridStep, screenToWorld, type ScreenPoint, type ViewSize } from './geometry';
 import { formatCoordinate, formatMeasure } from './geometry/format';
@@ -110,7 +110,7 @@ export default function App() {
       }
       case 'cancel': window.dispatchEvent(new Event('geoservice:escape')); dispatch({ type: 'tool', tool: 'select' });
         if (state.dimensionPick) dispatch({ type: 'cancel-dimension-pick' });
-        else if (!state.dimensionRetarget && !state.selectionMove) dispatch({ type: 'select', entityId: null });
+        else if (!state.dimensionRetarget && !state.selectionMove && !state.marqueeActive) dispatch({ type: 'select', entityId: null });
         dispatch({ type: 'close-move-input' }); break;
       case 'help': setShortcutsOpen(true); break;
     }
@@ -164,7 +164,7 @@ export default function App() {
   const fittedAiTask = useRef<string | null>(null);
   useEffect(() => {
     if (aiTask?.resolution.status !== 'ready' || aiTask.id === fittedAiTask.current || !aiTask.requiresConfirmation || size.width <= 1) return;
-    const viewport = fitToBounds(bounds(taskPreviews(aiTask).flatMap(preview => preview.result.geometry)), size, 100);
+    const viewport = fitToBounds(bounds([...taskPreviews(aiTask).flatMap(preview => preview.result.geometry), ...aiTask.referenceEntityIds.flatMap(id=>{const entity=aiTask.basedOnDocument.entities.find(e=>e.id===id);return entity?entityPoints(entity,aiTask.basedOnDocument.vertices):[];})]), size, 100);
     if (viewport) { dispatch({ type: 'viewport', viewport }); fittedAiTask.current = aiTask.id; }
   }, [aiTask, size]);
   const zoom = (factor: number) => dispatch({ type: 'zoom', size, anchor: { x: size.width / 2, y: size.height / 2 }, factor });
@@ -211,7 +211,7 @@ export default function App() {
       <span>Shift + клик: добавить в выбор</span>
     </div>
     <main className="workspace"><LayersPanel inert={georeferenceOpen} state={state} dispatch={dispatch} onCalibrate={() => { dispatch({ type: 'tool', tool: 'select' }); setGeoreferenceOpen(true); }} /><div className="drawing-area">
-      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} />
+      <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} aiReferenceIds={application.ai.status==='preview'?application.ai.plan.referenceEntityIds:[]} />
       <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
       <div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>
     </div><div inert={georeferenceOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} /><AiPanel ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>

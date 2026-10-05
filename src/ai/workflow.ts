@@ -7,17 +7,18 @@ import type { RequestEvent } from './provider';
 import { resolveAiTaskPlan, refreshTask, taskCommands, type ResolvedAiTaskPlan } from './task';
 export type { AiPlan, MutationPlan, ResolvedAiTaskPlan } from './task';
 
-export type AiState = { status: 'needs_clarification'; originalText: string; questions: string[] } | { status: 'idle' } | { status: 'parsing'; id: string; text: string }
+export type AiState = { status: 'needs_clarification'; originalText: string; questions: string[] } | { status: 'idle' } | { status: 'parsing'; id: string; text: string; targetLayerId:string; selectionEntityIds:readonly string[] }
   | { status: 'preview' | 'stale'; plan: ResolvedAiTaskPlan; notice: string | null }
   | { status: 'applied'; id: string; results: ResolvedAiTaskPlan | null } | { status: 'error'; message: string; code?: AiErrorCode; id?: string; originalText?: string };
 export interface ApplicationState { editor: EditorState; ai: AiState }
 export type ApplicationAction = EditorAction | { type: 'ai-event'; event: RequestEvent }
   | { type: 'ai-cancel' } | { type: 'ai-choose'; name: string; entityId: string }
-  | { type: 'ai-apply' } | { type: 'ai-refresh' } | { type: 'ai-offset'; actionId?: string; offset: number };
+  | {type:'ai-target-layer';layerId:string} | { type: 'ai-apply' } | { type: 'ai-refresh' } | { type: 'ai-offset'; actionId?: string; offset: number };
 export type ExecutionGateResult = { status: 'blocked'; message: string } | { status: 'refreshed'; plan: ResolvedAiTaskPlan }
   | { status: 'execute'; commands: ReturnType<typeof parseCommand>[]; expectedDocument: GeoDocument };
 /** One authorization gate; actual mutation belongs to the editor's general atomic batch capability. */
 export function mutationExecutionGate(plan: ResolvedAiTaskPlan, editor: EditorState): ExecutionGateResult {
+  if(usesSelection(plan)&&(plan.selectionEntityIds.length!==editor.selectedEntityIds.length||plan.selectionEntityIds.some((id,i)=>id!==editor.selectedEntityIds[i]))) return {status:'refreshed',plan:refreshTask({...plan,selectionEntityIds:editor.selectedEntityIds},editor.document)};
   if (editor.transactionBefore) return { status: 'blocked', message: 'Завершите редактирование координат перед Apply.' };
   if (plan.basedOnDocument !== editor.document) return { status: 'refreshed', plan: refreshTask(plan, editor.document) };
   if (!aiTaskSchema.safeParse(plan.task).success || plan.resolution.status !== 'ready' || !plan.mutationCount
@@ -33,13 +34,18 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
     case 'ai-cancel': return { ...state, ai: { status: 'idle' } };
     case 'ai-event': {
       const event = action.event;
-      if (event.type === 'start') return { ...state, ai: { status: 'parsing', id: event.id, text: event.text } };
+      if (event.type === 'start') return { ...state, ai: { status: 'parsing', id: event.id, text: event.text, targetLayerId:state.editor.currentLayerId,selectionEntityIds:state.editor.selectedEntityIds } };
       if (state.ai.status !== 'parsing' || state.ai.id !== event.id) return state;
       if (event.type === 'failure') return { ...state, ai: { status: 'error', message: event.message, ...(event.code ? { code: event.code } : {}), id: event.id, originalText: state.ai.text } };
       if ('status' in event.result && event.result.status === 'needs_clarification') return { ...state, ai: { status: 'needs_clarification', originalText: state.ai.text, questions: event.result.questions } };
       if ('status' in event.result) return { ...state, ai: { status: 'error', message: 'Эта команда пока не поддерживается.', code: 'UNSUPPORTED', id: event.id, originalText: state.ai.text } };
       return { ...state, ai: { status: 'preview', notice: null, plan: resolveAiTaskPlan(event.result,
-        state.editor.transactionBefore ?? state.editor.document, new Map(), { id: event.id, text: state.ai.text }) } };
+        state.editor.transactionBefore ?? state.editor.document, new Map(), { id: event.id, text: state.ai.text, targetLayerId:state.ai.targetLayerId,selectionEntityIds:state.ai.selectionEntityIds }) } };
+    }
+    case 'ai-target-layer': {
+      if(state.ai.status!=='preview'||state.editor.transactionBefore) return state;
+      if(!state.editor.document.layers.some(l=>l.id===action.layerId&&l.visible&&!l.locked)) return state;
+      return {...state,ai:{...state.ai,plan:refreshTask({...state.ai.plan,targetLayerId:action.layerId},state.editor.document)}};
     }
     case 'ai-choose': {
       if (state.ai.status !== 'preview' || state.editor.transactionBefore) return state;
@@ -50,7 +56,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
     case 'ai-refresh': {
       if ((state.ai.status !== 'preview' && state.ai.status !== 'stale') || state.editor.transactionBefore) return state;
       return { ...state, ai: { status: 'preview', notice: 'Документ изменился. План пересчитан. Подтвердите обновлённый план.',
-        plan: refreshTask(state.ai.plan, state.editor.document) } };
+        plan: refreshTask({...state.ai.plan, selectionEntityIds:state.editor.selectedEntityIds}, state.editor.document) } };
     }
     case 'ai-offset': {
       if (state.ai.status !== 'preview' || state.editor.transactionBefore) return state;
@@ -60,7 +66,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       offsets.set(selected.id, action.offset);
       const offsetBindings = new Map(plan.actions.flatMap(item => item.kind === 'dimension' && item.offsetEndpoints ? [[item.id, item.offsetEndpoints] as const] : []));
       if (selected.resolution.status === 'ready') offsetBindings.set(selected.id, selected.resolution.references.map(ref => ref.vertexId));
-      return { ...state, ai: { ...state.ai, plan: resolveAiTaskPlan(plan.task, state.editor.document, plan.choices, { id: plan.id, text: plan.text, offsets, offsetBindings }) } };
+      return { ...state, ai: { ...state.ai, plan: resolveAiTaskPlan(plan.task, state.editor.document, plan.choices, { targetLayerId:plan.targetLayerId,selectionEntityIds:plan.selectionEntityIds,id: plan.id, text: plan.text, offsets, offsetBindings }) } };
     }
     case 'ai-apply': {
       if ((state.ai.status !== 'preview' && state.ai.status !== 'stale') || !state.ai.plan.requiresConfirmation) return state;
@@ -82,6 +88,8 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       const committed = editor.transactionBefore ?? editor.document;
       const changed = committed !== (state.editor.transactionBefore ?? state.editor.document);
       let ai = state.ai;
+      const selectionChanged=editor.selectedEntityIds.length!==state.editor.selectedEntityIds.length||editor.selectedEntityIds.some((id,i)=>id!==state.editor.selectedEntityIds[i]);
+      if(selectionChanged&&(ai.status==='preview'||ai.status==='stale')&&usesSelection(ai.plan)) ai={...ai,status:'stale',notice:'Выделение изменилось. Пересчитайте план перед Apply.'};
       if (changed && (ai.status === 'preview' || ai.status === 'stale')) ai = ai.plan.requiresConfirmation
         ? { ...ai, status: 'stale', notice: 'Документ изменился. Пересчитайте план перед Apply.' }
         : { status: 'preview', plan: refreshTask(ai.plan, committed), notice: 'Измерение обновлено по текущему документу.' };
@@ -90,3 +98,5 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
     }
   }
 }
+
+export function usesSelection(plan:ResolvedAiTaskPlan):boolean {return plan.task.actions.some(a=>('reference'in a&&a.reference.kind==='current_selection')||(a.type==='create_rectangle'&&'reference'in a.placement&&a.placement.reference.kind==='current_selection'));}

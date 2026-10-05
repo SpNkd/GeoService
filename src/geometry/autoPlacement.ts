@@ -27,7 +27,11 @@ export function resolvePlacement(parent: Bounds, child: { width: number; height:
 
 /** Test the complete child perimeter, including notches between its corners. Boundary contact is allowed. */
 export function rectangleInsidePolygon(rectangle: readonly WorldPoint[], polygon: readonly WorldPoint[]): boolean {
-  if (polygon.length < 3 || rectangle.length !== 4) return false;
+  return rectangle.length === 4 && pathInsidePolygon(rectangle, polygon, true);
+}
+/** Shared containment of complete line/path segments, including concave notches. */
+export function pathInsidePolygon(rectangle: readonly WorldPoint[], polygon: readonly WorldPoint[], closed = false): boolean {
+  if (polygon.length < 3 || rectangle.length < 2) return false;
   const cross = (a: WorldPoint, b: WorldPoint) => a.x * b.y - a.y * b.x;
   const sub = (a: WorldPoint, b: WorldPoint) => ({ x: a.x - b.x, y: a.y - b.y });
   const inside = (point: WorldPoint) => {
@@ -41,8 +45,8 @@ export function rectangleInsidePolygon(rectangle: readonly WorldPoint[], polygon
     return result;
   };
   if (!rectangle.every(inside)) return false;
-  for (let i = 0; i < 4; i++) {
-    const a = rectangle[i]!, b = rectangle[(i + 1) % 4]!, r = sub(b, a), cuts = [0, 1];
+  for (let i = 0; i < rectangle.length - (closed ? 0 : 1); i++) {
+    const a = rectangle[i]!, b = rectangle[(i + 1) % rectangle.length]!, r = sub(b, a), cuts = [0, 1];
     for (let j = 0; j < polygon.length; j++) {
       const c = polygon[j]!, d = polygon[(j + 1) % polygon.length]!, s = sub(d, c), offset = sub(c, a), denominator = cross(r, s);
       if (denominator !== 0) {

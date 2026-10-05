@@ -6,6 +6,7 @@ import { defaultDimensionOffset, resolveReferencedIntent, type DimensionReady, t
 
 /** Read-only resolution inputs; only explicitly typed prior boundary outputs are exposed. */
 export interface ResolveContext {
+  readonly targetLayerId?: string;
   readonly baseDocument: GeoDocument;
   readonly projectedDocument: GeoDocument;
   readonly boundaryOutputs: ReadonlyMap<number, ResolvedBoundaryOutput>;
@@ -33,7 +34,7 @@ export function resolveBoundaryEdgeDimensions(intent: Extract<AiAction, { type: 
     const length = Math.hypot(pair[1]!.position.x - pair[0]!.position.x, pair[1]!.position.y - pair[0]!.position.y);
     const dimension = resolveReferencedIntent({ type: 'create_dimension_between_named_points', pointNames: pair.map(ref => ref.name) },
       { references: pair, geometry: pair.map(ref => ref.position), warnings: [] }, layerDocument,
-      { entityId: `geometry-${actionId}-edge-${index + 1}`, offset: sign * defaultDimensionOffset(length) });
+      { ...(context.targetLayerId ? {targetLayerId:context.targetLayerId}:{}), entityId: `geometry-${actionId}-edge-${index + 1}`, offset: sign * defaultDimensionOffset(length) });
     if (dimension.status !== 'ready') return dimension;
     if (dimension.kind !== 'dimension') throw new Error('Dimension resolver/output mismatch');
     dimensions.push(dimension);

@@ -7,10 +7,11 @@ import { AiPlanMetrics } from './AiPlanMetrics';
 import { formatDistance } from '../geometry/format';
 import type { AiDiagnostic } from '../ai/reliability';
 import { anchorLabels, formatAssumption } from '../ai/assumptions';
+import { spatialFrame } from '../geometry/spatialLayout';
 import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
 const Diagnostics = import.meta.env.DEV ? lazy(() => import('./AiDiagnostics')) : null;
-const operationLabels = { points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
+const operationLabels = { array:'массив прямоугольников', 'edge-line':'линия вдоль стороны', points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
 const defaultProvider = new HttpAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
 interface Props { ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
@@ -53,7 +54,7 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
       <div className="ai-actions"><button className="primary-button" type="submit" disabled={mode === 'disabled' || !(ai.status === 'needs_clarification' ? clarificationAnswer.trim() : text.trim()) || utf8Bytes(text) > AI_LIMITS.requestBytes}>Generate plan</button>
         <button type="button" className="tool-button compact" onClick={cancel}>Cancel</button></div>
     </form>
-    <p className="ai-privacy">{mode === 'mock' ? 'Демо: фиксированные ответы, без LLM. ' : ''}Отправляется только текст запроса. Точки разрешаются локально.</p>
+    <p className="ai-privacy">{mode === 'mock' ? 'Демо: фиксированные ответы, без LLM. ' : ''}Отправляется только текст запроса. Точки и объекты разрешаются локально; слои и выделение не отправляются.</p>
     {mode === 'disabled' && <p className="ai-message">AI не подключён. Запустите mock demo или настройте серверный провайдер по README.</p>}
     <div aria-live="polite" aria-atomic="false">
       {ai.status === 'parsing' && <p className="ai-message">Разбираем запрос… Можно отправить новый или отменить.</p>}
@@ -63,17 +64,19 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
       </div>}
       {ai.status === 'applied' && <p className="ai-message">Изменения применены. Undo отменит их одной операцией.</p>}
       {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>
+        <label>Слой новых объектов<select aria-label="Слой новых объектов" value={preview.plan.targetLayerId} disabled={ai.status!=='preview'||transactionActive} onChange={e=>dispatch({type:'ai-target-layer',layerId:e.target.value})}>{!preview.plan.basedOnDocument.layers.some(l=>l.id===preview.plan.targetLayerId&&l.visible&&!l.locked)&&<option value={preview.plan.targetLayerId}>Выберите доступный слой</option>}{preview.plan.basedOnDocument.layers.filter(l=>l.visible&&!l.locked).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
         <strong>AI Plan · {preview.plan.actions.length} actions</strong><p className="ai-request-summary">{preview.plan.text}</p>
+        <p>Направления: {spatialFrame(preview.plan.basedOnDocument).name}</p>
         <p>Changes: {preview.plan.generatedCommandCount} · Measurements: {preview.plan.readOnlyCount}</p>
         {preview.plan.assumptions.length > 0 && <div className="ai-assumptions" data-testid="ai-assumptions"><strong>Предположения</strong><ul>{preview.plan.assumptions.map((assumption, index) => <li key={index}>{formatAssumption(assumption)}</li>)}</ul></div>}
         {preview.notice && <p className="ai-message" role="status">{preview.notice}</p>}
         {resolution?.status === 'invalid' && <p className="ai-error">{resolution.message}</p>}
         {resolution?.status === 'unresolved' && resolution.issues.map(issue => <div key={issue.name} className="ai-issue">
-          {issue.kind === 'missing' ? <p className="ai-error">{issue.name} — точка не найдена.</p> : <>
-            <p>{issue.name} найдено в {issue.candidates.length} экземплярах</p>
-            <label>Выберите точку<select aria-label={`Разрешить ${issue.name}`} value={preview.plan.choices.get(issue.name) ?? ''}
+          {issue.kind === 'missing' ? <p className="ai-error">{issue.displayName??issue.name} — {issue.scope==='entity'?'объект':'точка'} не найден{issue.scope==='entity'?'':'а'}.</p> : <>
+            <p>{issue.displayName??issue.name} найдено в {issue.candidates.length} экземплярах</p>
+            <label>Выберите {issue.scope==='entity'?'объект':'точку'}<select aria-label={`Разрешить ${issue.name}`} value={preview.plan.choices.get(issue.name) ?? ''}
               disabled={ai.status === 'stale' || transactionActive} onChange={event => dispatch({ type: 'ai-choose', name: issue.name, entityId: event.target.value })}>
-              <option value="" disabled>Не выбрана</option>{issue.candidates.map(point => <option key={point.entityId} value={point.entityId}>{coordinates(point)} · {point.layer} · {point.entityId}</option>)}
+              <option value="" disabled>Не выбрана</option>{issue.candidates.map(point => <option key={point.entityId} value={point.entityId}>{point.entityType ? `${point.name} · ${point.entityType} · bounds ${point.bounds?.minX},${point.bounds?.minY}–${point.bounds?.maxX},${point.bounds?.maxY}` : coordinates(point)} · {point.layer} · {point.entityId}</option>)}
             </select></label>
           </>}
         </div>)}
@@ -81,10 +84,10 @@ export const AiPanel = memo(function AiPanel({ ai, dispatch, transactionActive, 
           const result = action.resolution;
           return <div key={action.id} className="ai-action" data-testid="ai-action" data-action-id={action.id}>
             <strong>{index + 1}. Интерпретация: {operationLabels[action.kind]}</strong>
-            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.kind === 'points' ? `${action.intent.points.length} точек с явно заданными координатами` : action.kind === 'rectangle' ? `${action.intent.name}: ${action.intent.width} × ${action.intent.height} м · ${action.intent.placement.type === 'centered_in_action_result' ? 'По центру Action ' + (action.intent.placement.polygonActionIndex + 1) : action.intent.placement.type === 'anchored_in_action_result' ? `${anchorLabels[action.intent.placement.anchor]} часть Action ${action.intent.placement.polygonActionIndex + 1}` : action.intent.placement.type}` : action.intent.pointNames.join(' → ')}</p>
+            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.kind === 'points' ? `${action.intent.points.length} точек с явно заданными координатами` : action.kind === 'rectangle' ? `${action.intent.name}: ${action.intent.width} × ${action.intent.height} м · ${action.intent.placement.type === 'centered_in_action_result' ? 'По центру Action ' + (action.intent.placement.polygonActionIndex + 1) : action.intent.placement.type === 'anchored_in_action_result' ? `${anchorLabels[action.intent.placement.anchor]} часть Action ${action.intent.placement.polygonActionIndex + 1}` : action.intent.placement.type}` : action.kind==='array'?`${action.intent.nameBase}: ${action.intent.count} × ${action.intent.width}×${action.intent.height} м`:action.kind==='edge-line'?`${action.intent.name}: ${action.intent.side}, ${action.intent.offsetMeters} м ${action.intent.offsetSide}`:action.intent.pointNames.join(' → ')}</p>
             {(result.status === 'invalid' || result.status === 'blocked') && <p className="ai-error">{result.message}</p>}
             {result.status === 'ready' && <>
-              {result.kind === 'bulk-dimensions' ? <ol className="ai-points" data-testid="ai-edge-list">{result.dimensions.map((edge, index) =>
+              {result.kind==='array'? <ol>{result.rectangles.map((r,i)=><li key={i}>{r.command.type==='add-entity'?r.command.entity.name:''}: {r.width}×{r.height} м</li>)}</ol> : result.kind === 'bulk-dimensions' ? <ol className="ai-points" data-testid="ai-edge-list">{result.dimensions.map((edge, index) =>
                 <li key={index}>{edge.references[0]!.name} → {edge.references[1]!.name}: {formatDistance(edge.metrics.horizontal)}</li>)}</ol>
                 : <ol className="ai-points">{result.references.map((point, index) => <li key={`${point.entityId}:${point.vertexId}:${index}`}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>}
               <dl className="ai-metrics"><AiPlanMetrics result={result} /></dl>

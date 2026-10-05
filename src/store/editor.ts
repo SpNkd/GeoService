@@ -13,6 +13,7 @@ import { resolveSelectionMove, projectSelectionMove, type ResolvedSelectionMove,
 export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure';
 export type PointLabelMode = 'name' | 'name-z' | 'z';
 export interface EditorState {
+  marqueeActive: boolean;
   moveInputOpen: boolean;
   selectionMove: { resolved: ResolvedSelectionMove; delta: Translation; previewDocument: GeoDocument } | null;
   coordinateDisplay: 'model' | 'survey';
@@ -24,6 +25,8 @@ export interface EditorState {
   orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean; ortho: boolean;
 }
 export type EditorAction =
+  | { type: 'begin-marquee' } | { type: 'cancel-marquee' }
+  | { type: 'finish-marquee'; entityIds: string[]; mode: 'replace' | 'add' | 'toggle' }
   | { type: 'open-move-input' } | { type: 'close-move-input' }
   | { type: 'begin-selection-move'; entityIds: string[] }
   | { type: 'preview-selection-move'; delta: Translation }
@@ -76,7 +79,7 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { marqueeActive: false, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
@@ -84,6 +87,17 @@ export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFing
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case 'begin-marquee': return { ...state, marqueeActive: true };
+    case 'cancel-marquee': return { ...state, marqueeActive: false };
+    case 'finish-marquee': {
+      const hits = action.entityIds.filter(id => reconcileSelection(state.document,id));
+      const selected = new Set(action.mode === 'replace' ? [] : state.selectedEntityIds);
+      for (const id of hits) { if(action.mode === 'toggle' && selected.has(id)) selected.delete(id); else selected.add(id); }
+      const selectedEntityIds = [...selected];
+      const oldOrder = action.mode === 'replace' ? [] : state.orderedPointIds.filter(id=>selected.has(id));
+      const newPoints = selectedEntityIds.filter(id=>!oldOrder.includes(id) && state.document.entities.some(e=>e.id===id && e.type==='point'));
+      return { ...state, marqueeActive:false, selectedEntityIds, selectionId:selectedEntityIds.at(-1)??null, selectedLayerId:null, orderedPointIds:[...oldOrder,...newPoints] };
+    }
     case 'open-move-input': return state.transactionBefore ? state : { ...state, moveInputOpen: true, tool: 'select' };
     case 'close-move-input': return { ...state, moveInputOpen: false };
     case 'begin-selection-move': {

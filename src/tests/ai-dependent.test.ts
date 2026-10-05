@@ -154,10 +154,10 @@ it('optimized general addition runs preserve sequential semantics, locks, payloa
   const atomic = applyCommandsAtomically(d, commands); expect(atomic).toEqual(sequential);
   const entity = commands[0]!; if (entity.type !== 'add-entity') throw Error('add'); entity.entity.name = 'changed caller'; expect(atomic.entities.at(4)?.name).not.toBe('changed caller');
   const duplicate = [...commands, commands[1]!]; expect(() => applyCommandsAtomically(d, duplicate)).toThrow('ID'); expect(d.entities).toHaveLength(4);
-  const locked = applyCommand(d, { type: 'set-layer-lock', layerId: 'dimensions', locked: true });
+  const locked = applyCommand(d, { type: 'set-layer-lock', layerId: 'boundary', locked: true });
   expect(() => applyCommandsAtomically(locked, commands)).toThrow('заблокирован');
-  const mixed: DocumentCommand[] = [{ type: 'set-layer-lock', layerId: 'dimensions', locked: true }, ...commands];
-  expect(() => applyCommandsAtomically(d, mixed)).toThrow('заблокирован'); expect(d.layers.find(l => l.id === 'dimensions')!.locked).toBe(false);
+  const mixed: DocumentCommand[] = [{ type: 'set-layer-lock', layerId: 'boundary', locked: true }, ...commands];
+  expect(() => applyCommandsAtomically(d, mixed)).toThrow('заблокирован'); expect(d.layers.find(l => l.id === 'boundary')!.locked).toBe(false);
 });
 it('task capacity checks include all expanded commands during projection', () => {
   const d = drawing(); for (let i = 0; i < 49992; i++) d.entities.push({ type: 'point', id: `extra-${i}`, name: `Extra-${i}`, layerId: 'survey-points', vertexId: 'v0' });
