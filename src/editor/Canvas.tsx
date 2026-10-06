@@ -1,6 +1,6 @@
 import { viewRotation, type RenderCamera } from '../view/projection';
 import { viewportDocument } from '../layouts/context';
-import { viewportVisibleIds, viewportPoint } from '../layouts/selection';
+import { entityIntersectsViewport, viewportVisibleIds, viewportPoint } from '../layouts/selection';
 import type { DxfViewport } from '../layouts/types';
 import { rotationDelta, resolveSelectionTransform } from '../domain/selectionTransform';
 import { editorCamera, AXON_EDIT_MESSAGE } from '../store/editor';
@@ -12,10 +12,10 @@ import type { ProcessPlan } from '../process/plan';
 import { hitSymbolPort } from '../connectors/ports';
 import { connectorVisible, connectorRoute } from '../connectors/model';
 import { ConnectorOverlay } from '../renderer/ConnectorOverlay';
-import type { ConnectorEndpoint } from '../domain/model';
+import type { Entity, ConnectorEndpoint } from '../domain/model';
 import { editorViewDocument } from '../store/editor';
 import { DocumentQueryHighlight } from '../renderer/DocumentQueryHighlight';
-import { createHitStack, hitOwners, resolveDeepSelection, selectedMoveOwner, type HitCandidate } from './deepSelection';
+import { normalHitStack, createHitStack, hitOwners, resolveDeepSelection, selectedMoveOwner, type HitCandidate } from './deepSelection';
 import { composeScene, type RendererMode } from '../renderer/hybridScene';
 import { CanvasStratum } from '../renderer/CanvasStratum';
 import { SelectionContours } from '../renderer/SelectionContours';
@@ -56,7 +56,7 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; documentHighlightIds?:readonly string[]|undefined; aiReferenceIds?: readonly string[] | undefined; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = {kind:'selection-rotate';pointerId:number;pivot:WorldPoint;startAngle:number} | {kind:'underlay-resize';pointerId:number;entity:RasterUnderlayEntity;corner:number} | {kind:'axon-inspect';pointerId:number;start:ScreenPoint;warned:boolean} | {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
+type Drag = {kind:'selection-rotate';pointerId:number;pivot:WorldPoint;startAngle:number} | {kind:'underlay-resize';pointerId:number;entity:RasterUnderlayEntity;corner:number} | {kind:'axon-inspect';pointerId:number;start:ScreenPoint;warned:boolean} | {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode; clickCandidate?:HitCandidate } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
 /** Keep editor text UI inside the currently visible interaction window. */
@@ -66,12 +66,17 @@ function textEntryStyle(point: ScreenPoint, camera: RenderCamera, size: ViewSize
   const width = Math.min(370, Math.max(0, right - left - 16));
   return { width, left: Math.max(left + 8, Math.min(point.x + 8, right - width - 8)), top: Math.max(top + 8, Math.min(point.y + 8, bottom - 70)) };
 }
+const cadType=(e:Entity)=>({point:'Точка',line:'Линия',polyline:'Полилиния',polygon:'Полигон',text:'Текст',label:'Подпись',dimension:'Размер',symbol:'Символ',connector:'Соединение',arc:'Дуга',circle:'Окружность',block_instance:'Блок',imported_graphic:'Графика',raster_underlay:'Подложка'})[e.type];
 export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], processPreview, cameraOverride, activeViewport, aiReferenceIds = [], documentHighlightIds = [], onPickPoint, referencePreview }: Props) {
   const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
   const hitCycle = useRef<{document: typeof state.document; point: ScreenPoint; candidates: HitCandidate[]; index: number; zoom:number; center:WorldPoint} | null>(null);
   const lastTextClick = useRef<{ entityId: string; at: number; point: ScreenPoint } | null>(null);
+  const wheelFrame=useRef<number|null>(null),wheelPending=useRef<{anchor:ScreenPoint;factor:number}|null>(null);
   const frame = useRef<number | null>(null), pending = useRef<MoveInput | null>(null);
   const [dragging, setDragging] = useState(false);
+  const normalCycle=useRef<{document:typeof state.document;camera:typeof viewport;candidates:HitCandidate[];index:number}|null>(null);
+  const [cycleLabel,setCycleLabel]=useState<string|null>(null),[hoverId,setHoverId]=useState<string|null>(null);
+  useEffect(()=>{if(!cycleLabel)return;const timer=setTimeout(()=>setCycleLabel(null),2500);return()=>clearTimeout(timer);},[cycleLabel]);
   const [rendererMode,setRendererMode]=useState<RendererMode>(()=>import.meta.env.DEV&&new URLSearchParams(window.location.search).get('dxfRenderer')==='svg'?'svg':'canvas');
   const [portHover,setPortHover]=useState<ConnectorEndpoint|null>(null);
   const [draft, setDraft] = useState<GeometryAnchor[]>([]);
@@ -87,7 +92,8 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const document = useMemo(()=>editorViewDocument({document:activeViewport?viewportDocument(canonical,activeViewport):canonical,isolation}),[isolation,canonical,activeViewport]);
   const committedBase=state.transactionBefore??state.document;
   const committed = useMemo(()=>editorViewDocument({document:activeViewport?viewportDocument(committedBase,activeViewport):committedBase,isolation}),[isolation,committedBase,activeViewport]);
-  const provider = useMemo(() => createSnapProvider(activeViewport?{...committed,entities:committed.entities.filter(e=>viewportVisibleIds(committed,activeViewport).has(e.id))}:committed), [committed,activeViewport]);
+  const baseProvider=useMemo(()=>createSnapProvider(committed),[committed]);
+  const provider=useMemo(()=>activeViewport?{query:(...args:Parameters<typeof baseProvider.query>)=>[...baseProvider.query(...args)].filter(c=>{const p=viewportPoint(activeViewport,c.worldPosition),h=activeViewport.viewHeight/2,w=h*activeViewport.sizePaper.width/activeViewport.sizePaper.height;return Math.abs(p.x)<=w&&Math.abs(p.y)<=h;})}:baseProvider,[baseProvider,activeViewport]);
   const items = useMemo(() => axon?sortProjectedItems(renderItems(document),document,state.projection):renderItems(document), [document,axon,state.projection]);
   const scene=useMemo(()=>axon?{strata:[{kind:'canvas' as const,items:items.filter(i=>canvasEntity(i.entity))},{kind:'svg' as const,items:items.filter(i=>!canvasEntity(i.entity)&&i.entity.type!=='raster_underlay')}].filter(s=>s.items.length>0),fallback:false}:composeScene(items.filter(i=>i.entity.type!=='raster_underlay'),rendererMode),[items,rendererMode,axon]);
   const canvasOwnerIds=useMemo(()=>new Set(scene.strata.filter(s=>s.kind==='canvas').flatMap(s=>s.items.map(i=>i.entity.id))),[scene]);
@@ -144,9 +150,10 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       event.preventDefault(); const rect = element.getBoundingClientRect();
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? size.height : 1);
       const anchor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      announceSnap(null); onCursor(anchor); dispatch({ type: 'zoom', size, anchor, factor: Math.exp(-Math.max(-250, Math.min(250, delta)) * 0.002) });
+      const factor=Math.exp(-Math.max(-250,Math.min(250,delta))*.002);wheelPending.current={anchor,factor:(wheelPending.current?.factor??1)*factor};
+      if(wheelFrame.current===null)wheelFrame.current=requestAnimationFrame(()=>{wheelFrame.current=null;const pending=wheelPending.current;wheelPending.current=null;if(pending){announceSnap(null);onCursor(pending.anchor);dispatch({type:'zoom',size,...pending});}});
     };
-    element.addEventListener('wheel', wheel, { passive: false }); return () => element.removeEventListener('wheel', wheel);
+    element.addEventListener('wheel', wheel, { passive: false }); return () => {element.removeEventListener('wheel', wheel);if(wheelFrame.current!==null)cancelAnimationFrame(wheelFrame.current);wheelFrame.current=null;wheelPending.current=null;};
   }, [announceSnap, disabled, dispatch, onCursor, size]);
   const snapCandidate:typeof findSnapCandidate=(...args)=>{const result=findSnapCandidate(...args);if(!result||!activeViewport)return result;const p=viewportPoint(activeViewport,result.worldPosition),h=activeViewport.viewHeight/2,w=h*activeViewport.sizePaper.width/activeViewport.sizePaper.height;return Math.abs(p.x)<=w&&Math.abs(p.y)<=h?result:null;};
   const anchorAt = (point: ScreenPoint, exclude?: string, shiftKey = false): GeometryAnchor => {
@@ -234,7 +241,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       dispatch({ type: 'transient', command: { type: 'update-entity', entityId: active.entityId, patch: { textPosition: Math.max(0.05, Math.min(0.95, t)) } } }); return;
     }
     if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text', 'symbol'].includes(tool)) setDrawCursor(anchorAt(point, undefined, shiftKey).position);
-    else { announceSnap(null); if(tool==='select'&&ref.current) ref.current.style.cursor=hitOwners(document,screenToWorld(point,viewport,size),7/viewport.pixelsPerUnit,viewport.pixelsPerUnit).length?'pointer':''; }
+    else { announceSnap(null); if(tool==='select'&&ref.current){const id=hitOwners(document,screenToWorld(point,viewport,size),7/viewport.pixelsPerUnit,viewport.pixelsPerUnit)[0]??null;ref.current.style.cursor=id?'pointer':'';setHoverId(id);} }
   };
   const flushMove = () => {
     if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
@@ -244,7 +251,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const local = (event: PointerEvent<SVGSVGElement>): ScreenPoint => { const rect = event.currentTarget.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; };
   const down = (event: PointerEvent<SVGSVGElement>) => {
     if (disabled || ![0, 1, 2].includes(event.button)) return;
-    flushMove(); event.preventDefault(); const point = local(event); onCursor(point);
+    flushMove(); setHoverId(null); event.preventDefault(); const point = local(event); onCursor(point);
     let hit = event.target instanceof Element ? event.target.closest('[data-entity-id]') : null;
     let logicalHitId: string | undefined;
     event.currentTarget.focus({preventScroll:true});
@@ -284,7 +291,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       dispatch({ type: 'select', entityId: entity.id }); dispatch({ type: 'tool', tool: 'select' }); setDrawCursor(null); return;
     }
     if(tool==='select') {
-      const pointerWorld=screenToWorld(point,viewport,size),owners=hitOwners(document,pointerWorld,7/viewport.pixelsPerUnit,viewport.pixelsPerUnit).filter(id=>!activeViewport||viewportVisibleIds(document,activeViewport).has(id));
+      const pointerWorld=screenToWorld(point,viewport,size),owners=hitOwners(document,pointerWorld,7/viewport.pixelsPerUnit,viewport.pixelsPerUnit).filter(id=>!activeViewport||entityIntersectsViewport(document,document.entities.find(e=>e.id===id)!,activeViewport));
       if(!event.altKey&&!owners.length){const selected=selectedMoveOwner(document,screenToWorld(point,viewport,size),state.selectedEntityIds,5/viewport.pixelsPerUnit);if(selected)owners.push(selected);}
       // SVG handles remain UI affordances; owner selection is always a world geometry query.
       const grip=event.target instanceof Element&&event.target.closest('[data-vertex-handle],[data-dimension-text-handle]');
@@ -299,6 +306,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         return;
       }
       hitCycle.current=null;
+      const normal=normalHitStack(document,owners,pointerWorld,5/viewport.pixelsPerUnit);
+      normalCycle.current={document,camera:viewport,candidates:normal,index:0};setCycleLabel(null);
+      if(normal[0]?.selection&&!state.deepSelection?.attribute&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey){dispatch({type:'deep-select',candidate:normal[0],index:0,count:normal.length});return;}
       if(state.deepSelection?.attribute&&state.deepSelection.attributeTag){
         const active=state.deepSelection,resolved=resolveDeepSelection(document,active),owner=document.entities.find(e=>e.id===active.ownerEntityId),definition=owner?.type==='block_instance'?blockDefinition(document,owner.blockDefinitionId):undefined;
         const exact=createHitStack(document,owners,pointerWorld,5/viewport.pixelsPerUnit).find(candidate=>candidate.selection?.attribute&&candidate.selection.attributeTag===active.attributeTag&&candidate.selection.ownerEntityId===active.ownerEntityId&&candidate.selection.primitivePath.length===active.primitivePath.length&&candidate.selection.primitivePath.every((part,i)=>part===active.primitivePath[i]));
@@ -307,10 +317,19 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
           if(linear){dispatch({type:'begin-transaction'});drag.current={kind:'block-attribute',pointerId:event.pointerId,entityId:owner.id,tag:active.attributeTag!,attributeIndex:active.primitivePath[0]!,...(resolved.source?.handle?{sourceHandle:resolved.source.handle}:{}),start,pointerStart:pointerWorld,inverseLinear:linear};event.currentTarget.setPointerCapture(event.pointerId);setDragging(true);return;}
         }
       }
-      const id=owners[0];
+      const id=normal[0]?.ownerEntityId;
       logicalHitId=id;
       hit=id?event.currentTarget.querySelector(`[data-entity-id="${CSS.escape(id)}"]`):null;
       if(state.deepSelection) {dispatch({type:'select',entityId:id??null}); return;}
+      // The forgiving click band must not turn empty gaps between dense DXF strokes into a drag.
+      // An already selected object retains its existing body/bounds drag affordance.
+      const picked=document.entities.find(e=>e.id===id);
+      if(picked&&['block_instance','imported_graphic'].includes(picked.type)&&!state.selectedEntityIds.includes(picked.id)&&!hitOwners(document,pointerWorld,7/viewport.pixelsPerUnit,viewport.pixelsPerUnit,true).includes(picked.id)){
+        dispatch({type:'begin-marquee'});
+        drag.current={kind:'marquee',pointerId:event.pointerId,start:point,end:point,moved:false,mode:event.ctrlKey||event.metaKey?'toggle':event.shiftKey?'add':'replace',clickCandidate:normal[0]!};
+        event.currentTarget.setPointerCapture(event.pointerId);return;
+      }
+
     }
     // Active geometry handles outrank wide annotation hit areas at the same screen position.
     if (tool === 'select') for (const entity of document.entities) {
@@ -422,7 +441,11 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const end = (event: PointerEvent<SVGSVGElement>) => {
     flushMove(); const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
-    if(active.kind === 'marquee') { dispatch({type:'finish-marquee',entityIds:active.moved?marqueeEntities(committed,viewport,size,active.start,active.end).filter(id=>!activeViewport||viewportVisibleIds(committed,activeViewport).has(id)):[],mode:active.mode}); setMarquee(null); }
+    if(active.kind === 'marquee') {
+      if(!active.moved&&active.clickCandidate){dispatch({type:'cancel-marquee'});dispatch({type:'select',entityId:active.clickCandidate.ownerEntityId,...(active.mode==='replace'?{}:{toggle:true})});}
+      else dispatch({type:'finish-marquee',entityIds:active.moved?marqueeEntities(committed,viewport,size,active.start,active.end).filter(id=>!activeViewport||viewportVisibleIds(committed,activeViewport).has(id)):[],mode:active.mode});
+      setMarquee(null);
+    }
     else if(active.kind==='connector-retarget'){dispatch({type:'finish-connector-retarget',target:active.candidate});setPortHover(null);}
     else if (active.kind === 'dimension-retarget') dispatch({ type: 'finish-dimension-retarget', vertexId: active.candidateVertexId });
     else if (active.kind === 'selection') {
@@ -461,9 +484,13 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       data-view-angle={viewRotation(viewport)} data-view-mode={state.viewMode} data-orientation={state.projection.orientation} data-origin-x={state.projection.origin.x} data-origin-y={state.projection.origin.y} data-origin-z={state.projection.origin.z} data-testid="drawing-canvas" data-center-x={viewport.center.x} data-center-y={viewport.center.y} data-zoom={viewport.pixelsPerUnit}
       data-renderer={scene.fallback?'svg-fallback':rendererMode}
       aria-label="Геодезическая схема" tabIndex={0} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={cancelDrag}
-      onKeyDown={event => { if (event.key === 'Enter' && (tool === 'polyline' || tool === 'polygon') && draft.length) { event.preventDefault(); finishPath(); } }}
+      onKeyDown={event => {
+        if(event.key==='Escape'){normalCycle.current=null;setCycleLabel(null);}
+        const cycle=normalCycle.current;
+        if(event.key==='Tab'&&event.target===event.currentTarget&&!spaceHeld&&tool==='select'&&!state.transactionBefore&&!state.marqueeActive&&cycle?.document===document&&cycle.camera===viewport&&cycle.candidates.length>1&&state.selectionId===cycle.candidates[cycle.index]?.ownerEntityId){event.preventDefault();event.stopPropagation();cycle.index=(cycle.index+(event.shiftKey?-1:1)+cycle.candidates.length)%cycle.candidates.length;const candidate=cycle.candidates[cycle.index]!,e=document.entities.find(e=>e.id===candidate.ownerEntityId)!;dispatch({type:'deep-select',candidate,index:cycle.index,count:cycle.candidates.length});setCycleLabel(`${cycle.index+1} / ${cycle.candidates.length} · ${candidate.selection?'Атрибут':cadType(e)} · Слой: ${document.layers.find(l=>l.id===e.layerId)?.name??'—'}`);return;}
+        if (event.key === 'Enter' && (tool === 'polyline' || tool === 'polygon') && draft.length) { event.preventDefault(); finishPath(); } }}
       onLostPointerCapture={() => { if(drag.current?.kind==='marquee') {dispatch({type:'cancel-marquee'});setMarquee(null);}  if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'cancel-transaction' }); drag.current = null; setDragging(false); }}
-      onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); announceSnap(null); }}
+      onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); setHoverId(null); announceSnap(null); }}
       onDoubleClick={event => {
         if (axon || disabled || onPickPoint || state.deepSelection || event.altKey) return;
         const area=event.currentTarget.getBoundingClientRect(),point={x:event.clientX-area.left,y:event.clientY-area.top};
@@ -486,6 +513,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         dimensionRetarget={state.dimensionRetarget?.dimensionId === item.entity.id ? state.dimensionRetarget : null}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
         pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}</g>)}
+      {hoverId&&!dragging&&!spaceHeld&&!state.selectedEntityIds.includes(hoverId)&&<g opacity={.4} data-testid="hover-contour"><SelectionContours document={document} items={items.filter(i=>i.entity.id===hoverId)} viewport={viewport} size={size} ownerMarkers={false}/></g>}
       {/* Keep the cursor overlay mounted: inserting/removing it relayouts the entire SVG on each click. */}
       <rect data-testid="pan-cursor" x={0} y={0} width={size.width} height={size.height} fill="transparent" pointerEvents={dragging || spaceHeld || tool === 'pan' ? 'all' : 'none'} style={{cursor: dragging ? 'grabbing' : 'grab'}} />
       {marquee && <g pointerEvents="none" data-testid="marquee-selection" data-mode={marquee.end.x<marquee.start.x?'crossing':'window'}><rect x={Math.min(marquee.start.x,marquee.end.x)} y={Math.min(marquee.start.y,marquee.end.y)} width={Math.abs(marquee.end.x-marquee.start.x)} height={Math.abs(marquee.end.y-marquee.start.y)} fill={marquee.end.x<marquee.start.x?'#21836e18':'#277ec118'} stroke={marquee.end.x<marquee.start.x?'#21836e':'#277ec1'} strokeDasharray={marquee.end.x<marquee.start.x?'5 3':undefined}/><text x={Math.min(marquee.start.x,marquee.end.x)+5} y={Math.min(marquee.start.y,marquee.end.y)-7} fill="#405d6b" fontSize={11}>{marquee.end.x<marquee.start.x?'CROSSING':'WINDOW'}</text></g>}
@@ -532,6 +560,6 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     </form>}
     <div className="canvas-caption"><span className="live-dot" /> {axon?'АКСОНОМЕТРИЯ':'МОДЕЛЬ'} <span>{axon?'Метры · MODEL X / Y / Z':'Метры · X / Y'}</span></div>
     {!activeViewport&&(axon?<AxonAxes viewport={viewport}/>:<div className="north-arrow" aria-label={surveyAvailable&&!referenceStale ? "Survey North в MODEL viewport" : "Ось MODEL +Y; Survey не задан"} data-testid="north-arrow" data-screen-x={north.screen.x} data-screen-y={north.screen.y} data-stale={referenceStale} data-preview={Boolean(referencePreview)}><b>{surveyAvailable&&!referenceStale ? 'N' : '+Y'}</b><svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true"><g transform={`rotate(${north.rotationDegrees})`}><path d="M0 -18L-7 13l7-5 7 5z" fill="#405d6b" /><path d="M0 -18v26l7 5z" fill="#c7d4dc" /></g></svg></div>)}
-    <div className={`canvas-help${axon?' axon-help':''}`}>{state.hitStackStatus && <span data-testid="hit-stack-status">Выбор {state.hitStackStatus.index+1}/{state.hitStackStatus.count} · {state.deepSelection?.blockPath.join(' → ')} · {state.deepSelection?.sourceType} </span>}{axon?'Объекты без Z отображаются на уровне 0.000 · Выбор и точные X/Y/Z · Space + drag — вид. 3D-маршрут не задан; вертикальный переход отображается у конечного порта.':sequenceHint ? `${sequenceHint}…` : tool==='connector'||state.connectorInteraction?.kind==='retarget'?`${state.connectorInteraction?.kind==='retarget'?'Выберите новый порт':state.connectorInteraction?'Выберите конечный порт':'Выберите начальный порт'} · только свободные совместимые порты · Esc отмена`:tool === 'symbol' ? 'Символ: клик — вставить в текущий слой · R — поворот · Esc — отмена' : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Рамка → WINDOW / ← CROSSING · Shift добавляет · Ctrl/Cmd переключает · Drag за тело — перенос · Shift + drag — X/Y · M — Δ или MODEL X/Y · Space + drag — вид`}</div>
+    <div className={`canvas-help${axon?' axon-help':''}`}>{cycleLabel&&<span role="status" data-testid="selection-cycle">{cycleLabel}</span>}{state.hitStackStatus && hitCycle.current && <span data-testid="hit-stack-status">Выбор {state.hitStackStatus.index+1}/{state.hitStackStatus.count} · {state.deepSelection?.blockPath.join(' → ')} · {state.deepSelection?.sourceType} </span>}{axon?'Объекты без Z отображаются на уровне 0.000 · Выбор и точные X/Y/Z · Space + drag — вид. 3D-маршрут не задан; вертикальный переход отображается у конечного порта.':sequenceHint ? `${sequenceHint}…` : tool==='connector'||state.connectorInteraction?.kind==='retarget'?`${state.connectorInteraction?.kind==='retarget'?'Выберите новый порт':state.connectorInteraction?'Выберите конечный порт':'Выберите начальный порт'} · только свободные совместимые порты · Esc отмена`:tool === 'symbol' ? 'Символ: клик — вставить в текущий слой · R — поворот · Esc — отмена' : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Рамка → WINDOW / ← CROSSING · Shift добавляет · Ctrl/Cmd переключает · Drag за тело — перенос · Shift + drag — X/Y · M — Δ или MODEL X/Y · Space + drag — вид`}</div>
   </div>;
 });

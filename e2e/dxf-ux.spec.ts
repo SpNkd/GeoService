@@ -23,7 +23,7 @@ const errors=new WeakMap<Page,string[]>();
 test.beforeEach(async({page})=>{const list:string[]=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));page.on('console',m=>{if(m.type()==='error')list.push(m.text());});await page.goto('/?dxfRenderer=svg');await expect(page.getByTestId('drawing-canvas')).toBeVisible();});
 test.afterEach(({page})=>expect(errors.get(page)).toEqual([]));
 test('normal owner, Alt cycle TEXT/LINE, isolated highlight and read-only Move/Delete',async({page})=>{
-  const d=synthetic();await open(page,d);const p=await screen(page,3,2.5);await page.mouse.click(p.x,p.y);await expect(page.getByTestId('selected-id')).toHaveText('owner');await expect(page.locator('.entity-heading h3')).toHaveText('Child');await expect(page.getByRole('heading',{name:'Блок',exact:true})).toBeVisible();
+  const d=synthetic();await open(page,d);const p=await screen(page,3,2.5);await page.mouse.click(p.x,p.y);await expect(page.getByTestId('selected-id')).toHaveText('owner');await expect(page.locator('.entity-heading h3')).toHaveText('Child');await expect(page.locator('.property-section>summary').filter({hasText:/^Блок$/})).toBeVisible();
   await alt(page,p);await expect(page.getByTestId('hit-stack-status')).toContainText('Выбор 1/3');await alt(page,p);await expect(page.getByTestId('deep-properties')).toContainText('Газ ГРС');await expect(page.getByTestId('deep-selection-highlight')).toBeVisible();await expect(page.getByLabel('Слой объекта',{exact:true})).toHaveCount(0);await page.keyboard.press('m');await expect(page.getByTestId('editor-error')).toContainText('определение блока');await page.keyboard.press('Delete');expect(await readAutosaveDocument(page)).toEqual(d);
   await alt(page,p);await expect(page.getByTestId('deep-properties')).toContainText('LINE');await alt(page,p);await expect(page.getByTestId('deep-properties')).toHaveCount(0);await expect(page.getByTestId('hit-stack-status')).toContainText('Выбор 1/3');
   await alt(page,p);await page.mouse.click(p.x,p.y);await expect(page.getByTestId('deep-properties')).toHaveCount(0);await expect(page.getByTestId('selected-id')).toHaveText('owner');
@@ -53,12 +53,12 @@ test('reference real DXF semantic and deep inspection acceptance (opt-in)',async
   const block=d.entities.find(e=>e.type==='block_instance'&&d.layers.find(l=>l.id===e.layerId)?.visible&&d.blocks?.find(b=>b.id===e.blockDefinitionId)?.primitives.some(p=>p.kind==='text'&&p.visible!==false))!;
   await open(page,{...d,entities:[block]});
   const probe=await page.evaluate(async ({document,ownerId})=>{
-    const [{createProvenanceIndex},{resolveDeepSelection},{blockMatrix,multiply,transformPoint}]=await Promise.all([import(String('/src/dxf/provenance.ts')),import(String('/src/editor/deepSelection.ts')),import(String('/src/vectors/geometry.ts'))]);
+    const [{createProvenanceIndex},{resolveDeepSelection,hitOwners,normalHitStack},{blockMatrix,multiply,transformPoint}]=await Promise.all([import(String('/src/dxf/provenance.ts')),import(String('/src/editor/deepSelection.ts')),import(String('/src/vectors/geometry.ts'))]);
     const texts=createProvenanceIndex(document).getEntitySemanticSummary(ownerId).texts;
     const svg=window.document.querySelector('.drawing-canvas')!,r=svg.getBoundingClientRect(),z=Number(svg.getAttribute('data-zoom')),cx=Number(svg.getAttribute('data-center-x')),cy=Number(svg.getAttribute('data-center-y'));
     for(const text of texts){if(!text.primitivePath.length)continue;const selection={ownerEntityId:ownerId,blockPath:[],primitivePath:text.primitivePath,sourceType:'TEXT'},resolved=resolveDeepSelection(document,selection);if(!resolved||resolved.primitive.kind!=='text'||resolved.primitive.visible===false)continue;
       const p=resolved.primitive,m= multiply(resolved.matrix,blockMatrix({position:p.position,rotationDeg:p.rotationDeg,scaleX:1,scaleY:1},{x:0,y:0})),world=transformPoint({x:p.height*.5,y:p.height*.4},m),point={x:r.x+r.width/2+(world.x-cx)*z,y:r.y+r.height/2-(world.y-cy)*z};
-      if(window.document.elementFromPoint(point.x,point.y)?.closest('[data-entity-id]'))return {...point,text:p.content};
+      const first=normalHitStack(document,hitOwners(document,world,7/z,z),world,5/z)[0];if(first?.ownerEntityId===ownerId&&first.selection===null&&window.document.elementFromPoint(point.x,point.y)?.closest('[data-entity-id]'))return {...point,text:p.content};
     }return null;
   },{document:d,ownerId:block.id});expect(probe).not.toBeNull();await page.mouse.click(probe!.x,probe!.y);await expect(page.locator('.entity-heading')).toContainText('DXF блок');
   await alt(page,probe!);for(let i=0;i<12;i++){await alt(page,probe!);if((await page.getByTestId('deep-properties').textContent())?.includes(probe!.text))break;}

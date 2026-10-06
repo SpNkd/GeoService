@@ -51,7 +51,7 @@ test('world grid, Shift/Ortho precision, discoverable label and endpoint priorit
   await tool(page,'Линия'); await clickWorld(page,0.1,0.1); await clickWorld(page,10.1,0.1);
   let drawing = await doc(page); let line = drawing.entities[0]!; expect(line.type).toBe('line'); if(line.type!=='line')throw new Error();
   expect(drawing.vertices[line.startVertexId]).toMatchObject({x:0,y:0}); expect(drawing.vertices[line.endVertexId]).toMatchObject({x:10,y:0});
-  await expect(page.getByRole('heading',{name:'Подписи',exact:true})).toBeVisible(); await page.getByRole('button',{name:'Добавить подпись',exact:true}).click();
+  await expect(page.locator('.property-section>summary').filter({hasText:/^Подписи$/})).toBeVisible(); await page.getByRole('button',{name:'Добавить подпись',exact:true}).click();
   const label = page.locator('[data-entity-type="label"] text'); await expect(label).toContainText('10,000');
   // Disable snaps so Shift/Ortho exercise their exact world-angle branch.
   await page.getByRole('button',{name:'Привязки',exact:true}).click();

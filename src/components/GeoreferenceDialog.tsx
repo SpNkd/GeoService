@@ -1,3 +1,4 @@
+import { CloseButton } from './IconButton';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GeoDocument, HorizontalReference } from '../domain/model';
 import type { DocumentCommand } from '../domain/commands';
@@ -48,7 +49,7 @@ export function GeoreferenceDialog({ document, picking, picked, onPick, onClose,
         if (!event.shiftKey && window.document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }
     }}>
-    <div className="import-heading"><div><h2 id="georeference-title">Горизонтальная привязка</h2><p>Две существующие точки · rotation + translation · scale = 1</p></div><button aria-label="Закрыть привязку" className="icon-button" onClick={onClose}>×</button></div>
+    <div className="import-heading"><div><h2 id="georeference-title">Горизонтальная привязка</h2><p>Две существующие точки · rotation + translation · scale = 1</p></div><CloseButton label="Закрыть привязку" className="icon-button" onClick={onClose}/></div>
     <div className="import-body">
       {points.length < 2 && <p className="import-warning">Нужны две PointEntity. Создайте их инструментом «Точка»; привязка к вершине полигона позволяет использовать его угол.</p>}
       <div className="reference-controls">{([0, 1] as const).map(i => {

@@ -1,5 +1,6 @@
-type IconName = 'new' | 'open' | 'save' | 'import' | 'rotate' | 'move' | 'arc' | 'circle' | 'block_instance' | 'imported_graphic' | 'symbol' | 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
+type IconName = 'close' | 'new' | 'open' | 'save' | 'import' | 'rotate' | 'move' | 'arc' | 'circle' | 'block_instance' | 'imported_graphic' | 'symbol' | 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
 const paths: Record<IconName, string> = {
+  close:'M6 6l12 12M18 6L6 18',
   new: 'M5 2h9l5 5v15H5zM14 2v6h5M8 14h8m-4-4v8',
   open: 'M3 20V5h7l2 3h9v12H3zM3 12h18',
   save: 'M3 3h15l3 3v15H3zM7 3v6h10V3M7 21v-8h10v8',

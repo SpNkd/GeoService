@@ -1,3 +1,4 @@
+import { CloseButton } from './IconButton';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { documentModelFrame } from '../geometry/georeferencing';
 import type { GeoDocument } from '../domain/model';
@@ -64,7 +65,7 @@ export function ImportDialog({ document, onClose, onImport }: Props) {
         if (!event.shiftKey && window.document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }
     }}>
-    <div className="import-heading"><div><h2 id="import-title">Импорт координат</h2><p>CSV / TXT / TSV или вставка из Excel · координаты в метрах</p></div><button className="icon-button" aria-label="Закрыть импорт" onClick={onClose}>×</button></div>
+    <div className="import-heading"><div><h2 id="import-title">Импорт координат</h2><p>CSV / TXT / TSV или вставка из Excel · координаты в метрах</p></div><CloseButton className="icon-button" label="Закрыть импорт" onClick={onClose}/></div>
     <div className="import-body">
       <div className="import-source"><label className="file-picker">Файл координат<input aria-label="Файл координат" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values" onChange={async event => {
         const file = event.target.files?.[0]; if (!file) return;

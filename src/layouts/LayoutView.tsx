@@ -5,7 +5,7 @@ import type { GeoDocument } from '../domain/model';
 import type { EditorState, EditorAction } from '../store/editor';
 import { editorViewDocument } from '../store/editor';
 import { activeDxfViewport, activeLayout, viewportDocument } from './context';
-import { bounds, fitToBounds, worldToScreen, panViewport, zoomAt, type ViewSize } from '../geometry';
+import { bounds, fitToBounds, worldToScreen, panViewport, zoomAt, screenToWorld, type ViewSize } from '../geometry';
 import { primitiveBounds } from '../vectors/geometry';
 import { renderItems } from '../renderer/selectors';
 import { canvasEntity } from '../renderer/hybridScene';
@@ -14,10 +14,11 @@ import { EntityView } from '../renderer/EntityView';
 import { SelectionContours } from '../renderer/SelectionContours';
 import { RasterUnderlays } from '../renderer/RasterUnderlays';
 import { Canvas } from '../editor/Canvas';
-import { hitOwners } from '../editor/deepSelection';
+import { hitOwners, normalHitStack, hitCandidateOrder, type HitCandidate } from '../editor/deepSelection';
 import type { DxfViewport } from './types';
-import { paperDocument, viewportVisibleIds } from './selection';
+import { paperDocument, viewportVisibleIds, entityIntersectsViewport } from './selection';
 import { modelViewportCamera, pointerModel, viewportScreenRect } from './camera';
+interface SheetCandidate {candidate:HitCandidate;document:GeoDocument;viewportId?:string}
 const ModelViewport = memo(function ModelViewport({ document, vp, paperCamera, size, active, editing, selected, panEnabled, dispatch }: {
     document: GeoDocument;
     vp: DxfViewport;
@@ -56,6 +57,10 @@ export function LayoutView({ state, dispatch, size, onResize, spaceHeld = false,
     size: ViewSize;
     onResize: (size: ViewSize) => void;
 }) {
+    const sheetCycle=useRef<{document:GeoDocument;camera:GeoDocument['viewport'];candidates:SheetCandidate[];index:number}|null>(null);
+    const [cycleLabel,setCycleLabel]=useState<string|null>(null),[hover,setHover]=useState<SheetCandidate|null>(null),hoverFrame=useRef<number|null>(null);
+    useEffect(()=>{if(!cycleLabel)return;const t=setTimeout(()=>setCycleLabel(null),2500);return()=>clearTimeout(t);},[cycleLabel]);
+    useEffect(()=>()=>{if(hoverFrame.current!==null)cancelAnimationFrame(hoverFrame.current);},[]);
     const layout = activeLayout(state)!, ref = useRef<HTMLDivElement>(null), drag = useRef<{
         x: number;
         y: number;
@@ -77,14 +82,27 @@ export function LayoutView({ state, dispatch, size, onResize, spaceHeld = false,
         onResize({ width: entry.contentRect.width, height: entry.contentRect.height }); }); observer.observe(ref.current); return () => observer.disconnect(); }, [onResize]);
     const document = useMemo(() => editorViewDocument({ document: state.transactionBefore ?? state.document, isolation: state.isolation }, state.transactionBefore ?? state.document, true), [state.document, state.transactionBefore, state.isolation]);
     const paper = useMemo(() => paperDocument(state.document, layout), [state.document, layout]), paperItems = useMemo(() => renderItems(paper).filter(i => !state.isolation || state.isolation.layerIds?.includes(i.layer.id) || state.isolation.entityIds.includes(i.entity.id)), [paper, state.isolation]), origin = worldToScreen({ x: box?.minX ?? 0, y: box?.maxY ?? 0 }, paperCamera, size), vp = activeDxfViewport(state), r = vp ? viewportScreenRect(vp, paperCamera, size) : null, camera = useMemo(() => vp ? modelViewportCamera(vp, paperCamera, size) : paperCamera, [vp, paperCamera, size]);
-    return <div className="canvas-container layout-container" ref={ref}><svg data-testid="layout-canvas" data-zoom={paperCamera.pixelsPerUnit} data-center-x={paperCamera.center.x} data-center-y={paperCamera.center.y} aria-label="Лист DXF" tabIndex={0} width={size.width} height={size.height} onPointerDown={e => { e.currentTarget.focus({ preventScroll: true }); if (e.button !== 0 || state.tool === 'pan' || spaceHeld) {
+    const candidatesAt=(point:ScreenPoint):SheetCandidate[]=>{
+      const visiblePaper=new Set(paperItems.map(i=>i.entity.id)),paperWorld=screenToWorld(point,paperCamera,size),hits:SheetCandidate[]=normalHitStack(paper,hitOwners(paper,paperWorld,7/paperCamera.pixelsPerUnit,paperCamera.pixelsPerUnit).filter(id=>visiblePaper.has(id)),paperWorld,5/paperCamera.pixelsPerUnit).map(candidate=>({candidate,document:paper}));
+      for(const viewport of layout.viewports){if(viewport.unsupportedReason)continue;const rect=viewportScreenRect(viewport,paperCamera,size);if(point.x<rect.x||point.x>rect.x+rect.width||point.y<rect.y||point.y>rect.y+rect.height)continue;
+        const view=viewportDocument(document,viewport),world=pointerModel(point,viewport,paperCamera,size),camera=modelViewportCamera(viewport,paperCamera,size),ids=hitOwners(view,world,7/camera.pixelsPerUnit,camera.pixelsPerUnit).filter(id=>entityIntersectsViewport(view,view.entities.find(e=>e.id===id)!,viewport));
+        hits.push(...normalHitStack(view,ids,world,5/camera.pixelsPerUnit).map(candidate=>({candidate,document:view,viewportId:viewport.id})));
+      }
+      hits.sort((a,b)=>{const x=hitCandidateOrder(a.document,a.candidate),y=hitCandidateOrder(b.document,b.candidate);return x.rank-y.rank||x.area-y.area||a.candidate.ownerEntityId.localeCompare(b.candidate.ownerEntityId);});
+      const seen=new Set<string>();return hits.filter(h=>{const key=h.candidate.ownerEntityId+JSON.stringify(h.candidate.selection);if(seen.has(key))return false;seen.add(key);return true;});
+    };
+    const selectCandidate=(hit:SheetCandidate)=>{if(hit.viewportId){dispatch({type:'dxf-viewport',viewportId:hit.viewportId});dispatch({type:'deep-select',candidate:hit.candidate,index:sheetCycle.current?.index??0,count:sheetCycle.current?.candidates.length??1});}else dispatch({type:'select-entities',entityIds:[hit.candidate.ownerEntityId]});};
+    return <div className="canvas-container layout-container" ref={ref}><svg data-testid="layout-canvas" data-zoom={paperCamera.pixelsPerUnit} data-center-x={paperCamera.center.x} data-center-y={paperCamera.center.y} aria-label="Лист DXF" tabIndex={0} onPointerDownCapture={e=>{if(e.target instanceof Element&&e.target.closest('.drawing-canvas')||e.button!==0||state.tool==='pan'||spaceHeld)return;const rect=e.currentTarget.getBoundingClientRect(),point={x:e.clientX-rect.left,y:e.clientY-rect.top},candidates=candidatesAt(point);sheetCycle.current={document:state.document,camera:paperCamera,candidates,index:0};setCycleLabel(null);setHover(null);if(candidates.length){e.preventDefault();e.stopPropagation();e.currentTarget.focus({preventScroll:true});selectCandidate(candidates[0]!);}else dispatch({type:'select',entityId:null});}}
+ onKeyDown={e=>{if(e.key==='Escape'){sheetCycle.current=null;setCycleLabel(null);}const c=sheetCycle.current;if(e.key==='Tab'&&state.tool==='select'&&!state.dimensionPick&&!state.connectorInteraction&&e.target===e.currentTarget&&!spaceHeld&&!state.viewportEditing&&!state.transactionBefore&&c?.document===state.document&&c.camera===paperCamera&&c.candidates.length>1&&(state.selectionId===c.candidates[c.index]!.candidate.ownerEntityId||state.selectedPaperIds.includes(c.candidates[c.index]!.candidate.ownerEntityId))){e.preventDefault();e.stopPropagation();c.index=(c.index+(e.shiftKey?-1:1)+c.candidates.length)%c.candidates.length;const h=c.candidates[c.index]!;selectCandidate(h);const entity=h.document.entities.find(x=>x.id===h.candidate.ownerEntityId)!;setCycleLabel(`${c.index+1} / ${c.candidates.length} · ${h.viewportId?'MODEL viewport':'Объект листа'} · ${entity.name} · Слой: ${h.document.layers.find(l=>l.id===entity.layerId)?.name}`);}}}
+ onPointerLeave={()=>{if(hoverFrame.current!==null)cancelAnimationFrame(hoverFrame.current);hoverFrame.current=null;setHover(null);}} width={size.width} height={size.height} onPointerDown={e => { e.currentTarget.focus({ preventScroll: true }); if (e.button !== 0 || state.tool === 'pan' || spaceHeld) {
         drag.current = { x: e.clientX, y: e.clientY };
         e.currentTarget.setPointerCapture(e.pointerId);
     } }} onPointerMove={e => { if (drag.current) {
         const delta = { x: e.clientX - drag.current.x, y: e.clientY - drag.current.y };
         drag.current = { x: e.clientX, y: e.clientY };
-        schedule(panViewport(latest.current!, delta));
-    } }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}><rect width="100%" height="100%" fill="#dce1e5"/><rect x={origin.x} y={origin.y} width={Math.max(1, (box ? box.maxX - box.minX : 1) * paperCamera.pixelsPerUnit)} height={Math.max(1, (box ? box.maxY - box.minY : 1) * paperCamera.pixelsPerUnit)} fill="white"/>{layout.viewports.map(v => <ModelViewport key={v.id} document={document} vp={v} paperCamera={paperCamera} size={size} active={state.dxfViewportId === v.id} editing={state.viewportEditing && v.id === vp?.id} selected={state.selectedEntityIds} panEnabled={state.tool === 'pan' || spaceHeld} dispatch={dispatch}/>)}<CanvasStratum document={paper} items={paperItems} viewport={paperCamera} size={size}/>{state.selectedPaperIds.length > 0 && <SelectionContours document={paper} items={paperItems.filter(i => state.selectedPaperIds.includes(i.entity.id))} markerIds={[]} viewport={paperCamera} size={size}/>}</svg>
+        setHover(null);schedule(panViewport(latest.current!, delta));
+    }else if(!state.viewportEditing&&state.tool==='select'&&!spaceHeld){const rect=e.currentTarget.getBoundingClientRect(),point={x:e.clientX-rect.left,y:e.clientY-rect.top};if(hoverFrame.current!==null)cancelAnimationFrame(hoverFrame.current);hoverFrame.current=requestAnimationFrame(()=>{hoverFrame.current=null;const h=candidatesAt(point)[0]??null;setHover(previous=>previous?.candidate.ownerEntityId===h?.candidate.ownerEntityId&&previous?.viewportId===h?.viewportId?previous:h);});} }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}><rect width="100%" height="100%" fill="#dce1e5"/><rect x={origin.x} y={origin.y} width={Math.max(1, (box ? box.maxX - box.minX : 1) * paperCamera.pixelsPerUnit)} height={Math.max(1, (box ? box.maxY - box.minY : 1) * paperCamera.pixelsPerUnit)} fill="white"/>{layout.viewports.map(v => <ModelViewport key={v.id} document={document} vp={v} paperCamera={paperCamera} size={size} active={state.dxfViewportId === v.id} editing={state.viewportEditing && v.id === vp?.id} selected={state.selectedEntityIds} panEnabled={state.tool === 'pan' || spaceHeld} dispatch={dispatch}/>)}<CanvasStratum document={paper} items={paperItems} viewport={paperCamera} size={size}/>{state.selectedPaperIds.length > 0 && <SelectionContours document={paper} items={paperItems.filter(i => state.selectedPaperIds.includes(i.entity.id))} markerIds={[]} viewport={paperCamera} size={size}/>}{hover&&!state.selectedPaperIds.includes(hover.candidate.ownerEntityId)&&!state.selectedEntityIds.includes(hover.candidate.ownerEntityId)&&<g opacity={.35} data-testid="hover-contour">{hover.viewportId?(()=>{const v=layout.viewports.find(v=>v.id===hover.viewportId)!,rect=viewportScreenRect(v,paperCamera,size),camera=modelViewportCamera(v,paperCamera,size);return <svg x={rect.x} y={rect.y} width={rect.width} height={rect.height} overflow="hidden" pointerEvents="none"><g transform={`translate(${-rect.x} ${-rect.y})`}><SelectionContours document={hover.document} items={renderItems(hover.document).filter(i=>i.entity.id===hover.candidate.ownerEntityId)} viewport={camera} size={size} ownerMarkers={false}/></g></svg>;})():<SelectionContours document={paper} items={paperItems.filter(i=>i.entity.id===hover.candidate.ownerEntityId)} viewport={paperCamera} size={size} ownerMarkers={false}/>}</g>}</svg>
+ {cycleLabel&&<div className="canvas-help" data-testid="selection-cycle" role="status">{cycleLabel}</div>}
  {state.viewportEditing && vp && r && <div className="active-viewport-editor" style={{ left: r.x, top: r.y, width: r.width, height: r.height }}><div style={{ position: 'absolute', left: -r.x, top: -r.y, width: size.width, height: size.height }}><Canvas state={state} dispatch={dispatch} size={size} onResize={() => { }} onCursor={onCursor} onSnap={onSnap} onMeasure={onMeasure} spaceHeld={spaceHeld} cameraOverride={camera} activeViewport={vp}/></div></div>}
  <div className="layout-note">{state.viewportEditing ? 'Редактирование модели' : 'Paper Space'} · {layout.name}{state.viewportEditing && vp ? ` · Viewport ${layout.viewports.findIndex(v => v.id === vp.id) + 1}` : ''}{state.viewportEditing && <button onClick={() => dispatch({ type: 'viewport-editing', active: false })}>Выйти в лист</button>}</div></div>;
 }

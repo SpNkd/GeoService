@@ -383,3 +383,37 @@ h2, h3, p { margin: 0; }
 .table-result {font-size:11px;padding:8px 0;border-bottom:1px solid #dde4ea}.table-result summary{font-weight:500}.table-scroll{max-height:240px;overflow:auto}.table-scroll td {border:1px solid #d8e0e6;padding:4px;min-width:40px;vertical-align:top}.table-scroll table {border-collapse:collapse;min-width:250px}
 
 .right-column > .document-search {flex-shrink:0;max-height:35%;overflow:auto}
+/* Shared CAD surface controls: fixed geometry in every state. */
+.editor-icon-button {display:inline-flex;align-items:center;justify-content:center;flex:0 0 34px;width:34px;height:34px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:#6c7e8b;cursor:pointer;margin-left:auto}
+.editor-icon-button:hover {background:#eef3f7;border-color:#d7e1e9;color:#2e526c}
+.editor-icon-button:active {background:#dce9f3;color:#176fae}
+.editor-icon-button:focus-visible {outline:2px solid #277ec1;outline-offset:1px}
+.editor-icon-button svg {display:block;flex:none}
+.editor-dock {min-width:0;min-height:0;background:#fff;display:flex;flex-direction:column;overflow:hidden}
+.dock-heading {display:flex;align-items:center;min-height:38px;border-bottom:1px solid #dbe3e8;padding:2px 4px;flex-shrink:0}
+.dock-heading nav {display:flex;align-items:center;gap:2px;min-width:0;font-size:12px}
+.dock-heading nav button {border:0;border-radius:5px;background:transparent;padding:7px 6px;color:#617784;font:inherit;cursor:pointer}
+.dock-heading nav button[aria-pressed="true"] {background:#e6f0f8;color:#176fae}
+.dock-heading nav strong {padding-left:8px}
+.dock-content {min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column;flex:1}
+.dock-content[hidden] {display:none}
+.dock-content > .left-panel {border:0;flex:1;overflow:auto}
+.right-dock-panels {display:flex;flex-direction:column;min-height:0;flex:1}
+.right-column .document-search {max-height:35%;overflow:auto;flex-shrink:0}
+.right-column .ai-panel {flex-shrink:0}
+.right-column .right-panel {overflow:auto;flex:1;min-height:130px}
+.dock-tab-properties .document-search,.dock-tab-properties .ai-panel,.dock-tab-search .right-panel,.dock-tab-search .ai-panel,.dock-tab-ai .right-panel,.dock-tab-ai .document-search {display:none}
+.dock-tab-search .document-search {max-height:none;flex:1}
+.workspace:has([data-dock="left"].dock-collapsed) {grid-template-columns:38px minmax(0,1fr) 282px}
+.workspace:has([data-dock="right"].dock-collapsed) {grid-template-columns:242px minmax(0,1fr) 38px}
+.workspace:has([data-dock="left"].dock-collapsed):has([data-dock="right"].dock-collapsed) {grid-template-columns:38px minmax(0,1fr) 38px}
+.left-column .dxf-views {margin:0;padding:9px 12px;border-bottom:1px solid #dbe3e8;font-size:12px}
+.left-column .dxf-views>summary {cursor:pointer;color:#305c79;font-weight:600;overflow-wrap:anywhere}
+.left-column .dxf-views-menu {position:fixed;left:12px;top:150px;width:min(360px,calc(100vw - 24px));max-height:calc(100vh - 190px);overflow:auto;z-index:30}
+.property-section>summary {font-size:12px;font-weight:600;cursor:pointer;padding:7px 0;color:#3b5668}
+.property-section[open]>summary {margin-bottom:7px}
+.property-section .property-facts {overflow-wrap:anywhere}
+.object-breadcrumb {padding:8px 14px;color:#5e7688;font-size:11px;border-bottom:1px solid #e3e9ee;overflow-wrap:anywhere}
+.property-section input,.property-section select {min-width:0;max-width:100%;height:32px;border:1px solid #bdcbd6;border-radius:5px;background:white;font:inherit;padding:4px 7px}
+.canvas-help [data-testid="selection-cycle"] {padding:6px 9px;background:white;border:1px solid #b7cddd;border-radius:5px;color:#245e87}
+@media(max-width:1150px){.workspace {grid-template-columns:210px minmax(0,1fr) 250px}.workspace:has([data-dock="left"].dock-collapsed){grid-template-columns:38px minmax(0,1fr) 250px}.workspace:has([data-dock="right"].dock-collapsed){grid-template-columns:210px minmax(0,1fr) 38px}}

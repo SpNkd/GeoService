@@ -17,7 +17,7 @@ export interface DeepSelection {
   ownerEntityId: string; blockPath: string[]; primitivePath: number[];
   attribute?: boolean; attributeTag?: string; sourceType: string;
 }
-export interface HitCandidate { ownerEntityId: string; selection: DeepSelection | null }
+export interface HitCandidate { ownerEntityId: string; selection: DeepSelection | null; hitKind?: 'fill' }
 export const NESTED_MOVE_MESSAGE = 'Элемент входит в определение блока и используется его экземплярами. Редактирование определения блока пока не поддерживается.';
 const inverse=(m:Matrix):Matrix|null=>{const d=m[0]*m[3]-m[1]*m[2];return d===0?null:[m[3]/d,-m[1]/d,-m[2]/d,m[0]/d,(m[2]*m[5]-m[3]*m[4])/d,(m[1]*m[4]-m[0]*m[5])/d];};
 const segmentDistance=(p:WorldPoint,a:WorldPoint,b:WorldPoint)=>{const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);};
@@ -41,13 +41,41 @@ export function selectedMoveOwner(document:GeoDocument,p:WorldPoint,selected:rea
   const ids=new Set(selected);
   return renderItems(document).reverse().find(({entity:e})=>ids.has(e.id)&&['arc','circle','block_instance','imported_graphic'].includes(e.type)&&inBounds(p,entityBoundsPoints(document,e),tolerance))?.entity.id;
 }
-const fillOwner=(e:Entity)=>e.type==='imported_graphic'&&e.source?.originalType==='HATCH';
-/** SVG gives exact painted hits including shared <use>; background fill owners follow foreground. */
-export function prioritizeHitOwners(document:GeoDocument,ids:readonly string[]):string[] {
-  const entities=new Map(document.entities.map(e=>[e.id,e]));
-  return [...new Set(ids)].filter(id=>entities.has(id)).sort((a,b)=>Number(fillOwner(entities.get(a)!))+2*Number(entities.get(a)!.type==='raster_underlay')-Number(fillOwner(entities.get(b)!))-2*Number(entities.get(b)!.type==='raster_underlay'));
+// Share the immediately preceding geometric query with its normal stack; metadata stays outside GeoDocument.
+const lastFillHits=new WeakMap<GeoDocument,{x:number;y:number;ids:Set<string>}>();
+const hitMetadata=new WeakMap<GeoDocument,Map<string,{entity:Entity;rank:number;area:number}>>();
+function metadata(document:GeoDocument) {
+ let map=hitMetadata.get(document);if(map)return map;
+ map=new Map(document.entities.map(entity=>{const box=bounds(entityBoundsPoints(document,entity));
+ const rank=entity.type==='text'||entity.type==='label'?-2:entity.type==='point'?-1:entity.type==='raster_underlay'?5:entity.type==='imported_graphic'&&entity.source?.originalType==='HATCH'?4:entity.type==='imported_graphic'&&entity.primitives.length===1&&entity.primitives[0]?.kind==='text'?1:entity.type==='block_instance'?2:entity.type==='imported_graphic'?3:0;
+ return [entity.id,{entity,rank,area:box?Math.max(0,(box.maxX-box.minX)*(box.maxY-box.minY)):Infinity}];}));hitMetadata.set(document,map);return map;
 }
-function primitiveHit(document:GeoDocument,p:VectorPrimitive,matrix:Matrix,world:WorldPoint,tolerance:number):boolean {
+/** A polygon interior is a useful fallback, but cannot steal another object's contour. */
+function interiorHit(document:GeoDocument,entity:Entity,world:WorldPoint,tolerance:number){
+ if(entity.type!=='polygon')return false;
+ const points=entityPoints(entity,document.vertices);
+ return points.every((p,i)=>segmentDistance(world,p,points[(i+1)%points.length]!)>tolerance);
+}
+/** CAD rank: annotations, points, native contours, imported text/ATTRIB, block, imported geometry, fill fallback, HATCH, underlay.
+ * Locks restrict edits without altering picking. Tie: smaller extent, then canonical ID; never DOM order. */
+export function prioritizeHitOwners(document:GeoDocument,ids:readonly string[],pointer?:{world:WorldPoint;tolerance:number}):string[] {
+ const map=metadata(document),filled=lastFillHits.get(document);
+ const candidates=[...new Set(ids)].flatMap(id=>{const m=map.get(id);if(!m)return [];const fill=!!pointer&&(interiorHit(document,m.entity,pointer.world,pointer.tolerance)||filled?.x===pointer.world.x&&filled.y===pointer.world.y&&filled.ids.has(id));return [{id,rank:fill?Math.max(3.5,m.rank):m.rank,area:m.area}];});
+ return candidates.sort((a,b)=>a.rank-b.rank||a.area-b.area||(a.id<b.id?-1:a.id>b.id?1:0)).map(c=>c.id);
+}
+export function hitCandidateOrder(document:GeoDocument,candidate:HitCandidate){const m=metadata(document).get(candidate.ownerEntityId)!;return {rank:candidate.hitKind==='fill'?Math.max(3.5,m.rank):candidate.selection?1:m.rank,area:m.area};}
+/** Normal selection visits only instance ATTRIB, never nested definition content. */
+export function normalHitStack(document:GeoDocument,ids:readonly string[],world:WorldPoint,tolerance:number):HitCandidate[] {
+ const map=metadata(document),attributes:HitCandidate[]=[],resolve=context(document).resolve,filled=lastFillHits.get(document);
+ for(const id of ids){const e=map.get(id)?.entity;if(e?.type!=='block_instance')continue;const block=blockDefinition(document,e.blockDefinitionId);if(!block)continue;
+ for(const [i,p] of (e.attributePrimitives??[]).entries())if(p.kind==='text'&&p.source?.originalType==='ATTRIB'&&p.attributeTag&&resolve(p,{stroke:'#000',lineWeight:1,dash:undefined},true).visible&&primitiveHit(document,p,blockAttributeMatrix(e,block),world,tolerance))attributes.push({ownerEntityId:id,selection:{ownerEntityId:id,blockPath:[block.sourceName,'ATTRIB'],primitivePath:[i],sourceType:'ATTRIB',attribute:true,attributeTag:p.attributeTag}});
+ }
+ const candidates=prioritizeHitOwners(document,ids).map(ownerEntityId=>({ownerEntityId,selection:null,...((interiorHit(document,map.get(ownerEntityId)!.entity,world,tolerance)||filled?.x===world.x&&filled.y===world.y&&filled.ids.has(ownerEntityId))?{hitKind:'fill' as const}:{})} as HitCandidate));
+ return [...candidates,...attributes].sort((a,b)=>{const x=hitCandidateOrder(document,a),y=hitCandidateOrder(document,b);return x.rank-y.rank||x.area-y.area||(a.ownerEntityId<b.ownerEntityId?-1:a.ownerEntityId>b.ownerEntityId?1:0)||(a.selection?.primitivePath[0]??-1)-(b.selection?.primitivePath[0]??-1);});
+}
+const hitContext=new WeakMap<GeoDocument,{layers:Map<string,GeoDocument['layers'][number]>;styles:Map<string,GeoDocument['styles'][number]>;resolve:ReturnType<typeof createVectorStyleResolver>}>();
+function context(document:GeoDocument){let c=hitContext.get(document);if(!c){c={layers:new Map(document.layers.map(l=>[l.id,l])),styles:new Map(document.styles.map(s=>[s.id,s])),resolve:createVectorStyleResolver(document)};hitContext.set(document,c);}return c;}
+function primitiveHit(document:GeoDocument,p:VectorPrimitive,matrix:Matrix,world:WorldPoint,tolerance:number,includeFill=true):boolean {
   const inv=inverse(matrix);if(!inv)return false;
   const local=transformPoint(world,inv),t=tolerance*Math.max(Math.hypot(inv[0],inv[1]),Math.hypot(inv[2],inv[3]));
   if(!inBounds(local,primitiveBounds(document,singleton(p)),t))return false;
@@ -56,7 +84,7 @@ function primitiveHit(document:GeoDocument,p:VectorPrimitive,matrix:Matrix,world
   if(p.kind==='path') {
     // Bulges are already tessellated by the importer. Filled HATCH holes use even/odd below.
     for(let i=0;i<p.points.length-(p.closed?0:1);i++)if(segmentDistance(local,p.points[i]!,p.points[(i+1)%p.points.length]!)<=t)return true;
-    return !!p.fill&&inside(local,p.points);
+    return includeFill&&!!p.fill&&inside(local,p.points);
   }
   if(Math.abs(Math.hypot(local.x-p.center.x,local.y-p.center.y)-p.radius)>t)return false;
   if(p.kind==='circle')return true;
@@ -73,38 +101,37 @@ function primitiveCandidates(document:GeoDocument,primitives:VectorPrimitive[],m
   return index.query(queryBox(local,t)).sort((a,b)=>b-a);
 }
 /** Same compiled broad phase for normal click, hover and Alt. No pixels or SVG nodes. */
-export function hitOwners(document:GeoDocument,world:WorldPoint,tolerance:number,pixelsPerUnit=document.viewport.pixelsPerUnit):string[] {
-  const layers=new Map(document.layers.map(l=>[l.id,l])),styles=new Map(document.styles.map(s=>[s.id,s])),resolve=createVectorStyleResolver(document);
-  const hitSet=(ps:VectorPrimitive[],matrix:Matrix,inheritAll:boolean,stack:string[],parent:Paint):boolean=>{
+export function hitOwners(document:GeoDocument,world:WorldPoint,tolerance:number,pixelsPerUnit=document.viewport.pixelsPerUnit,paintedOnly=false):string[] {
+  const {layers,styles,resolve}=context(document),fillOwners=new Set<string>();
+  const hitSet=(ps:VectorPrimitive[],matrix:Matrix,inheritAll:boolean,stack:string[],parent:Paint,foreground:boolean):boolean=>{
     if(stack.length>VECTOR_LIMITS.depth)return false;
     const fills=new Map<string,boolean>();
     for(const i of primitiveCandidates(document,ps,matrix,world,tolerance)){
-      const p=ps[i]!,paint=resolve(p,parent,inheritAll);if(!paint.visible)continue;
-      // Shared-vector SVG previously exposed painted strokes, whereas native paths have 14px hit bands.
-      // Preserve that distinction while querying actual geometry in both renderers.
-      const hitTolerance=Math.min(tolerance,(paint.lineWeight/2+1)/pixelsPerUnit);
+      const p=ps[i]!,paint=resolve(p,parent,inheritAll);if(!paint.visible||foreground&&p.source?.originalType==='HATCH')continue;
+      // CAD pick band is screen-scaled, even for thin source strokes.
+      const hitTolerance=paintedOnly?Math.min(tolerance,(paint.lineWeight/2+1)/pixelsPerUnit):tolerance;
       if(p.kind==='path'&&p.fill&&p.fillGroup){
         const inv=inverse(matrix);if(!inv)continue;const local=transformPoint(world,inv),t=hitTolerance*Math.max(Math.hypot(inv[0],inv[1]),Math.hypot(inv[2],inv[3]));
         for(let j=0;j<p.points.length;j++)if(segmentDistance(local,p.points[j]!,p.points[(j+1)%p.points.length]!)<=t)return true;
-        if(inside(local,p.points))fills.set(p.fillGroup,!fills.get(p.fillGroup));continue;
+        if(!foreground&&inside(local,p.points))fills.set(p.fillGroup,!fills.get(p.fillGroup));continue;
       }
-      if(!primitiveHit(document,p,matrix,world,p.kind==='block'?tolerance:hitTolerance))continue;
+      if(!primitiveHit(document,p,matrix,world,p.kind==='block'?tolerance:hitTolerance,!foreground))continue;
       if(p.kind!=='block')return true;
       const block=blockDefinition(document,p.blockDefinitionId);
-      if(block&&!stack.includes(block.id)&&stack.length<VECTOR_LIMITS.depth&&hitSet(block.primitives,multiply(matrix,blockMatrix(p,block.basePoint)),false,[...stack,block.id],paint))return true;
+      if(block&&!stack.includes(block.id)&&stack.length<VECTOR_LIMITS.depth&&hitSet(block.primitives,multiply(matrix,blockMatrix(p,block.basePoint)),false,[...stack,block.id],paint,foreground))return true;
     }
     return [...fills.values()].some(Boolean);
   };
   const index=ownerIndex(document),candidates=[...index.query(queryBox(world,tolerance*2)),...(annotations.get(document)??[])].sort((a,b)=>b.order-a.order);
-  return prioritizeHitOwners(document,candidates.filter(({entity:e})=>{
+  const ids=candidates.filter(({entity:e})=>{
     const style=styles.get(e.styleId??layers.get(e.layerId)?.styleId??''),paint:Paint={stroke:style?.stroke??'#546675',lineWeight:style?.lineWeight??1.5,dash:style?.dash};
     if(e.type==='raster_underlay')return !e.locked&&underlayContains(e,world);
-    if(e.type==='block_instance'){const b=blockDefinition(document,e.blockDefinitionId);return !!b&&(hitSet(b.primitives,blockMatrix(e,b.basePoint),false,[b.id],paint)||hitSet(e.attributePrimitives??[],blockAttributeMatrix(e,b),true,[],paint));}
-    if(e.type==='imported_graphic')return hitSet(e.primitives,[1,0,0,1,e.position.x,e.position.y],true,[],paint);
+    if(e.type==='block_instance'){const b=blockDefinition(document,e.blockDefinitionId);if(!b)return false;const hit=(foreground:boolean)=>hitSet(b.primitives,blockMatrix(e,b.basePoint),false,[b.id],paint,foreground)||hitSet(e.attributePrimitives??[],blockAttributeMatrix(e,b),true,[],paint,foreground);if(hit(true))return true;if(hit(false)){fillOwners.add(e.id);return true;}return false;}
+    if(e.type==='imported_graphic'){const hit=(foreground:boolean)=>hitSet(e.primitives,[1,0,0,1,e.position.x,e.position.y],true,[],paint,foreground);if(hit(true))return true;if(hit(false)){fillOwners.add(e.id);return true;}return false;}
     if(e.type==='arc')return primitiveHit(document,{...e,kind:'arc',colorMode:'byblock'},IDENTITY,world,tolerance);
     if(e.type==='circle')return primitiveHit(document,{...e,kind:'circle',colorMode:'byblock'},IDENTITY,world,tolerance);
     return nativeHit(document,e,world,e.type==='point'?tolerance*2:tolerance,pixelsPerUnit);
-  }).map(e=>e.entity.id));
+  }).map(e=>e.entity.id);lastFillHits.set(document,{x:world.x,y:world.y,ids:fillOwners});return prioritizeHitOwners(document,ids,{world,tolerance});
 }
 const singletonPrimitives=new WeakMap<VectorPrimitive,VectorPrimitive[]>();
 const singleton=(p:VectorPrimitive)=>{let ps=singletonPrimitives.get(p);if(!ps){ps=[p];singletonPrimitives.set(p,ps);}return ps;};

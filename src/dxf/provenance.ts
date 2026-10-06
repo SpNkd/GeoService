@@ -93,11 +93,11 @@ export function createProvenanceIndex(document:GeoDocument) {
     searchText:(text:string,options:{includeBlockDefinitions?:boolean}={})=>query(text,false,options.includeBlockDefinitions!==false),
     searchImportedText:(text:string)=>query(text).filter(h=>entities.get(h.ownerEntityId)?.source?.kind==='dxf'),
     searchBlockAttributes:(text:string)=>query(text,true),
-    getEntitySemanticSummary:(id:string)=>{
+    getEntitySemanticSummary:(id:string,options:{includeTexts?:boolean}={})=>{
       const e=entities.get(id);if(!e)return undefined;
       const definition=e.type==='block_instance'?definitions.get(e.blockDefinitionId):undefined;
       return {ownerEntityId:id,name:e.name,sourceType:e.source?.originalType??e.type,sourceLayer:e.source?.originalLayer,blockName:definition?.sourceName,
-        ...(definition?{primitiveCount:derive(definition.id).primitiveCount,instanceCount:blocks.get(definition.sourceName)?.length??0}:{}),texts:entityTexts(e).map(hit=>({...hit,path:[...hit.path],primitivePath:[...hit.primitivePath]})),...(e.type==='imported_graphic'?{semanticContent:e.semanticContent?structuredClone(e.semanticContent):undefined}:{})};
+        ...(definition?{primitiveCount:derive(definition.id).primitiveCount,instanceCount:blocks.get(definition.sourceName)?.length??0}:{}),texts:(options.includeTexts===false?[]:entityTexts(e)).map(hit=>({...hit,path:[...hit.path],primitivePath:[...hit.primitivePath]})),...(e.type==='imported_graphic'?{semanticContent:e.semanticContent?structuredClone(e.semanticContent):undefined}:{})};
     },
   };
 }
