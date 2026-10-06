@@ -1,3 +1,4 @@
+import { dxfLayoutsSchema } from '../layouts/schema';
 import { validateConnectivity } from '../connectors/model';
 import { connectorEndpointSchema } from '../connectors/schema';
 import { semanticContentSchema, sourceSchema, sourceDocumentSchema, blockDefinitionSchema, primitivesSchema, blockTransformSchema, attributesSchema } from './vectorSchema';
@@ -15,6 +16,8 @@ export const worldPointSchema = z.object({ x: finiteNumber, y: finiteNumber, z: 
 const paintColour = z.string().max(100).refine(value => /^(?:[a-z]*|#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})|(?:rgb|hsl)a?\([\d\s.,%+\-/]+\))$/i.test(value.trim()), 'Ожидается цвет без URL, CSS variables или внешних ресурсов');
 const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional(), visible: z.boolean().optional(), source: sourceSchema.optional() };
 export const symbolEntitySchema = z.object({ ...base, type: z.literal('symbol'), libraryId: id, libraryVersion: id.optional(), symbolId: id, position: worldPointSchema, rotationDeg: finiteNumber.min(0).lt(360), scale: symbolScaleSchema, properties: symbolPropertiesSchema.optional() });
+const rasterMetadataSchema=z.object({mimeType:z.enum(['image/png','image/jpeg','image/webp']),originalName:z.string().max(1000),byteSize:finiteNumber.int().min(1).max(40*1024*1024),widthPx:finiteNumber.int().positive().max(16384),heightPx:finiteNumber.int().positive().max(16384)});
+export const rasterPatchSchema = z.strictObject({ position:z.strictObject({x:finiteNumber,y:finiteNumber}).optional(), width:finiteNumber.positive().max(1e9).optional(), height:finiteNumber.positive().max(1e9).optional(), rotationDeg:finiteNumber.optional(), opacity:finiteNumber.min(0).max(1).optional(), locked:z.boolean().optional(), assetId:id.optional(), assetMetadata:rasterMetadataSchema.optional() });
 export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('point'), vertexId: id }),
   z.object({ ...base, type: z.literal('line'), startVertexId: id, endVertexId: id }),
@@ -24,6 +27,7 @@ export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000), rotationDeg: finiteNumber.optional(), height: finiteNumber.positive().optional() }),
   z.object({ ...base, type: z.literal('label'), targetId: id, template: z.string().max(10000), dx: finiteNumber, dy: finiteNumber }),
   symbolEntitySchema,
+  z.object({...base,type:z.literal('raster_underlay'),assetId:id,position:z.strictObject({x:finiteNumber,y:finiteNumber}),width:finiteNumber.positive().max(1e9),height:finiteNumber.positive().max(1e9),rotationDeg:finiteNumber,opacity:finiteNumber.min(0).max(1),locked:z.boolean(),assetMetadata:rasterMetadataSchema.optional()}),
   z.object({ ...base, type:z.literal('connector'), start:connectorEndpointSchema, end:connectorEndpointSchema, routing:z.enum(['direct','orthogonal']), waypoints:z.array(symbolPositionSchema).max(100).optional() }),
   z.object({ ...base, type: z.literal('arc'), center: worldPointSchema, radius: finiteNumber.positive(), startAngle: finiteNumber, endAngle: finiteNumber }),
   z.object({ ...base, type: z.literal('circle'), center: worldPointSchema, radius: finiteNumber.positive() }),
@@ -41,6 +45,7 @@ export const verticalReferenceSchema = z.strictObject({ modelZero: z.literal(0),
 
 /** Structure first; referential integrity is checked separately below. Unknown UI fields are stripped. */
 export const documentSchema = z.object({
+  dxfLayouts:dxfLayoutsSchema.optional(),
   sources: z.array(sourceDocumentSchema).max(100).optional(),
   blocks: z.array(blockDefinitionSchema).max(2000).optional(),
   schemaVersion: z.literal(2),

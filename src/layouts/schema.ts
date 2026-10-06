@@ -1,0 +1,4 @@
+import { z } from 'zod';
+import { primitivesSchema } from '../persistence/vectorSchema';
+const n=z.number().finite(),s=z.string().min(1).max(1000),point=z.object({x:n,y:n,z:n.optional()});
+export const dxfLayoutsSchema=z.array(z.object({id:s,sourceDocumentId:s,name:s,nameAvailable:z.boolean(),paperSpaceOwner:s,paper:z.object({width:n.positive(),height:n.positive(),units:z.enum(['mm','inches','pixels'])}).optional(),paperPrimitives:primitivesSchema,viewports:z.array(z.object({id:s,number:n.int().min(2),centerPaper:point,sizePaper:z.object({width:n.positive(),height:n.positive()}),modelCenter:point,viewHeight:n.positive(),scale:n.positive(),twist:n,frozenSourceLayerNames:z.array(s).max(1000),clip:z.discriminatedUnion('kind',[z.object({kind:z.literal('rectangle')}),z.object({kind:z.literal('unsupported'),handle:s.optional()})]),unsupportedReason:s.optional()})).max(100)})).max(100);

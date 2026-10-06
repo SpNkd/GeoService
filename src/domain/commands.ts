@@ -14,6 +14,7 @@ import { blockAttributeLocalPosition } from '../vectors/geometry';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
+  | {type:'update-underlay';entityId:string;patch:Partial<Pick<import('./model').RasterUnderlayEntity,'position'|'width'|'height'|'rotationDeg'|'opacity'|'locked'|'assetId'|'assetMetadata'>>}
   | {type:'set-symbol-position';entityId:string;position:WorldPoint}
   | {type:'retarget-connector';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint}
   | {type:'set-connector-routing';entityId:string;routing:'direct'|'orthogonal'}
@@ -70,7 +71,7 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity, index
   }
   if(entity.type==='connector'){if(!layer.visible)throw new Error('Нельзя создать соединение в скрытом слое');validateConnector(document,entity);}
   const ids = entityVertexIds(entity);
-  const minimum = ['connector','label','symbol','arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 0 : entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
+  const minimum = ['raster_underlay','connector','label','symbol','arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 0 : entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
   if (ids.length < minimum) throw new Error(`Для объекта типа «${entity.type}» требуется не менее ${minimum} вершин`);
   for (const id of ids) if (!Object.hasOwn(document.vertices, id)) throw new Error(`Вершина ${id} не найдена`);
   if (entity.type === 'dimension' && (!Number.isFinite(entity.offset) || distance(getVertex(document.vertices, ids[0]!), getVertex(document.vertices, ids[1]!)) === 0)) throw new Error('Размер требует две разные позиции XY и конечный offset');
@@ -110,6 +111,14 @@ function applyEntityAdditions(document: GeoDocument, commands: readonly Extract<
 
 export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   const command = parseCommand(raw);
+  if(command.type==='update-underlay'){
+      const entity=document.entities.find(e=>e.id===command.entityId);
+      if(!entity||entity.type!=='raster_underlay')throw new Error('Подложка не найдена');
+      if(document.layers.find(l=>l.id===entity.layerId)?.locked)throw new Error('Слой заблокирован');
+      if(entity.locked&&Object.keys(command.patch).some(k=>k!=='locked'))throw new Error('Подложка заблокирована');
+      if(Object.entries(command.patch).every(([key,value])=>JSON.stringify(entity[key as keyof typeof entity])===JSON.stringify(value)))return document;
+      return {...document,entities:document.entities.map(e=>e.id===entity.id?{...entity,...command.patch}:e)};
+    }
   if(command.type==='retarget-connector'||command.type==='set-connector-routing'){
     const entity=document.entities.find(e=>e.id===command.entityId);
     if(!entity||entity.type!=='connector')throw new Error('Соединение не найдено.');

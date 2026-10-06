@@ -32,12 +32,14 @@ export function querySummary(query:DocumentQuery):string {
   switch(query.kind){case 'semantic_concept':return query.concepts.map(c=>conceptLabels[c]).join(', ');case 'current_selection':return 'Текущее выделение';case 'entity_type':return query.entityType;case 'source_type':return `DXF тип: ${query.sourceType}`;case 'text_contains':return `Текст: ${query.text}${query.sourceType?` · ${query.sourceType}`:''}`;case 'block_attribute':return `ATTRIB: ${query.tag??'любой tag'} = ${query.value??'любое значение'}`;default:return `${query.kind}: ${query.name}`;}
 }
 const intrinsic=(record:RecordEntry,concept:SemanticConcept)=>({dimensions:record.entity.type==='dimension'||record.sourceTypes.includes('DIMENSION'),text:record.texts.length>0,blocks:record.entity.type==='block_instance',hatches:record.sourceTypes.includes('HATCH'),symbols:record.entity.type==='symbol',annotations:['label','text'].includes(record.entity.type)||record.sourceTypes.includes('MULTILEADER')}[concept as 'dimensions'|'text'|'blocks'|'hatches'|'symbols'|'annotations']??false);
-export function resolveDocumentQuery(raw:DocumentQuery,document:GeoDocument,selection:readonly string[]=[],excluded:ReadonlySet<string>=new Set()):ResolvedEntitySet {
+export function resolveDocumentQuery(raw:DocumentQuery,document:GeoDocument,selection:readonly string[]=[],excluded:ReadonlySet<string>=new Set(),currentViewIds?:ReadonlySet<string>):ResolvedEntitySet {
   const parsed=documentQuerySchema.safeParse(raw);
   const result:ResolvedEntitySet={query:raw,entityIds:[],groups:[],evidence:new Map(),querySummary:parsed.success?querySummary(parsed.data):'Неверный запрос',documentRevision:documentRevision(document),selectionFingerprint:raw.kind==='current_selection'?selectionFingerprint(selection):null,error:null};
   if(!parsed.success){result.error='Неверный запрос документа';return result;}
   const query=parsed.data,index=documentQueryIndex(document),groups=new Map<string,QueryGroup>();
+  if(query.scope==='current_view'&&!currentViewIds){result.error='Для запроса текущего вида нужен локальный контекст.';return result;}
   const match=(id:string,evidence:MatchEvidence)=>{
+    if(query.scope==='current_view'&&!currentViewIds!.has(id))return;
     const key=JSON.stringify([evidence.source,evidence.reason,evidence.tier]);let group=groups.get(key);if(!group){group={id:key,source:evidence.source,reason:evidence.reason,tier:evidence.tier,entityIds:[]};groups.set(key,group);}if(!group.entityIds.includes(id))group.entityIds.push(id);
     const reasons=result.evidence.get(id)??[];if(reasons.length<DOCUMENT_QUERY_LIMITS.evidencePerOwner)reasons.push(evidence);result.evidence.set(id,reasons);
   };
@@ -72,8 +74,8 @@ export function resolveDocumentQuery(raw:DocumentQuery,document:GeoDocument,sele
 }
 export function defaultExcludedGroups(result:ResolvedEntitySet):Set<string>{return new Set(result.groups.filter(g=>g.tier==='WEAK').map(g=>g.id));}
 export interface LocalSearchRow {entityId:string;name:string;entityType:Entity['type'];layer:string;sourceLayer:string;matches:SemanticTextHit[]}
-export function searchDocument(document:GeoDocument,text:string):{rows:LocalSearchRow[];total:number} {
+export function searchDocument(document:GeoDocument,text:string,scopeIds?:ReadonlySet<string>):{rows:LocalSearchRow[];total:number} {
   const needle=normalizeQuery(text);if(!needle)return {rows:[],total:0};const rows:LocalSearchRow[]=[];let total=0;
-  for(const [id,r] of documentQueryIndex(document).records)if(r.search.includes(needle)){total++;if(rows.length<DOCUMENT_QUERY_LIMITS.searchRows)rows.push({entityId:id,name:r.entity.name,entityType:r.entity.type,layer:r.layerName,sourceLayer:r.sourceLayer,matches:r.texts.filter(t=>normalizeQuery(`${t.text}\n${t.tag??''}`).includes(needle)).slice(0,5)});}
+  for(const [id,r] of documentQueryIndex(document).records)if((!scopeIds||scopeIds.has(id))&&r.search.includes(needle)){total++;if(rows.length<DOCUMENT_QUERY_LIMITS.searchRows)rows.push({entityId:id,name:r.entity.name,entityType:r.entity.type,layer:r.layerName,sourceLayer:r.sourceLayer,matches:r.texts.filter(t=>normalizeQuery(`${t.text}\n${t.tag??''}`).includes(needle)).slice(0,5)});}
   return {rows,total};
 }

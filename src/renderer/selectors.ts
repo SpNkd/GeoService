@@ -24,7 +24,7 @@ export function renderItems(document: GeoDocument): RenderItem[] {
 }
 export function visibleBounds(document: GeoDocument) {
   return bounds(renderItems(document).flatMap(({ entity }) => {
-    if (['arc','circle','block_instance','imported_graphic'].includes(entity.type) || entity.type === 'text' && entity.height) return entityBoundsPoints(document,entity);
+    if (['raster_underlay','arc','circle','block_instance','imported_graphic'].includes(entity.type) || entity.type === 'text' && entity.height) return entityBoundsPoints(document,entity);
     if(entity.type==='connector')return connectorRoute(document,entity);
     if (entity.type === 'symbol') return symbolBoundsPoints(entity);
     if (entity.type === 'label') { const anchor = resolvedLabelPosition(document, entity); return anchor ? [anchor] : []; }

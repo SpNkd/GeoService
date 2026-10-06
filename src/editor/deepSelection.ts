@@ -1,3 +1,4 @@
+import { underlayContains } from '../assets/underlay';
 import { connectorRoute } from '../connectors/model';
 import type { Entity, GeoDocument, WorldPoint } from '../domain/model';
 import type { SourceProvenance, VectorPrimitive } from '../vectors/types';
@@ -44,7 +45,7 @@ const fillOwner=(e:Entity)=>e.type==='imported_graphic'&&e.source?.originalType=
 /** SVG gives exact painted hits including shared <use>; background fill owners follow foreground. */
 export function prioritizeHitOwners(document:GeoDocument,ids:readonly string[]):string[] {
   const entities=new Map(document.entities.map(e=>[e.id,e]));
-  return [...new Set(ids)].filter(id=>entities.has(id)).sort((a,b)=>Number(fillOwner(entities.get(a)!))-Number(fillOwner(entities.get(b)!)));
+  return [...new Set(ids)].filter(id=>entities.has(id)).sort((a,b)=>Number(fillOwner(entities.get(a)!))+2*Number(entities.get(a)!.type==='raster_underlay')-Number(fillOwner(entities.get(b)!))-2*Number(entities.get(b)!.type==='raster_underlay'));
 }
 function primitiveHit(document:GeoDocument,p:VectorPrimitive,matrix:Matrix,world:WorldPoint,tolerance:number):boolean {
   const inv=inverse(matrix);if(!inv)return false;
@@ -97,6 +98,7 @@ export function hitOwners(document:GeoDocument,world:WorldPoint,tolerance:number
   const index=ownerIndex(document),candidates=[...index.query(queryBox(world,tolerance*2)),...(annotations.get(document)??[])].sort((a,b)=>b.order-a.order);
   return prioritizeHitOwners(document,candidates.filter(({entity:e})=>{
     const style=styles.get(e.styleId??layers.get(e.layerId)?.styleId??''),paint:Paint={stroke:style?.stroke??'#546675',lineWeight:style?.lineWeight??1.5,dash:style?.dash};
+    if(e.type==='raster_underlay')return !e.locked&&underlayContains(e,world);
     if(e.type==='block_instance'){const b=blockDefinition(document,e.blockDefinitionId);return !!b&&(hitSet(b.primitives,blockMatrix(e,b.basePoint),false,[b.id],paint)||hitSet(e.attributePrimitives??[],blockAttributeMatrix(e,b),true,[],paint));}
     if(e.type==='imported_graphic')return hitSet(e.primitives,[1,0,0,1,e.position.x,e.position.y],true,[],paint);
     if(e.type==='arc')return primitiveHit(document,{...e,kind:'arc',colorMode:'byblock'},IDENTITY,world,tolerance);

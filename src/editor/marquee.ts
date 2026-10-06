@@ -22,7 +22,7 @@ export function marqueeEntities(document: GeoDocument, viewport: Viewport, size:
   };
   const crossing=end.x<start.x;
   return renderItems(document).filter(({entity})=> {
-    let points=(entity.type==='connector'?entityBoundsPoints(document,entity):entity.type==='symbol'?symbolBoundsPoints(entity):['arc','circle','block_instance','imported_graphic'].includes(entity.type)||entity.type==='text'&&entity.height?entityBoundsPoints(document,entity):entityPoints(entity,document.vertices)).map(p=>worldToScreen(p,viewport,size));
+    let points=(entity.type==='connector'?entityBoundsPoints(document,entity):entity.type==='symbol'?symbolBoundsPoints(entity):['raster_underlay','arc','circle','block_instance','imported_graphic'].includes(entity.type)||entity.type==='text'&&entity.height?entityBoundsPoints(document,entity):entityPoints(entity,document.vertices)).map(p=>worldToScreen(p,viewport,size));
     if(entity.type==='text' && !entity.height || entity.type==='label') {
       const world=entity.type==='label' ? resolvedLabelPosition(document,entity) : entityPoints(entity,document.vertices)[0];
       if(!world) return false;

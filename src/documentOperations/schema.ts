@@ -5,16 +5,16 @@ export const semanticConceptSchema = z.enum(['buildings','roads','slopes','utili
 export type SemanticConcept = z.infer<typeof semanticConceptSchema>;
 const name = z.string().trim().min(1).max(128);
 export const documentQuerySchema = z.discriminatedUnion('kind', [
-  z.strictObject({kind:z.literal('entity_name'),name}),
-  z.strictObject({kind:z.literal('geoservice_layer'),name}),
-  z.strictObject({kind:z.literal('source_layer'),name}),
-  z.strictObject({kind:z.literal('source_type'),sourceType:name}),
-  z.strictObject({kind:z.literal('block_name'),name}),
-  z.strictObject({kind:z.literal('text_contains'),text:name,sourceType:name.nullable()}),
-  z.strictObject({kind:z.literal('block_attribute'),tag:name.nullable(),value:name.nullable()}),
-  z.strictObject({kind:z.literal('entity_type'),entityType:z.enum(['point','line','polyline','polygon','text','label','dimension','symbol','block_instance','imported_graphic','arc','circle'])}),
-  z.strictObject({kind:z.literal('semantic_concept'),concepts:z.array(semanticConceptSchema).min(1).max(10)}),
-  z.strictObject({kind:z.literal('current_selection')}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('entity_name'),name}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('geoservice_layer'),name}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('source_layer'),name}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('source_type'),sourceType:name}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('block_name'),name}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('text_contains'),text:name,sourceType:name.nullable()}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('block_attribute'),tag:name.nullable(),value:name.nullable()}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('entity_type'),entityType:z.enum(['point','line','polyline','polygon','text','label','dimension','symbol','block_instance','imported_graphic','arc','circle'])}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('semantic_concept'),concepts:z.array(semanticConceptSchema).min(1).max(10)}),
+  z.strictObject({scope:z.enum(['current_view','document']).optional(),kind:z.literal('current_selection')}),
 ]);
 export type DocumentQuery = z.infer<typeof documentQuerySchema>;
 export const documentActionSchema = z.discriminatedUnion('type', [

@@ -1,3 +1,5 @@
+import { currentViewEntityIds, viewContextKey } from '../layouts/context';
+import { editorViewDocument } from '../store/editor';
 import type { GeoDocument, Layer } from '../domain/model';
 import { applyCommandsAtomically, type DocumentCommand } from '../domain/commands';
 import { editorReducer, type EditorState } from '../store/editor';
@@ -6,17 +8,18 @@ import { normalizeQuery } from './aliases';
 import { defaultExcludedGroups, resolveDocumentQuery, selectionFingerprint, type ResolvedEntitySet } from './query';
 import { documentActionSchema, type DocumentAction } from './schema';
 export interface ResolvedDocumentAction {intent:DocumentAction;result:ResolvedEntitySet|null;excludedGroups:Set<string>;layerNames:string[];blocked:string[];blockedCount:number}
-export interface DocumentOperationsPlan {id:string;text:string;basedOnDocument:GeoDocument;selectionIds:readonly string[];actions:ResolvedDocumentAction[];commands:DocumentCommand[];error:string|null;matchedEntityIds:string[]}
-export const isDocumentPlanStale=(plan:DocumentOperationsPlan,editor:EditorState)=>plan.basedOnDocument!==editor.document||plan.actions.some(a=>a.result?.selectionFingerprint!==null&&a.result?.selectionFingerprint!==undefined&&a.result.selectionFingerprint!==selectionFingerprint(editor.selectedEntityIds));
+export interface DocumentOperationsPlan {viewContext?:string;id:string;text:string;basedOnDocument:GeoDocument;selectionIds:readonly string[];actions:ResolvedDocumentAction[];commands:DocumentCommand[];error:string|null;matchedEntityIds:string[]}
+export const isDocumentPlanStale=(plan:DocumentOperationsPlan,editor:EditorState)=>(plan.viewContext!==undefined&&plan.viewContext!==viewContextKey(editor))||plan.basedOnDocument!==editor.document||plan.actions.some(a=>a.result?.selectionFingerprint!==null&&a.result?.selectionFingerprint!==undefined&&a.result.selectionFingerprint!==selectionFingerprint(editor.selectedEntityIds));
 /** Resolve and preflight entirely locally. No commands or result IDs cross the provider boundary. */
-export function resolveDocumentPlan(actions:readonly DocumentAction[],document:GeoDocument,selectionIds:readonly string[],id:string,text:string,choices?:ReadonlyMap<number,ReadonlySet<string>>):DocumentOperationsPlan {
+export function resolveDocumentPlan(actions:readonly DocumentAction[],document:GeoDocument,selectionIds:readonly string[],id:string,text:string,choices?:ReadonlyMap<number,ReadonlySet<string>>,context?:EditorState):DocumentOperationsPlan {
   const plan:DocumentOperationsPlan={id,text,basedOnDocument:document,selectionIds:[...selectionIds],actions:[],commands:[],error:null,matchedEntityIds:[]};
   if(!actions.length||actions.length>8||actions.some(a=>!documentActionSchema.safeParse(a).success)){plan.error='Неверный набор операций';return plan;}
+  const scoped=actions.some(a=>'query' in a&&a.query.scope==='current_view');if(scoped&&context)plan.viewContext=viewContextKey(context);const viewIds=scoped&&context?currentViewEntityIds(context,editorViewDocument(context,document,!!context.layoutId)):undefined;
   let layers=[...document.layers];const created=new Map<number,Layer>();
   for(const [ordinal,intent] of actions.entries()) {
-    let result='query'in intent?resolveDocumentQuery(intent.query,document,selectionIds):null;
+    let result='query'in intent?resolveDocumentQuery(intent.query,document,selectionIds,new Set(),viewIds):null;
     const excludedGroups=new Set(choices?.get(ordinal)??(result?defaultExcludedGroups(result):[]));
-    if(result)result=resolveDocumentQuery(result.query,document,selectionIds,excludedGroups);
+    if(result)result=resolveDocumentQuery(result.query,document,selectionIds,excludedGroups,viewIds);
     const action:ResolvedDocumentAction={intent,result,excludedGroups,layerNames:[],blocked:[],blockedCount:0};plan.actions.push(action);
     if(result?.error)action.blocked.push(result.error);
     if(result&&!result.entityIds.length)action.blocked.push('Нет включённых объектов. Уточните запрос или включите группу.');
@@ -55,14 +58,14 @@ export function applyDocumentPlan(plan:DocumentOperationsPlan,editor:EditorState
   if(isDocumentPlanStale(plan,editor))return {...editor,error:'Документ или выделение изменились. Обновите preview.'};
   if(plan.error)return {...editor,error:plan.error};
   // Revalidate the task/choices at the execution boundary; do not trust externally mutated plan arrays.
-  const checked=resolveDocumentPlan(plan.actions.map(a=>a.intent),editor.document,editor.selectedEntityIds,plan.id,plan.text,new Map(plan.actions.map((a,i)=>[i,a.excludedGroups])));
+  const checked=resolveDocumentPlan(plan.actions.map(a=>a.intent),editor.document,editor.selectedEntityIds,plan.id,plan.text,new Map(plan.actions.map((a,i)=>[i,a.excludedGroups])),editor);
   if(checked.error)return {...editor,error:checked.error};
   let next=checked.commands.length?editorReducer({...editor,deepSelection:null,hitStackStatus:null},{type:'execute-batch',commands:checked.commands,expectedDocument:editor.document}):{...editor,error:null};
   if(next.error)return next;
   for(const action of checked.actions)if(action.result) {
     const entityIds=action.result.entityIds;
     if(action.intent.type==='select_entities')next=editorReducer(next,{type:'select-entities',entityIds});
-    if(action.intent.type==='fit_result'||action.intent.type==='find_entities')next=editorReducer(next,{type:'fit-entities',entityIds,size});
+    if(action.intent.type==='fit_result')next=editorReducer(next,{type:'fit-entities',entityIds,size});
     if(action.intent.type==='isolate_result'){next=editorReducer(next,{type:'isolate-entities',entityIds,label:action.result.querySummary});next=editorReducer(next,{type:'fit-entities',entityIds,size});}
   }
   return next;

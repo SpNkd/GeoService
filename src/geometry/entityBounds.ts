@@ -1,3 +1,4 @@
+import { underlayCorners } from '../assets/underlay';
 import { connectorRoute } from '../connectors/model';
 import { vectorEntityBounds, blockMatrix, transformPoint, textBounds } from '../vectors/geometry';
 import { entityPoints, type Entity, type GeoDocument } from '../domain/model';
@@ -7,6 +8,7 @@ import { alignedDimension } from './survey';
 import { symbolBoundsPoints } from '../symbols/transforms';
 /** MODEL bounds. Annotation extent is approximate at the document's saved reference zoom. */
 export function entityBoundsPoints(document:GeoDocument,entity:Entity) {
+  if(entity.type==='raster_underlay')return underlayCorners(entity);
   if(entity.type==='connector')return connectorRoute(document,entity);
   if(['arc','circle','block_instance','imported_graphic'].includes(entity.type)) return vectorEntityBounds(document,entity);
   if(entity.type==='text' && entity.height) { const p=entityPoints(entity,document.vertices)[0]!; const m=blockMatrix({position:p,rotationDeg:entity.rotationDeg??0,scaleX:1,scaleY:1},{x:0,y:0}); return textBounds(entity.content,entity.height).map(x=>transformPoint(x,m)); }

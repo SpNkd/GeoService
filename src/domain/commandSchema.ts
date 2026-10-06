@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import { connectorEndpointSchema } from '../connectors/schema';
 import { symbolScaleSchema } from '../symbols/schema';
-import { entitySchema, finiteNumber, id, layerSchema, vertexSchema, worldPointSchema, surveyXYSchema, verticalReferenceSchema } from '../persistence/documentSchema';
+import { rasterPatchSchema, entitySchema, finiteNumber, id, layerSchema, vertexSchema, worldPointSchema, surveyXYSchema, verticalReferenceSchema } from '../persistence/documentSchema';
 import type { DocumentCommand } from './commands';
 
 // Resolved editor commands only. Intent/name resolution belongs above this boundary.
 const entity = z.discriminatedUnion('type', [entitySchema.options[0].strict(), ...entitySchema.options.slice(1).map(option => option.strict())])
   .refine(value => !('vertexIds' in value) || value.vertexIds.length <= 50000, 'Объект превышает лимит 50 000 ссылок на вершины');
 const commandSchema = z.discriminatedUnion('type', [
+  z.strictObject({type:z.literal('update-underlay'),entityId:id,patch:rasterPatchSchema}),
   z.strictObject({type:z.literal('set-symbol-position'),entityId:id,position:worldPointSchema.strict()}),
   z.strictObject({type:z.literal('retarget-connector'),entityId:id,endpoint:z.enum(['start','end']),target:connectorEndpointSchema}),
   z.strictObject({type:z.literal('set-connector-routing'),entityId:id,routing:z.enum(['direct','orthogonal'])}),

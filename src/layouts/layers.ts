@@ -1,0 +1,6 @@
+import type { GeoDocument, Layer } from '../domain/model';
+export type LayerFilter='all'|'visible'|'nonempty'|'selected'|'hidden';
+const indexes=new WeakMap<GeoDocument['entities'],Map<string,number>>();
+export function layerCounts(document:GeoDocument){let counts=indexes.get(document.entities);if(!counts){counts=new Map();for(const e of document.entities)counts.set(e.layerId,(counts.get(e.layerId)??0)+1);indexes.set(document.entities,counts);}return counts;}
+export function selectedLayerCounts(document:GeoDocument,ids:readonly string[]){const selected=new Set(ids),counts=new Map<string,number>();for(const e of document.entities)if(selected.has(e.id))counts.set(e.layerId,(counts.get(e.layerId)??0)+1);return counts;}
+export function filterLayers(layers:readonly Layer[],counts:ReadonlyMap<string,number>,selected:ReadonlyMap<string,number>,search:string,filter:LayerFilter,hideEmpty:boolean){const term=search.trim().toLocaleLowerCase('ru');return layers.filter(l=>(!term||l.name.toLocaleLowerCase('ru').includes(term))&&(!hideEmpty||!!counts.get(l.id))&&(filter==='all'||filter==='visible'&&l.visible||filter==='hidden'&&!l.visible||filter==='nonempty'&&!!counts.get(l.id)||filter==='selected'&&!!selected.get(l.id))).sort((a,b)=>a.order-b.order);}

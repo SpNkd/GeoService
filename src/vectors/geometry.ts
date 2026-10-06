@@ -107,6 +107,7 @@ export function validateVectorDocument(document:GeoDocument):void {
   for(const layer of document.layers)source(layer.source);
   for(const b of blocks.values())check(b.primitives);
   for(const e of document.entities){source(e.source);if(e.type==='block_instance'){if(!blocks.has(e.blockDefinitionId))throw new Error('Missing block definition');check(e.attributePrimitives??[]);}if(e.type==='imported_graphic')check(e.primitives);}
+  const layoutIds=new Set<string>();for(const layout of document.dxfLayouts??[]){if(layoutIds.has(layout.id))throw new Error('Duplicate layout ID');layoutIds.add(layout.id);if(!sources.has(layout.sourceDocumentId))throw new Error('Missing layout source');check(layout.paperPrimitives);const ids=new Set<string>();for(const vp of layout.viewports){if(ids.has(vp.id))throw new Error('Duplicate viewport ID');ids.add(vp.id);}}
   if(count>VECTOR_LIMITS.primitives||points>VECTOR_LIMITS.points)throw new Error('Vector geometry budget exceeded');
   const weights=new Map<string,number>(),depths=new Map<string,number>();
   const weight=(id:string,stack:string[]):number=>{
@@ -117,5 +118,6 @@ export function validateVectorDocument(document:GeoDocument):void {
   // Traverse all definitions even unused ones: malformed JSON must not bypass cycle/depth validation.
   for(const id of blocks.keys())weight(id,[]);
   let rendered=0;for(const e of document.entities){rendered+=e.type==='block_instance'?weight(e.blockDefinitionId,[]):e.type==='imported_graphic'?e.primitives.reduce((n,p)=>n+(p.kind==='block'?weight(p.blockDefinitionId,[]):1),0):1;}
+  for(const layout of document.dxfLayouts??[]){const paperWeight=layout.paperPrimitives.reduce((n,p)=>n+(p.kind==='block'?weight(p.blockDefinitionId,[]):1),0);if(paperWeight>VECTOR_LIMITS.renderedPrimitives)throw new Error('Paper render budget exceeded');}
   if(rendered>VECTOR_LIMITS.renderedPrimitives)throw new Error('Document render budget exceeded');
 }

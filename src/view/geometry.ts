@@ -1,3 +1,4 @@
+import { underlayCorners } from '../assets/underlay';
 import { entityPoints, type ConnectorEntity, type Entity, type GeoDocument, type WorldPoint } from '../domain/model';
 import { connectorRoute, resolvePort } from '../connectors/model';
 import { bounds, screenToWorld, worldToScreen, type Bounds, type ScreenPoint, type ViewSize } from '../geometry';
@@ -56,7 +57,8 @@ const modelBoxes=new WeakMap<GeoDocument,WeakMap<Entity,Bounds3D|null>>();
 export function entityXYZBounds(document:GeoDocument,e:Entity):Bounds3D|null {
   let cache=modelBoxes.get(document);if(!cache){cache=new WeakMap();modelBoxes.set(document,cache);}if(cache.has(e))return cache.get(e)!;
   const points:WorldPoint[]=[],texts:PresentationPrimitive[]=[];
-  if(e.type==='symbol'){const d=requireSymbol(e.libraryId,e.symbolId,e.libraryVersion);points.push(...symbolBoundsPoints(e).map(p=>({...p,z:presentationZ(e.position)})),...d.ports.map(p=>symbolLocalPortToWorld(e,p,d)));}
+  if(e.type==='raster_underlay')points.push(...underlayCorners(e).map(p=>({...p,z:0})));
+  else if(e.type==='symbol'){const d=requireSymbol(e.libraryId,e.symbolId,e.libraryVersion);points.push(...symbolBoundsPoints(e).map(p=>({...p,z:presentationZ(e.position)})),...d.ports.map(p=>symbolLocalPortToWorld(e,p,d)));}
   else if(e.type==='connector')points.push(...connectorPresentationRoute(document,e));
   else if(e.type==='label'){const p=resolvedLabelPosition(document,e);if(p)points.push(p);}
   else if(e.type==='dimension'){const [a,b]=entityPoints(e,document.vertices),d=dimensionPresentationPoints(a!,b!,e.offset,e.textPosition);points.push(a!,b!,d.start,d.end,d.label);}

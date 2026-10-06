@@ -13,7 +13,10 @@ import { DocumentQueryHighlight } from '../renderer/DocumentQueryHighlight';
 import { createHitStack, hitOwners, resolveDeepSelection, selectedMoveOwner, type HitCandidate } from './deepSelection';
 import { composeScene, type RendererMode } from '../renderer/hybridScene';
 import { CanvasStratum } from '../renderer/CanvasStratum';
-import { CanvasSelectionView } from '../renderer/CanvasSelectionView';
+import { SelectionContours } from '../renderer/SelectionContours';
+import { RasterUnderlays, UnderlaySelection } from '../renderer/RasterUnderlays';
+import { resizeUnderlay } from '../assets/underlay';
+import type { RasterUnderlayEntity } from '../domain/model';
 import { DeepSelectionView } from '../renderer/DeepSelectionView';
 import { BlockDefinitions } from '../renderer/VectorView';
 import { getLibrary, requireSymbol } from '../symbols/registry';
@@ -47,7 +50,7 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; documentHighlightIds?:readonly string[]|undefined; aiReferenceIds?: readonly string[] | undefined; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = {kind:'axon-inspect';pointerId:number;start:ScreenPoint;warned:boolean} | {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
+type Drag = {kind:'underlay-rotate';pointerId:number;entity:RasterUnderlayEntity;startAngle:number} | {kind:'underlay-resize';pointerId:number;entity:RasterUnderlayEntity;corner:number} | {kind:'axon-inspect';pointerId:number;start:ScreenPoint;warned:boolean} | {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
 export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], processPreview, aiReferenceIds = [], documentHighlightIds = [], onPickPoint, referencePreview }: Props) {
@@ -73,7 +76,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const committed = useMemo(()=>editorViewDocument({document:committedBase,isolation}),[isolation,committedBase]);
   const provider = useMemo(() => createSnapProvider(committed), [committed]);
   const items = useMemo(() => axon?sortProjectedItems(renderItems(document),document,state.projection):renderItems(document), [document,axon,state.projection]);
-  const scene=useMemo(()=>axon?{strata:[{kind:'canvas' as const,items:items.filter(i=>canvasEntity(i.entity))},{kind:'svg' as const,items:items.filter(i=>!canvasEntity(i.entity))}].filter(s=>s.items.length>0),fallback:false}:composeScene(items,rendererMode),[items,rendererMode,axon]);
+  const scene=useMemo(()=>axon?{strata:[{kind:'canvas' as const,items:items.filter(i=>canvasEntity(i.entity))},{kind:'svg' as const,items:items.filter(i=>!canvasEntity(i.entity)&&i.entity.type!=='raster_underlay')}].filter(s=>s.items.length>0),fallback:false}:composeScene(items.filter(i=>i.entity.type!=='raster_underlay'),rendererMode),[items,rendererMode,axon]);
+  const canvasOwnerIds=useMemo(()=>new Set(scene.strata.filter(s=>s.kind==='canvas').flatMap(s=>s.items.map(i=>i.entity.id))),[scene]);
+  const selectionOverlayItems=useMemo(()=>items.filter(i=>state.selectedEntityIds.includes(i.entity.id)&&(canvasOwnerIds.has(i.entity.id)||['arc','circle','block_instance','imported_graphic'].includes(i.entity.type))),[items,state.selectedEntityIds,canvasOwnerIds]);
   const nativeRoots=useMemo(()=>rendererMode==='svg'||scene.fallback?undefined:scene.strata.filter(s=>s.kind==='svg').flatMap(s=>s.items.flatMap(({entity:e})=>e.type==='block_instance'?[e.blockDefinitionId]:e.type==='imported_graphic'?e.primitives.flatMap(p=>p.kind==='block'?[p.blockDefinitionId]:[]):[])),[scene,rendererMode]);
   const previousTool = useRef(tool);
   const announceSnap = useCallback((result: SnapResult | null) => { setSnap(result); onSnap(result); }, [onSnap]);
@@ -179,6 +184,8 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         position: { x: position.x, y: position.y, ...(active.vertex.z === undefined ? {} : { z: active.vertex.z }) } } });
       return;
     }
+    if(active?.kind==='underlay-rotate'&&active.pointerId===pointerId){const world=screenToWorld(point,viewport,size),dx=world.x-active.entity.position.x,dy=world.y-active.entity.position.y;if(Math.hypot(dx,dy)>.000001){const delta=Math.atan2(dy,dx)-active.startAngle;dispatch({type:'transient',command:{type:'update-underlay',entityId:active.entity.id,patch:{rotationDeg:active.entity.rotationDeg+Math.atan2(Math.sin(delta),Math.cos(delta))*180/Math.PI}}});}return;}
+    if(active?.kind==='underlay-resize'&&active.pointerId===pointerId){dispatch({type:'transient',command:{type:'update-underlay',entityId:active.entity.id,patch:resizeUnderlay(active.entity,active.corner,screenToWorld(point,viewport,size),!shiftKey)}});return;}
     if (active?.kind === 'text' && active.pointerId === pointerId) {
       const world = screenToWorld(point, viewport, size);
       dispatch({ type: 'transient', command: { type: 'move-text', entityId: active.entityId, vertexId: active.vertexId,
@@ -227,6 +234,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       drag.current = { kind: 'pan', pointerId: event.pointerId, last: point };
       event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
     }
+    if(event.target instanceof Element&&event.target.hasAttribute('data-underlay-rotation')&&!axon){const entity=document.entities.find(e=>e.id===hit?.getAttribute('data-entity-id'));if(entity?.type==='raster_underlay'&&!entity.locked&&!isLayerLocked(document,entity)){const world=screenToWorld(point,viewport,size);dispatch({type:'begin-transaction'});drag.current={kind:'underlay-rotate',pointerId:event.pointerId,entity,startAngle:Math.atan2(world.y-entity.position.y,world.x-entity.position.x)};event.currentTarget.setPointerCapture(event.pointerId);setDragging(true);return;}}
+    const corner=event.target instanceof Element?event.target.getAttribute('data-underlay-corner'):null;
+    if(corner!==null&&!axon){const entity=document.entities.find(e=>e.id===hit?.getAttribute('data-entity-id'));if(entity?.type==='raster_underlay'&&!entity.locked&&!isLayerLocked(document,entity)){dispatch({type:'begin-transaction'});drag.current={kind:'underlay-resize',pointerId:event.pointerId,entity,corner:Number(corner)};event.currentTarget.setPointerCapture(event.pointerId);setDragging(true);return;}}
     if(axon){const ids=hitProjectedEntities(document,point,viewport,size),id=ids[0]??null;if(onPickPoint){if(document.entities.some(e=>e.id===id&&e.type==='point'))onPickPoint(id!);return;}dispatch({type:'select',entityId:id,toggle:event.shiftKey||event.ctrlKey||event.metaKey});drag.current={kind:'axon-inspect',pointerId:event.pointerId,start:point,warned:false};event.currentTarget.setPointerCapture(event.pointerId);return;}
     if (onPickPoint) { const entity = document.entities.find(item => item.id === hit?.getAttribute('data-entity-id')); if (entity?.type === 'point') onPickPoint(entity.id); return; }
     if(tool==='connector'||state.connectorInteraction?.kind==='retarget'){
@@ -285,7 +295,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     }
     // Active geometry handles outrank wide annotation hit areas at the same screen position.
     if (tool === 'select') for (const entity of document.entities) {
-      if (!state.selectedEntityIds.includes(entity.id) || !['line', 'polyline', 'polygon', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type) || isLayerLocked(document, entity)) continue;
+      if (!state.selectedEntityIds.includes(entity.id) || !['raster_underlay','line', 'polyline', 'polygon', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type) || isLayerLocked(document, entity)) continue;
       for (const vertexId of entityVertexIds(entity)) {
         const vertex = document.vertices[vertexId]!, screen = worldToScreen(vertex, viewport, size);
         if (Math.abs(screen.x - point.x) > 6 || Math.abs(screen.y - point.y) > 6 || !canEditVertex(document, vertexId)) continue;
@@ -336,7 +346,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (!entity) return;
       const alreadySelected = state.selectedEntityIds.includes(entityId);
       const selection = alreadySelected ? state.selectedEntityIds : [entityId];
-      const groupMove = entity.type !== 'dimension' && (selection.length > 1 || ['line', 'polyline', 'polygon', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type) || entity.type === 'point' && event.shiftKey && alreadySelected);
+      const groupMove = entity.type !== 'dimension' && (selection.length > 1 || ['raster_underlay','line', 'polyline', 'polygon', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type) || entity.type === 'point' && event.shiftKey && alreadySelected);
       if (event.shiftKey && (!alreadySelected || !groupMove)) { dispatch({ type: 'select', entityId, toggle: true }); return; }
       if (!alreadySelected) dispatch({ type: 'select', entityId });
       if (groupMove) {
@@ -450,6 +460,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       }} onContextMenu={event => event.preventDefault()}>
       {!axon&&<BlockDefinitions document={document} {...(nativeRoots?{roots:nativeRoots}:{})} />}
       {state.gridVisible && (axon?<AxonGrid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep??1}/>:<Grid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep ?? 1} />)}
+      <RasterUnderlays document={document} viewport={viewport} size={size}/>
       {scene.strata.map((stratum,index)=>stratum.kind==='canvas'?<CanvasStratum key={`canvas-${index}`} document={document} items={stratum.items} viewport={viewport} size={size}/>:<g key={`svg-${index}`}>{stratum.items.filter(item=>!axon||!state.selectedEntityIds.includes(item.entity.id)).map(item => processPreview?.status==='ready'&&processPreview.removedConnectorIds.includes(item.entity.id)?null:<EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
         selected={!state.deepSelection && state.selectedEntityIds.includes(item.entity.id) || state.orderedPointIds.includes(item.entity.id)}
         dimensionRetarget={state.dimensionRetarget?.dimensionId === item.entity.id ? state.dimensionRetarget : null}
@@ -467,8 +478,11 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       {aiReferenceIds.map(id=>{const entity=document.entities.find(e=>e.id===id);if(!entity)return null;const points=entityPoints(entity,document.vertices).map(p=>worldToScreen(p,viewport,size));return <g key={id} data-testid="ai-reference-highlight" pointerEvents="none" stroke="#b77922" strokeWidth={3} strokeDasharray="7 4" fill="#b7792210"><GeometryPath points={points} closed={entity.type==='polygon'}/></g>;})}
       {processPreview&&<ProcessGhost plan={processPreview} viewport={viewport} size={size}/>}
       {aiPreview.map((action, index) => <AiPreviewView key={action.id} result={action.result} viewport={viewport} size={size} actionNumber={aiPreview.length > 1 ? index + 1 : undefined} />)}
-      {!state.deepSelection&&scene.strata.filter(s=>s.kind==='canvas').flatMap(s=>s.items).filter(item=>state.selectedEntityIds.includes(item.entity.id)).map(item=><CanvasSelectionView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}/>)}
-      {axon&&items.filter(item=>!canvasEntity(item.entity)&&state.selectedEntityIds.includes(item.entity.id)).map(item=><EntityView key={`selected-${item.entity.id}`} item={item} document={document} viewport={viewport} size={size} selected pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths}/>)}
+
+      {!axon&&!state.deepSelection&&scene.strata.filter(s=>s.kind==='canvas').flatMap(s=>s.items).filter(item=>state.selectedEntityIds.includes(item.entity.id)&&['line','polyline','polygon','text'].includes(item.entity.type)).map(item=><EntityView key={`editable-${item.entity.id}`} item={item} document={document} viewport={viewport} size={size} selected/>)}
+      {document.entities.filter((e):e is RasterUnderlayEntity=>e.type==='raster_underlay'&&state.selectedEntityIds.includes(e.id)).map(e=><UnderlaySelection key={e.id} entity={e} viewport={viewport} size={size}/>)}
+      {axon&&items.filter(item=>!canvasEntity(item.entity)&&item.entity.type!=='raster_underlay'&&state.selectedEntityIds.includes(item.entity.id)).map(item=><EntityView key={`selected-${item.entity.id}`} item={item} document={document} viewport={viewport} size={size} selected pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths}/>)}
+      {!state.deepSelection&&<SelectionContours document={document} items={selectionOverlayItems} markerIds={[...canvasOwnerIds]} viewport={viewport} size={size}/>}
       {state.deepSelection && <DeepSelectionView document={document} selection={state.deepSelection} viewport={viewport} size={size} />}
       {(tool==='connector'||state.connectorInteraction?.kind==='retarget')&&<ConnectorOverlay document={document} viewport={viewport} size={size} interaction={state.connectorInteraction} cursor={drawCursor} hover={portHover}/>}
       {tool === 'symbol' && state.symbolPlacement && drawCursor && <g pointerEvents="none"><SymbolView entity={{ type: 'symbol', id: 'ghost', name: 'Ghost', layerId: state.currentLayerId, ...state.symbolPlacement, position: { x: drawCursor.x, y: drawCursor.y }, scale: 1 }} viewport={viewport} size={size} color="#21836e" ghost /></g>}

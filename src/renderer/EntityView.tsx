@@ -28,7 +28,8 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   const attributes = { stroke, strokeWidth: selected ? 2.2 : style.lineWeight, strokeDasharray: style.dash };
   let shape: React.ReactNode;
   switch (entity.type) {
-    case 'arc': case 'circle': case 'block_instance': case 'imported_graphic': { shape=<VectorView entity={entity} document={document} viewport={viewport} size={size} color={stroke} selected={selected} lineWeight={style.lineWeight} />; break; }
+    case 'raster_underlay': {shape=null;break;}
+    case 'arc': case 'circle': case 'block_instance': case 'imported_graphic': { shape=<VectorView entity={entity} document={document} viewport={viewport} size={size} color={style.stroke} selected={selected} lineWeight={style.lineWeight} />; break; }
     case 'connector': {shape=<ConnectorView entity={entity} document={document} viewport={viewport} size={size} stroke={stroke} lineWeight={selected?2.2:style.lineWeight} dash={style.dash} editable={editable}/>;break;}
     case 'symbol': { shape = <SymbolView entity={entity} viewport={viewport} size={size} color={stroke} lineWeight={style.lineWeight} selected={selected} />; break; }
     case 'point': {

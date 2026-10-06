@@ -1,7 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 
-test.beforeEach(async ({ page }) => { await page.goto('/'); await expect(page.locator('[data-entity-id="baseline-01"]')).toBeVisible(); });
+test.beforeEach(async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('[data-entity-id="baseline-01"]')).toBeVisible();
+  // Let initial ResizeObserver/Fit camera effects settle before the first key sequence.
+  await page.getByTestId('drawing-canvas').evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.getByTestId('drawing-canvas').focus();
+});
 
 test('layer rows select, expose properties, rename with undo, and eye/lock do not change layer selection', async ({ page }) => {
   const row = page.locator('.layer-row').nth(3);

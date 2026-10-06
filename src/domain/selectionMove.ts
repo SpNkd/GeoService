@@ -16,12 +16,12 @@ export function resolveSelectionMove(document: GeoDocument, entityIds: readonly 
   for (const id of selected) if (!entities.has(id)) throw new Error('Объект перемещения не найден.');
   const unlockedLayers = new Set(document.layers.filter(layer => !layer.locked).map(layer => layer.id));
   const selectedEntities = document.entities.filter(entity => selected.has(entity.id));
-  if (selectedEntities.some(entity => !unlockedLayers.has(entity.layerId))) throw new Error('Выбор содержит объекты на заблокированном слое.');
+  if (selectedEntities.some(entity => !unlockedLayers.has(entity.layerId)||entity.type==='raster_underlay'&&entity.locked)) throw new Error('Выбор содержит объекты на заблокированном слое.');
   // Dimensions consume geometry but never own a translation of their source vertices.
   const vertices = new Set(selectedEntities.filter(entity => entity.type !== 'dimension').flatMap(entityVertexIds));
   for (const id of vertices) getVertex(document.vertices, id);
   const affected = new Set(document.entities.filter(entity => entityVertexIds(entity).some(id => vertices.has(id))).map(entity => entity.id));
-  const independentEntityIds = selectedEntities.filter(entity => ['symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type)).map(entity => entity.id);
+  const independentEntityIds = selectedEntities.filter(entity => ['raster_underlay', 'raster_underlay', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type)).map(entity => entity.id);
   for (const id of independentEntityIds) affected.add(id);
   const labelOffsetIds: string[] = [];
   for (const entity of document.entities) if (entity.type === 'label') {

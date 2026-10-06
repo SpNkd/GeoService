@@ -1,3 +1,4 @@
+import { importLayouts } from '../layouts/import';
 import ACI from 'dxf-parser/dist/AutoCadColorIndex';
 import DxfParser, { type IEntity, type IDxf } from 'dxf-parser';
 import type { Entity, GeoDocument, WorldPoint } from '../domain/model';
@@ -125,6 +126,7 @@ function normalize(parsed:IDxf,records:RawRecord[],filename:string,options:DxfOp
       document.entities.push(entity);
     }catch(e){row.unsupported++;warnings.add(`${r.type}: ${e instanceof Error?e.message:'unsupported'}`);}
   }
+  const layouts=importLayouts(records,sourceId,factor,r=>counted(geometry(r,r.section==='ENTITIES'?mainIndex.get(r):blockIndex.get(r.block??'')?.get(r))));if(layouts.length)document.dxfLayouts=layouts;
   progress('Валидация документа');timings.normalization=performance.now()-start;const vt=performance.now();const validated=validateDocument(document);encodeDocument(validated);timings.validation=performance.now()-vt;
   const currentLayerId=layerIds.get(String(header.$CLAYER??''))??layers.find(l=>l.visible&&!l.locked)?.id??layers[0]!.id;
   warnings.add('CAD fidelity: fonts, text alignment, complex line types/weights and paper space are simplified. No external resources are loaded.');

@@ -21,7 +21,8 @@ export interface BlockInstanceEntity extends EntityBase, BlockTransform { type: 
 export interface ImportedGraphicEntity extends EntityBase { type: 'imported_graphic'; position: WorldPoint; primitives: VectorPrimitive[]; semanticContent?: ImportedSemanticContent }
 export interface ConnectorEndpoint { kind: 'symbol_port'; symbolEntityId: string; portId: string }
 export interface ConnectorEntity extends EntityBase { type: 'connector'; start: ConnectorEndpoint; end: ConnectorEndpoint; routing: 'direct' | 'orthogonal'; waypoints?: {x:number;y:number}[] }
-export type Entity = ConnectorEntity | PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity | SymbolEntity | ArcEntity | CircleEntity | BlockInstanceEntity | ImportedGraphicEntity;
+export interface RasterUnderlayEntity extends EntityBase { type: 'raster_underlay'; assetId:string; position:{x:number;y:number}; width:number; height:number; rotationDeg:number; opacity:number; locked:boolean; assetMetadata?: { mimeType:string; originalName:string; byteSize:number; widthPx:number; heightPx:number } }
+export type Entity = RasterUnderlayEntity | ConnectorEntity | PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity | SymbolEntity | ArcEntity | CircleEntity | BlockInstanceEntity | ImportedGraphicEntity;
 export interface SurveyXY { e: number; n: number }
 export interface RigidTransform2D { rotation: number; translation: SurveyXY; scale: 1 }
 export interface HorizontalControl { pointEntityId: string; vertexId: string; modelSnapshot: { x: number; y: number }; survey: SurveyXY }
@@ -32,6 +33,7 @@ export interface GeoDocument {
   modelFrame?: 'local' | 'projected';
   horizontalReference?: HorizontalReference;
   verticalReference?: VerticalReference;
+  dxfLayouts?: import('../layouts/types').DxfLayout[];
   sources?: SourceDocument[];
   blocks?: BlockDefinition[];
   schemaVersion: 2;
@@ -48,7 +50,7 @@ export interface GeoDocument {
 export function entityVertexIds(entity: Entity): string[] {
   switch (entity.type) {
     case 'point': case 'text': return [entity.vertexId];
-    case 'connector': case 'label': case 'symbol': case 'arc': case 'circle': case 'block_instance': case 'imported_graphic': return [];
+    case 'raster_underlay': case 'connector': case 'label': case 'symbol': case 'arc': case 'circle': case 'block_instance': case 'imported_graphic': return [];
     case 'line': case 'dimension': return [entity.startVertexId, entity.endVertexId];
     case 'polyline': case 'polygon': return entity.vertexIds;
   }
