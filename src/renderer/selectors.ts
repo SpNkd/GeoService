@@ -1,3 +1,4 @@
+import { resolveEntityStyle } from '../styles/model';
 import { connectorVisible, connectorRoute } from '../connectors/model';
 import { symbolBoundsPoints } from '../symbols/transforms';
 import { entityBoundsPoints, modelSelectionBounds } from '../geometry/entityBounds';
@@ -7,10 +8,8 @@ import { alignedDimension } from '../geometry/survey';
 import { resolvedLabelPosition } from '../geometry/labels';
 
 export interface RenderItem { entity: Entity; layer: Layer; style: EntityStyle }
-const fallbackStyle: EntityStyle = { id: 'fallback', stroke: '#546675', fill: 'none', lineWeight: 1.5 };
 
 export function renderItems(document: GeoDocument): RenderItem[] {
-  const styles = new Map(document.styles.map(style => [style.id, style]));
   const visible = new Set(document.layers.filter(layer => layer.visible).map(layer => layer.id));
   const groups = new Map<string, Entity[]>(), entities = new Map(document.entities.map(e => [e.id, e]));
   for (const entity of document.entities) {
@@ -19,7 +18,7 @@ export function renderItems(document: GeoDocument): RenderItem[] {
     const group = groups.get(entity.layerId) ?? []; group.push(entity); groups.set(entity.layerId, group);
   }
   const items = [...document.layers].sort((a,b) => a.order-b.order).flatMap(layer =>
-    (groups.get(layer.id) ?? []).sort((a,b) => Number(a.type==='text'||a.type==='label')-Number(b.type==='text'||b.type==='label')).map(entity => ({entity, layer, style:styles.get(entity.styleId ?? layer.styleId) ?? fallbackStyle})));
+    (groups.get(layer.id) ?? []).sort((a,b) => Number(a.type==='text'||a.type==='label')-Number(b.type==='text'||b.type==='label')).map(entity => ({entity, layer, style:resolveEntityStyle(document,entity,layer)})));
   return items;
 }
 export function visibleBounds(document: GeoDocument) {

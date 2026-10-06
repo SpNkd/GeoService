@@ -4,9 +4,9 @@ export interface WorldPoint { x: number; y: number; z?: number }
 export interface Vertex extends WorldPoint { id: string }
 export type VertexRegistry = Record<string, Vertex>;
 export interface Viewport { center: WorldPoint; pixelsPerUnit: number }
-export interface Layer { id: string; name: string; visible: boolean; locked: boolean; order: number; styleId: string; source?: SourceProvenance }
-export interface EntityStyle { id: string; stroke: string; fill: string; lineWeight: number; dash?: string }
-interface EntityBase { id: string; name: string; layerId: string; styleId?: string; visible?: boolean; source?: SourceProvenance }
+export interface Layer { id: string; name: string; visible: boolean; locked: boolean; order: number; styleId: string; style?: import('../styles/model').LayerStyle; source?: SourceProvenance }
+export interface EntityStyle { id: string; stroke: string; fill: string; lineWeight: number; dash?: string | undefined; opacity?:number;fillOpacity?:number;textColor?:string;textSize?:number | undefined }
+interface EntityBase { id: string; name: string; layerId: string; styleId?: string; style?: import('../styles/model').StyleOverrides; visible?: boolean; source?: SourceProvenance }
 export interface PointEntity extends EntityBase { type: 'point'; vertexId: string }
 export interface LineEntity extends EntityBase { type: 'line'; startVertexId: string; endVertexId: string }
 export interface PolylineEntity extends EntityBase { type: 'polyline'; vertexIds: [string, string, ...string[]] }

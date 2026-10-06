@@ -23,6 +23,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   const world = entityPoints(entity, document.vertices);
   const screen = world.map(point => worldToScreen(point, viewport, size));
   const stroke = selected ? selectionColor : style.stroke;
+  const textColor=selected?selectionColor:style.textColor??stroke;
   const editable = selected && !layer.locked && !projectionOf(viewport);
   const locked = editable && (entity.type === 'line' || entity.type === 'polyline' || entity.type === 'polygon') ? lockedVertexIds(document) : null;
   const attributes = { stroke, strokeWidth: selected ? 2.2 : style.lineWeight, strokeDasharray: style.dash };
@@ -60,7 +61,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
     case 'polyline': case 'polygon': {
       shape = <>
         {entity.type === 'polygon'
-          ? <><path d={`M${screen.map(p => `${p.x},${p.y}`).join('L')}Z`} fill="transparent" stroke="transparent" strokeWidth={14} pointerEvents="all" data-move-body="" /><GeometryPath points={screen} closed fill={selected ? '#277ec110' : style.fill} {...attributes} pointerEvents="none" /></>
+          ? <><path d={`M${screen.map(p => `${p.x},${p.y}`).join('L')}Z`} fill="transparent" stroke="transparent" strokeWidth={14} pointerEvents="all" data-move-body="" /><GeometryPath points={screen} closed fill={style.fill} fillOpacity={style.fillOpacity??1} {...attributes} pointerEvents="none" /></>
           : <><GeometryPath points={screen} closed={false} fill="none" stroke="transparent" strokeWidth={14} /><GeometryPath points={screen} closed={false} fill="none" {...attributes} pointerEvents="none" /></>}
         {editable && screen.map((p, i) => locked && !locked.has(ids[i]!) && <rect key={`${ids[i]}:${i}`} data-vertex-handle="" data-vertex-id={ids[i]} x={p.x - 4} y={p.y - 4} width={8} height={8} fill="white" stroke={selectionColor} />)}
       </>;
@@ -73,17 +74,17 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
       const b = dimensionRetarget?.endpoint === 'end' && candidate && !isOpposite ? candidate : world[1]!;
       const target = candidate && worldToScreen(candidate, viewport, size);
       shape = <>
-        <g opacity={dimensionRetarget ? 0.28 : 1}><DimensionView a={world[0]!} b={world[1]!} offset={entity.offset} textPosition={entity.textPosition ?? 0.5} viewport={viewport} size={size} color={stroke} grips={editable} /></g>
+        <g opacity={dimensionRetarget ? 0.28 : 1}><DimensionView a={world[0]!} b={world[1]!} offset={entity.offset} textPosition={entity.textPosition ?? 0.5} viewport={viewport} size={size} color={stroke} textColor={textColor} lineWeight={style.lineWeight} dash={style.dash} textSize={style.textSize} grips={editable} /></g>
         {dimensionRetarget && candidate && !isOpposite && <DimensionView a={a} b={b} offset={entity.offset} textPosition={entity.textPosition ?? 0.5} viewport={viewport} size={size} color="#18865b" preview />}
         {dimensionRetarget && target && <circle data-testid="dimension-retarget-target" cx={target.x} cy={target.y} r={7} fill={isOpposite ? '#fff' : '#e6fff1'} stroke={isOpposite ? '#c94242' : '#18865b'} strokeWidth={2} pointerEvents="none" />}
       </>;
       break;
     }
     case 'text': {
-      const p = screen[0]!,fontSize=entity.height?entity.height*viewport.pixelsPerUnit:entity.fontSize;
+      const p = screen[0]!,fontSize=style.textSize??(entity.height?entity.height*viewport.pixelsPerUnit:entity.fontSize);
       shape = <g transform={`translate(${p.x} ${p.y}) rotate(${- (entity.rotationDeg??0)})`}>
         <rect x={-7} y={-fontSize-7} width={Math.max(28, Math.max(...entity.content.split('\n').map(line=>line.length)) * fontSize * 0.7 + 14)} height={fontSize * (1 + (entity.content.split('\n').length-1)*1.2) + 14} fill={selected ? '#277ec110' : 'transparent'} stroke={selected ? selectionColor : 'transparent'} strokeDasharray="3 3" pointerEvents="all" />
-        <text x={0} y={0} fill={stroke} fontSize={fontSize} className="annotation-label" pointerEvents="none">{entity.content.split('\n').map((line,i)=><tspan key={i} x={0} dy={i?1.2*fontSize:0}>{line}</tspan>)}</text>
+        <text x={0} y={0} fill={textColor} fontSize={fontSize} className="annotation-label" pointerEvents="none">{entity.content.split('\n').map((line,i)=><tspan key={i} x={0} dy={i?1.2*fontSize:0}>{line}</tspan>)}</text>
       </g>;
       break;
     }
@@ -94,14 +95,14 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
       const width = Math.max(32, content.length * 7.4 + 16);
       shape = <>
         <rect x={p.x - 6} y={p.y - 17} width={width} height={24} rx={3} fill={selected ? '#277ec120' : 'transparent'} stroke={selected ? selectionColor : 'transparent'} strokeDasharray="3 3" pointerEvents="all" />
-        <text x={p.x} y={p.y} fill={stroke} className="annotation-label" pointerEvents="none">{content}</text>
+        <text x={p.x} y={p.y} fill={textColor} style={{fontSize:style.textSize}} className="annotation-label" pointerEvents="none">{content}</text>
       </>;
       break;
     }
     default: { const unsupported: never = entity; throw new Error(`Unsupported entity: ${String(unsupported)}`); }
   }
   return <g data-entity-id={entity.id} data-entity-type={entity.type} data-selected={selected} data-vertex-id={entity.type === 'point' ? entity.vertexId : undefined}
-    className={layer.locked ? 'entity locked' : 'entity'} aria-label={entity.name}>
+    opacity={selected||['arc','circle','block_instance','imported_graphic'].includes(entity.type)?1:style.opacity??1} className={layer.locked ? 'entity locked' : 'entity'} aria-label={entity.name}>
     <title>{`${entity.name}${layer.locked ? ' · заблокирован, только просмотр' : ''}`}</title>{shape}
   </g>;
 }, (previous, next) => {

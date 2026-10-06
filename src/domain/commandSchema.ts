@@ -1,3 +1,4 @@
+import { layerStyleSchema, styleOverridesSchema } from '../styles/schema';
 import { z } from 'zod';
 import { connectorEndpointSchema } from '../connectors/schema';
 import { symbolScaleSchema } from '../symbols/schema';
@@ -8,6 +9,11 @@ import type { DocumentCommand } from './commands';
 const entity = z.discriminatedUnion('type', [entitySchema.options[0].strict(), ...entitySchema.options.slice(1).map(option => option.strict())])
   .refine(value => !('vertexIds' in value) || value.vertexIds.length <= 50000, 'Объект превышает лимит 50 000 ссылок на вершины');
 const commandSchema = z.discriminatedUnion('type', [
+  z.strictObject({type:z.literal('reset-entity-style'),entityIds:z.array(id).min(1).max(50000)}),
+  z.strictObject({type:z.literal('reset-layer-style'),layerId:id}),
+  z.strictObject({type:z.literal('transform-selection'),entityIds:z.array(id).min(1).max(50000),transform:z.discriminatedUnion('kind',[z.strictObject({kind:z.literal('translate'),delta:z.strictObject({x:finiteNumber,y:finiteNumber})}),z.strictObject({kind:z.literal('rotate'),pivot:worldPointSchema.strict(),angleDeg:finiteNumber})])}),
+  z.strictObject({type:z.literal('set-entity-style'),entityIds:z.array(id).min(1).max(50000),patch:styleOverridesSchema}),
+  z.strictObject({type:z.literal('set-layer-style'),layerId:id,patch:layerStyleSchema}),
   z.strictObject({type:z.literal('update-underlay'),entityId:id,patch:rasterPatchSchema}),
   z.strictObject({type:z.literal('set-symbol-position'),entityId:id,position:worldPointSchema.strict()}),
   z.strictObject({type:z.literal('retarget-connector'),entityId:id,endpoint:z.enum(['start','end']),target:connectorEndpointSchema}),

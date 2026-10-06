@@ -96,7 +96,8 @@ export class CanvasSceneRenderer {
     if (this.canvas.height !== height) this.canvas.height = height;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, width, height);
     if(projectionOf(view)){this.drawn=new Set(this.axon.draw(ctx,document,items,view,size,dpr));const ms=performance.now()-start;metrics.draws++;metrics.drawMs+=ms;metrics.drawnOwners+=this.drawn.size;metrics.culledOwners+=items.length-this.drawn.size;metrics.frames.push(ms);if(metrics.frames.length>512)metrics.frames.shift();if(import.meta.env.DEV)this.canvas.dataset.drawnOwners=JSON.stringify([...this.drawn]);return;}
-    const visible = viewportBounds(view, size), resolve = createVectorStyleResolver(document);
+    const visible = viewportBounds(view, size);
+    let resolve=createVectorStyleResolver(document);
     this.drawn.clear();
     let currentMatrix:Matrix|null=null;
     const set = (m: Matrix) => {if(currentMatrix&&m.every((v,i)=>v===currentMatrix![i]))return;ctx.setTransform(m[0]*dpr,m[1]*dpr,m[2]*dpr,m[3]*dpr,m[4]*dpr,m[5]*dpr);currentMatrix=m;};
@@ -108,7 +109,7 @@ export class CanvasSceneRenderer {
           // Cache the compound path per visibility revision; holes remain holes across style buckets.
           const cache=command.visibility[inheritAll?1:0];let fill=cache.get(document.layers);
           if(fill===undefined){const contours=command.contours.filter(c=>resolve(c.primitive,parent,inheritAll).visible);if(!contours.length)fill=null;else{const path=new Path2D();for(const c of contours)path.addPath(c.path);fill={path,primitive:contours[0]!.primitive};metrics.paths++;}cache.set(document.layers,fill);}
-          if(fill){const paint=resolve(fill.primitive,parent,inheritAll);set(matrix);ctx.fillStyle=paint.stroke;ctx.globalAlpha=fill.primitive.fillOpacity??1;ctx.fill(fill.path,'evenodd');ctx.globalAlpha=1;}continue;
+          if(fill){const paint=resolve(fill.primitive,parent,inheritAll);set(matrix);ctx.fillStyle=paint.fill&&paint.fill!=='none'?paint.fill:paint.stroke;ctx.globalAlpha=(fill.primitive.fillOpacity??1)*(paint.opacity??1)*(paint.fillOpacity??1);ctx.fill(fill.path,'evenodd');ctx.globalAlpha=1;}continue;
         }
         const p = command.primitive, paint = resolve(p, parent, inheritAll);
         if (!paint.visible) continue;
@@ -117,14 +118,14 @@ export class CanvasSceneRenderer {
           if (block && !stack.includes(block.id) && stack.length < VECTOR_LIMITS.depth) drawList(this.compile(document, block.primitives), multiply(matrix, blockMatrix(p, { x: 0, y: 0 })), paint, false, [...stack, block.id]);
           continue;
         }
-        set(matrix); ctx.globalAlpha = 1; ctx.fillStyle = paint.stroke; ctx.strokeStyle = paint.stroke;
+        set(matrix); ctx.globalAlpha = paint.opacity??1; ctx.fillStyle = paint.stroke; ctx.strokeStyle = paint.stroke;
         if (command.kind === 'text' && p.kind === 'text') {
           ctx.translate(p.position.x, p.position.y); ctx.rotate(p.rotationDeg * Math.PI / 180); ctx.scale(1, -1);
-          ctx.font = `${p.height}px sans-serif`; ctx.textBaseline = 'alphabetic';
-          p.content.split('\n').forEach((line, i) => ctx.fillText(line, 0, i * p.height * 1.2));
+          const textHeight=paint.textSize===undefined?p.height:paint.textSize/Math.hypot(matrix[0],matrix[1]);ctx.fillStyle=paint.textColor??paint.stroke;ctx.font = `${textHeight}px sans-serif`; ctx.textBaseline = 'alphabetic';
+          p.content.split('\n').forEach((line, i) => ctx.fillText(line, 0, i * textHeight * 1.2));
           currentMatrix=null;
         } else if (command.kind === 'path') {
-          if (command.fill) { ctx.globalAlpha = p.fillOpacity ?? 1; ctx.fill(command.path, 'evenodd'); ctx.globalAlpha = 1; }
+          if (command.fill) { ctx.globalAlpha = (p.fillOpacity??1)*(paint.opacity??1)*(paint.fillOpacity??1);ctx.fillStyle=paint.fill&&paint.fill!=='none'?paint.fill:paint.stroke; ctx.fill(command.path, 'evenodd'); ctx.globalAlpha = paint.opacity??1; }
           const sx = Math.hypot(matrix[0], matrix[1]), sy = Math.hypot(matrix[2], matrix[3]);
           const dash = paint.dash?.split(/[ ,]+/).map(Number).filter(n => Number.isFinite(n) && n >= 0) ?? [];
           if (Math.abs(sx - sy) > Math.max(sx, sy) * 1e-8 || Math.abs(matrix[0] * matrix[2] + matrix[1] * matrix[3]) > sx * sy * 1e-8) {
@@ -137,10 +138,11 @@ export class CanvasSceneRenderer {
       }
     };
     for (const item of items) {
+      resolve=createVectorStyleResolver(document,item.entity);
       const e = item.entity, box = ownerBounds(document, e);
       if (!box || !intersects(box, visible)) { metrics.culledOwners++; continue; }
       this.drawn.add(e.id); metrics.drawnOwners++;
-      const paint: Paint = { stroke: item.style.stroke, lineWeight: item.style.lineWeight, dash: item.style.dash };
+      const paint: Paint = { stroke: item.style.stroke, lineWeight: item.style.lineWeight, dash: item.style.dash,opacity:item.style.opacity??1,fill:item.style.fill,fillOpacity:item.style.fillOpacity??1 };
       if (e.type === 'block_instance') {
         const block = blockDefinition(document, e.blockDefinitionId); if (!block) continue;
         const matrix = blockMatrix(e, block.basePoint), anchor = canvasTransform(view, size, vectorRenderOrigin(document, e));
@@ -151,7 +153,7 @@ export class CanvasSceneRenderer {
       } else {
         const list = this.nativeList(document, e);
         // Native polygons use their existing layer fill; imported DXF styles usually have fill=none.
-        if (e.type === 'polygon' && item.style.fill !== 'none') for (const c of list.commands) if (c.kind === 'path') { set(canvasTransform(view, size, list.origin)); ctx.fillStyle = item.style.fill; ctx.fill(c.path); }
+        if (e.type === 'polygon' && item.style.fill !== 'none') for (const c of list.commands) if (c.kind === 'path') { set(canvasTransform(view, size, list.origin)); ctx.fillStyle = item.style.fill;ctx.globalAlpha=(item.style.opacity??1)*(item.style.fillOpacity??1); ctx.fill(c.path);ctx.globalAlpha=1; }
         drawList(list, canvasTransform(view, size, list.origin), paint, true, []);
       }
     }

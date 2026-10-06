@@ -1,7 +1,9 @@
+import { projectSelectionTransform, resolveSelectionTransform } from './selectionTransform';
+import { styleKeysFor } from '../styles/model';
 import { connectorRoute, connectivityIndex, validateConnector } from '../connectors/model';
 import type { ConnectorEndpoint } from './model';
 import { entityVertexIds, getVertex, vertexPoint, worldVertex, type Entity, type GeoDocument, type Layer, type PointEntity, type Vertex, type WorldPoint, type SurveyXY, type VerticalReference } from './model';
-import { validateDocument } from '../persistence/documentSchema';
+import { entitySchema, validateDocumentSemantics, validateDocument } from '../persistence/documentSchema';
 import { encodeDocument } from '../persistence/serialization';
 import { distance } from '../geometry';
 import { polygonSelfIntersects } from '../geometry/survey';
@@ -14,6 +16,12 @@ import { blockAttributeLocalPosition } from '../vectors/geometry';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
+  | {type:'reset-entity-style';entityIds:string[]}
+  | {type:'reset-layer-style';layerId:string}
+  | {type:'transform-selection';entityIds:string[];transform:import('./selectionTransform').SelectionTransform}
+  | {type:'set-entity-style';entityIds:string[];patch:import('../styles/model').StyleOverrides}
+  | {type:'set-layer-style';layerId:string;patch:import('../styles/model').LayerStyle}
+
   | {type:'update-underlay';entityId:string;patch:Partial<Pick<import('./model').RasterUnderlayEntity,'position'|'width'|'height'|'rotationDeg'|'opacity'|'locked'|'assetId'|'assetMetadata'>>}
   | {type:'set-symbol-position';entityId:string;position:WorldPoint}
   | {type:'retarget-connector';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint}
@@ -127,6 +135,15 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     validateConnector(document,updated);
     if(command.type==='set-connector-routing'?entity.routing===command.routing:entity[command.endpoint].symbolEntityId===command.target.symbolEntityId&&entity[command.endpoint].portId===command.target.portId)return document;
     return {...document,entities:document.entities.map(e=>e.id===entity.id?updated:e)};
+  }
+  if(command.type==='reset-layer-style'){if(!document.layers.some(l=>l.id===command.layerId))throw new Error('Слой не найден');return {...document,layers:document.layers.map(l=>{if(l.id!==command.layerId)return l;const next={...l};delete next.style;return next;})};}
+  if(command.type==='reset-entity-style'){const ids=new Set(command.entityIds),owners=document.entities.filter(e=>ids.has(e.id));if(owners.length!==ids.size||owners.some(e=>isLayerLocked(document,e)))throw new Error('Объекты отсутствуют или заблокированы');return {...document,entities:document.entities.map(e=>{if(!ids.has(e.id))return e;const next={...e};delete next.style;return next;})};}
+  if(command.type==='transform-selection'){const candidate=projectSelectionTransform(document,resolveSelectionTransform(document,command.entityIds,command.transform.kind),command.transform);if(candidate===document)return document;for(const e of candidate.entities)if(e!==document.entities.find(old=>old.id===e.id)&&!entitySchema.safeParse(e).success)throw new Error('Результат поворота содержит недопустимые значения');validateDocumentSemantics(candidate);return candidate;}
+  if(command.type==='set-layer-style'){const layer=document.layers.find(l=>l.id===command.layerId);if(!layer)throw new Error('Слой не найден');return {...document,layers:document.layers.map(l=>l===layer?{...l,style:{...l.style,...command.patch}}:l)};}
+  if(command.type==='set-entity-style'){
+    const ids=new Set(command.entityIds),owners=document.entities.filter(e=>ids.has(e.id));if(owners.length!==ids.size)throw new Error('Объект не найден');
+    for(const e of owners){if(isLayerLocked(document,e)||e.type==='raster_underlay'&&e.locked)throw new Error('Стиль заблокированного объекта нельзя менять');if(Object.keys(command.patch).some(k=>!styleKeysFor(e).includes(k as keyof import('../styles/model').StyleValues)))throw new Error(`Объект «${e.name}» не поддерживает выбранные свойства стиля.`);}
+    return {...document,entities:document.entities.map(e=>ids.has(e.id)?{...e,style:{...e.style,...command.patch}}:e)};
   }
   if (command.type === 'move-entities') return projectSelectionMove(document, resolveSelectionMove(document, command.entityIds), command.delta);
   if (command.type === 'update-dimension-reference') {
@@ -305,7 +322,8 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     return { ...document, entities: document.entities.map(item => item.id === entity.id ? { ...cloneEntity(entity), layerId: destination.id } : item) };
   }
   if (command.type !== 'update-entity') { const exhaustive: never = command; throw new Error(`Неизвестная команда: ${String(exhaustive)}`); }
-  if ((command.patch.rotationDeg !== undefined || command.patch.scale !== undefined) && entity.type !== 'symbol') throw new Error('Поворот и масштаб доступны только у символа');
+  if ((command.patch.rotationDeg !== undefined || command.patch.scale !== undefined) && !['symbol','text','block_instance'].includes(entity.type)) throw new Error('Поворот доступен только у текста, символа или блока');
+  if(command.patch.scale!==undefined&&entity.type!=='symbol')throw new Error('Масштаб доступен только у символа');
   const rotationDeg = command.patch.rotationDeg === undefined ? undefined : normalizeSymbolRotation(command.patch.rotationDeg);
   if (entity.type === 'symbol' && rotationDeg !== undefined) { const allowed = requireSymbol(entity.libraryId, entity.symbolId, entity.libraryVersion).allowedRotations; if (allowed && !allowed.includes(rotationDeg)) throw new Error('Поворот не разрешён определением символа'); }
   if (command.patch.content !== undefined && entity.type !== 'text') throw new Error('Только у текстовой аннотации есть содержание');
@@ -324,8 +342,13 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     ...(command.patch.fontSize === undefined ? {} : { fontSize: command.patch.fontSize }),
     ...(command.patch.dx === undefined ? {} : { dx: command.patch.dx }), ...(command.patch.dy === undefined ? {} : { dy: command.patch.dy }),
     ...(command.patch.textPosition === undefined ? {} : { textPosition: command.patch.textPosition }), ...(command.patch.offset === undefined ? {} : { offset: command.patch.offset }) };
-  if (entity.type === 'symbol' && Object.entries(patch).every(([key, value]) => entity[key as keyof typeof entity] === value)) return document;
-  return { ...document, entities: document.entities.map(item => item.id === entity.id ? cloneEntity({ ...entity, ...patch } as Entity) : item) };
+  if (Object.entries(patch).every(([key, value]) => entity[key as keyof typeof entity] === value)) return document;
+  // Intrinsic rotation uses the same topology/lock and legacy ATTRIB policy,
+  // with the insertion/anchor as pivot so an absolute orientation does not move it.
+  const pivot=entity.type==='text'?vertexPoint(getVertex(document.vertices,entity.vertexId)):entity.type==='symbol'||entity.type==='block_instance'?entity.position:null;
+  const intrinsicAngle='rotationDeg' in entity?entity.rotationDeg??0:0;
+  const transformed=rotationDeg!==undefined&&pivot?applyCommand(document,{type:'transform-selection',entityIds:[entity.id],transform:{kind:'rotate',pivot,angleDeg:rotationDeg-intrinsicAngle}}):document;
+  return { ...transformed, entities: transformed.entities.map(item => item.id === entity.id ? cloneEntity({ ...item, ...patch } as Entity) : item) };
 }
 
 export function isLayerLocked(document: GeoDocument, entity: Entity): boolean {

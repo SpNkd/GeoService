@@ -26,7 +26,7 @@ const identity:Matrix=[1,0,0,1,0,0];
 export function primitiveXYZ(part:PresentationPrimitive,p:WorldPoint):WorldPoint{const q=transformPoint(p,part.matrix);return {...q,z:part.zOffset+presentationZ(p)*part.zScale};}
 /** Traverses shared definitions, retaining references; no canonical or flattened geometry copy. */
 export function visitEntityPrimitives(document:GeoDocument,e:Entity,paint:Paint,visit:(p:PresentationPrimitive)=>void,includeHidden=false){
-  const resolve=createVectorStyleResolver(document);let scope=0;
+  const resolve=createVectorStyleResolver(document,e);let scope=0;
   const walk=(primitives:VectorPrimitive[],matrix:Matrix,zOffset:number,zScale:number,parent:Paint,inherit:boolean,stack:string[])=>{
     const fillScope=scope++;
     for(const p of primitives){const next=resolve(p,parent,inherit);if(!next.visible&&!includeHidden)continue;
@@ -41,7 +41,7 @@ export function visitEntityPrimitives(document:GeoDocument,e:Entity,paint:Paint,
   }else if(e.type==='imported_graphic')walk(e.primitives,[1,0,0,1,e.position.x,e.position.y],presentationZ(e.position),1,paint,true,[]);
   else if(e.type==='arc'||e.type==='circle')walk([{...e,kind:e.type,colorMode:'byblock'} as VectorPrimitive],identity,0,1,paint,true,[]);
   else if(e.type==='text'){const p=entityPoints(e,document.vertices)[0]!;walk([{kind:'text',layerId:e.layerId,colorMode:'byblock',position:p,content:e.content,height:e.height??e.fontSize/document.viewport.pixelsPerUnit,rotationDeg:e.rotationDeg??0}],identity,0,1,paint,true,[]);}
-  else if(e.type==='line'||e.type==='polyline'||e.type==='polygon')walk([{kind:'path',layerId:e.layerId,colorMode:'byblock',points:entityPoints(e,document.vertices),closed:e.type==='polygon',fill:e.type==='polygon'&&document.styles.find(s=>s.id===(e.styleId??document.layers.find(l=>l.id===e.layerId)?.styleId))?.fill!=='none'}],identity,0,1,paint,true,[]);
+  else if(e.type==='line'||e.type==='polyline'||e.type==='polygon')walk([{kind:'path',layerId:e.layerId,colorMode:'byblock',points:entityPoints(e,document.vertices),closed:e.type==='polygon',fill:e.type==='polygon'&&paint.fill!==undefined&&paint.fill!=='none'}],identity,0,1,paint,true,[]);
 }
 export function primitivePresentationPoints(part:PresentationPrimitive,ppu=100):WorldPoint[]{const p=part.primitive;
   if(p.kind==='path')return p.points.map(q=>primitiveXYZ(part,q));

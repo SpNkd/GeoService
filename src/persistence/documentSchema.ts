@@ -1,3 +1,4 @@
+import { layerStyleSchema, styleOverridesSchema } from '../styles/schema';
 import { dxfLayoutsSchema } from '../layouts/schema';
 import { validateConnectivity } from '../connectors/model';
 import { connectorEndpointSchema } from '../connectors/schema';
@@ -14,7 +15,7 @@ export const finiteNumber = z.number().finite();
 export const worldPointSchema = z.object({ x: finiteNumber, y: finiteNumber, z: finiteNumber.optional() });
 // Literal paint colours only: the layer swatch also uses this value in CSS background.
 const paintColour = z.string().max(100).refine(value => /^(?:[a-z]*|#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})|(?:rgb|hsl)a?\([\d\s.,%+\-/]+\))$/i.test(value.trim()), 'Ожидается цвет без URL, CSS variables или внешних ресурсов');
-const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional(), visible: z.boolean().optional(), source: sourceSchema.optional() };
+const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional(), style: styleOverridesSchema.optional(), visible: z.boolean().optional(), source: sourceSchema.optional() };
 export const symbolEntitySchema = z.object({ ...base, type: z.literal('symbol'), libraryId: id, libraryVersion: id.optional(), symbolId: id, position: worldPointSchema, rotationDeg: finiteNumber.min(0).lt(360), scale: symbolScaleSchema, properties: symbolPropertiesSchema.optional() });
 const rasterMetadataSchema=z.object({mimeType:z.enum(['image/png','image/jpeg','image/webp']),originalName:z.string().max(1000),byteSize:finiteNumber.int().min(1).max(40*1024*1024),widthPx:finiteNumber.int().positive().max(16384),heightPx:finiteNumber.int().positive().max(16384)});
 export const rasterPatchSchema = z.strictObject({ position:z.strictObject({x:finiteNumber,y:finiteNumber}).optional(), width:finiteNumber.positive().max(1e9).optional(), height:finiteNumber.positive().max(1e9).optional(), rotationDeg:finiteNumber.optional(), opacity:finiteNumber.min(0).max(1).optional(), locked:z.boolean().optional(), assetId:id.optional(), assetMetadata:rasterMetadataSchema.optional() });
@@ -36,7 +37,7 @@ export const entitySchema = z.discriminatedUnion('type', [
 ]);
 
 export const vertexSchema = worldPointSchema.extend({ id });
-export const layerSchema = z.object({ id, name: z.string().min(1).max(1000), visible: z.boolean(), locked: z.boolean(), order: finiteNumber.int(), styleId: id, source: sourceSchema.optional() });
+export const layerSchema = z.object({ id, name: z.string().min(1).max(1000), visible: z.boolean(), locked: z.boolean(), order: finiteNumber.int(), styleId: id, style: layerStyleSchema.optional(), source: sourceSchema.optional() });
 
 export const surveyXYSchema = z.strictObject({ e: finiteNumber, n: finiteNumber });
 const horizontalControlSchema = z.strictObject({ pointEntityId: id, vertexId: id, modelSnapshot: z.strictObject({ x: finiteNumber, y: finiteNumber }), survey: surveyXYSchema });

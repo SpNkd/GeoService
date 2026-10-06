@@ -1,3 +1,5 @@
+import { projectSelectionTransform, resolveSelectionTransform, selectionPivot, AXON_ROTATE_MESSAGE } from '../domain/selectionTransform';
+import { styleKeysFor, capturedStyle, type StyleOverrides } from '../styles/model';
 import { projectedSceneBounds, projectionOrigin } from '../view/geometry';
 import type { AxonOrientation, ProjectionContext, RenderCamera } from '../view/projection';
 import { connectorVisible, portTargetError } from '../connectors/model';
@@ -23,6 +25,11 @@ export type PointLabelMode = 'name' | 'name-z' | 'z';
 export type ConnectorInteraction = {kind:'create';start:ConnectorEndpoint;target:ConnectorEndpoint|null} | {kind:'retarget';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint|null};
 export const AXON_EDIT_MESSAGE='Перемещение в аксонометрии пока выполняется через точные координаты X/Y/Z. Для свободного перемещения используйте вид План.';
 export interface EditorState {
+  currentStyle:StyleOverrides;
+  styleClipboard:StyleOverrides|null;
+  rotateInputOpen:boolean;
+  rotateInputFocusEpoch:number;
+  selectionRotate:{resolved:ResolvedSelectionMove;pivot:import('../domain/model').WorldPoint;angleDeg:number;previewDocument:GeoDocument}|null;
   layoutViewport:Viewport|null;
   layoutId:string|null;
   dxfViewportId:string|null;
@@ -51,6 +58,15 @@ export interface EditorState {
 }
 export const editorCamera=(state:Pick<EditorState,'viewport'|'viewMode'|'projection'>):RenderCamera=>state.viewMode==='plan'?state.viewport:{...state.viewport,projection:state.projection};
 export type EditorAction =
+  | {type:'current-style';patch:StyleOverrides}
+  | {type:'apply-selection-style';patch:StyleOverrides}
+  | {type:'copy-style';entityId:string}
+  | {type:'paste-style'}
+  | {type:'open-rotate-input'} | {type:'close-rotate-input'}
+  | {type:'begin-selection-rotate';entityIds:string[]}
+  | {type:'preview-selection-rotate';angleDeg:number}
+  | {type:'finish-selection-rotate'}
+  | {type:'fit-dxf-viewport';layoutId:string;viewportId:string;size:ViewSize}
   | {type:'layout-camera';viewport:Viewport}
   | {type:'dxf-layout';layoutId:string|null;size:ViewSize}
   | {type:'dxf-viewport';viewportId:string}
@@ -133,7 +149,7 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { layoutViewport:null,layoutId:null,dxfViewportId:null,modelViewMode:'plan',layerPanelFilter:'all',viewMode:'plan',projection:{orientation:'NE',origin:{x:0,y:0,z:0}},planViewport:null,axonViewport:null,connectorInteraction:null,isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { currentStyle:{},styleClipboard:null,rotateInputOpen:false,rotateInputFocusEpoch:0,selectionRotate:null,layoutViewport:null,layoutId:null,dxfViewportId:null,modelViewMode:'plan',layerPanelFilter:'all',viewMode:'plan',projection:{orientation:'NE',origin:{x:0,y:0,z:0}},planViewport:null,axonViewport:null,connectorInteraction:null,isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
@@ -142,6 +158,40 @@ export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFing
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   if(state.viewMode==='axonometric'&&['begin-selection-move','begin-dimension-pick','begin-dimension-retarget','begin-connector-retarget'].includes(action.type))return {...state,error:AXON_EDIT_MESSAGE};
   switch (action.type) {
+    case 'apply-selection-style':{
+      const selected=state.document.entities.filter(e=>state.selectedEntityIds.includes(e.id)),keys=Object.keys(action.patch),targets=selected.filter(e=>keys.every(k=>styleKeysFor(e).includes(k as keyof import('../styles/model').StyleValues)));
+      if(!targets.length)return {...state,error:'Выбор не поддерживает это свойство стиля.'};const next=editorReducer(state,{type:'execute',command:{type:'set-entity-style',entityIds:targets.map(e=>e.id),patch:action.patch}});
+      return !next.error&&targets.length<selected.length?{...next,error:`Стиль применён; пропущено несовместимых объектов: ${selected.length-targets.length}.`}:next;
+    }
+    case 'current-style':return {...state,currentStyle:{...state.currentStyle,...action.patch}};
+    case 'copy-style':{const e=state.document.entities.find(e=>e.id===action.entityId);return e?{...state,styleClipboard:capturedStyle(e,state.document),error:null}:state;}
+    case 'paste-style':{
+      if(!state.styleClipboard)return {...state,error:'Сначала скопируйте стиль объекта.'};
+      const selected=state.document.entities.filter(e=>state.selectedEntityIds.includes(e.id)),keys=Object.keys(state.styleClipboard);
+      const commands=selected.map(e=>({type:'set-entity-style' as const,entityIds:[e.id],patch:Object.fromEntries(keys.filter(k=>styleKeysFor(e).includes(k as keyof import('../styles/model').StyleValues)).map(k=>[k,state.styleClipboard![k as keyof StyleOverrides]]))})).filter(c=>Object.keys(c.patch).length);
+      const skipped=selected.length-commands.length;if(!commands.length)return {...state,error:'Выбранные объекты не поддерживают скопированный стиль.'};
+      const next=editorReducer(state,{type:'execute-batch',commands});return skipped&&!next.error?{...next,error:`Стиль применён; пропущено несовместимых объектов: ${skipped}.`}:next;
+    }
+    case 'open-rotate-input':return {...state,rotateInputOpen:true,rotateInputFocusEpoch:state.rotateInputFocusEpoch+1,tool:'select'};
+    case 'close-rotate-input':return {...state,rotateInputOpen:false};
+    case 'begin-selection-rotate':{
+      if(state.layoutId||state.viewMode!=='plan')return {...state,error:AXON_ROTATE_MESSAGE};
+      if(state.deepSelection)return {...state,error:NESTED_MOVE_MESSAGE};if(state.transactionBefore)return state;
+      try{const resolved=resolveSelectionTransform(state.document,action.entityIds,'rotate'),pivot=selectionPivot(state.document,action.entityIds);return {...state,selectionRotate:{resolved,pivot,angleDeg:0,previewDocument:state.document},transactionBefore:state.document,error:null};}catch(error){return {...state,error:error instanceof Error?error.message:String(error)};}
+    }
+    case 'preview-selection-rotate':{
+      const rotation=state.selectionRotate;if(!rotation)return state;
+      try{return {...state,selectionRotate:{...rotation,angleDeg:action.angleDeg,previewDocument:projectSelectionTransform(state.document,rotation.resolved,{kind:'rotate',pivot:rotation.pivot,angleDeg:action.angleDeg})},error:null};}catch(error){return {...state,error:String(error)};}
+    }
+    case 'finish-selection-rotate':{
+      const r=state.selectionRotate;if(!r)return state;
+      return editorReducer({...state,selectionRotate:null,transactionBefore:null},{type:'execute',command:{type:'transform-selection',entityIds:r.resolved.entityIds,transform:{kind:'rotate',pivot:r.pivot,angleDeg:r.angleDeg}}});
+    }
+    case 'fit-dxf-viewport':{
+      if(state.transactionBefore)return state;const next=state.layoutId===action.layoutId?state:editorReducer(state,{type:'dxf-layout',layoutId:action.layoutId,size:action.size}),v=next.document.dxfLayouts?.find(l=>l.id===action.layoutId)?.viewports.find(v=>v.id===action.viewportId);if(!v)return state;
+      const viewport=fitToBounds({minX:v.centerPaper.x-v.sizePaper.width/2,maxX:v.centerPaper.x+v.sizePaper.width/2,minY:v.centerPaper.y-v.sizePaper.height/2,maxY:v.centerPaper.y+v.sizePaper.height/2},action.size,55);
+      return {...next,dxfViewportId:v.id,layoutViewport:viewport??next.layoutViewport,deepSelection:null};
+    }
     case 'layout-camera':return state.layoutId?{...state,layoutViewport:action.viewport}:state;
     case 'layer-panel-filter':return {...state,layerPanelFilter:action.filter};
     case 'isolate-layers':return {...state,isolation:{entityIds:[],layerIds:[...new Set(action.layerIds)],label:action.label}};
@@ -345,7 +395,8 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       }
       if (state.transactionBefore) return state;
       try {
-        const document = action.type === 'execute-batch' ? applyCommandsAtomically(state.document, action.commands) : applyCommand(state.document, action.command);
+        const styled=(command:DocumentCommand):DocumentCommand=>{if(command.type!=='add-entity'||command.entity.style||command.entity.source)return command;const style=Object.fromEntries(Object.entries(state.currentStyle).filter(([k])=>styleKeysFor(command.entity).includes(k as keyof import('../styles/model').StyleValues)));return Object.keys(style).length?{...command,entity:{...command.entity,style}}:command;};
+        const document = action.type === 'execute-batch' ? applyCommandsAtomically(state.document, action.commands.map(styled)) : applyCommand(state.document, styled(action.command));
         if (document === state.document) return { ...state, error: null };
         const hiddenSelection = action.type === 'execute' && action.command.type === 'set-layer-visibility' && !action.command.visible
           && state.document.entities.find(item => item.id === state.selectionId)?.layerId === action.command.layerId;
@@ -356,7 +407,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       }
     }
     case 'transient': {
-      if (state.selectionMove || state.connectorInteraction) return state;
+      if (state.selectionRotate || state.selectionMove || state.connectorInteraction) return state;
       if (!state.transactionBefore) return state;
       try {
         if (action.command.type !== 'update-underlay' && action.command.type !== 'update-vertex' && action.command.type !== 'move-vertex' && action.command.type !== 'move-text'
@@ -369,16 +420,18 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'begin-transaction': if(state.deepSelection&&!state.deepSelection.attribute)return {...state,error:NESTED_MOVE_MESSAGE}; return state.transactionBefore ? state : { ...state, transactionBefore: state.document };
     case 'commit-transaction': {
       if(state.connectorInteraction)return editorReducer(state,{type:'cancel-connector'});
+      if(state.selectionRotate)return editorReducer(state,{type:'finish-selection-rotate'});
       if (state.selectionMove) return editorReducer(state, { type: 'finish-selection-move' });
       if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };
       const before = state.transactionBefore;
       return !before ? state : { ...state, past: state.document === before ? state.past : pushHistory(state.past, before),
         future: state.document === before ? state.future : [], transactionBefore: null };
     }
-    case 'cancel-transaction': return state.transactionBefore ? { ...state, document: state.transactionBefore, transactionBefore: null, dimensionRetarget: null, connectorInteraction:null,selectionMove: null, error: null } : state;
+    case 'cancel-transaction': return state.transactionBefore ? { ...state, document: state.transactionBefore, transactionBefore: null, dimensionRetarget: null, connectorInteraction:null,selectionRotate:null,selectionMove: null, error: null } : state;
     case 'undo': {
       if(state.connectorInteraction)return editorReducer(state,{type:'cancel-connector'});
       state={...state,deepSelection:null,hitStackStatus:null};
+      if(state.selectionRotate)return {...state,selectionRotate:null,transactionBefore:null,error:null};
       if (state.selectionMove) return { ...state, selectionMove: null, transactionBefore: null, error: null };
       if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };
       if (state.dimensionPick) return { ...state, dimensionPick: null };
@@ -394,6 +447,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'redo': {
       if(state.connectorInteraction)return editorReducer(state,{type:'cancel-connector'});
       state={...state,deepSelection:null,hitStackStatus:null};
+      if(state.selectionRotate)return {...state,selectionRotate:null,transactionBefore:null,error:null};
       if (state.selectionMove) return { ...state, selectionMove: null, transactionBefore: null, error: null };
       if (state.dimensionRetarget || state.dimensionPick) return { ...state, transactionBefore: null, dimensionRetarget: null, dimensionPick: null };
       if (!state.future.length || state.transactionBefore) return state;

@@ -1,6 +1,8 @@
 export type ShortcutGroup = 'Tools' | 'Navigation' | 'File' | 'Edit';
 export interface ShortcutEntry { id: string; sequence: string[]; label: string; description: string; group: ShortcutGroup; modifier?: 'primary' }
 export const shortcutRegistry: ShortcutEntry[] = [
+  {id:'rotate-selection',sequence:['R','O'],label:'RO',description:'Точный поворот выделения вокруг MODEL Z',group:'Edit'},
+  {id:'copy-style',sequence:['M','A'],label:'MA',description:'Копировать стиль выбранного объекта',group:'Edit'},
   {id:'connector',sequence:['C','O'],label:'CO',description:'Соединение портов',group:'Tools'},
   { id: 'rotate-symbol', sequence: ['R'], label: 'R', description: 'Symbol only: rotate +90°', group: 'Edit' },
   { id: 'move', sequence: ['M'], label: 'M', description: 'Move selection · numeric ΔX/ΔY or MODEL X/Y', group: 'Edit' },

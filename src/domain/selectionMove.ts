@@ -21,7 +21,7 @@ export function resolveSelectionMove(document: GeoDocument, entityIds: readonly 
   const vertices = new Set(selectedEntities.filter(entity => entity.type !== 'dimension').flatMap(entityVertexIds));
   for (const id of vertices) getVertex(document.vertices, id);
   const affected = new Set(document.entities.filter(entity => entityVertexIds(entity).some(id => vertices.has(id))).map(entity => entity.id));
-  const independentEntityIds = selectedEntities.filter(entity => ['raster_underlay', 'raster_underlay', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type)).map(entity => entity.id);
+  const independentEntityIds = selectedEntities.filter(entity => ['raster_underlay', 'symbol', 'arc', 'circle', 'block_instance', 'imported_graphic'].includes(entity.type)).map(entity => entity.id);
   for (const id of independentEntityIds) affected.add(id);
   const labelOffsetIds: string[] = [];
   for (const entity of document.entities) if (entity.type === 'label') {

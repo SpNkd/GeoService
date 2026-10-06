@@ -1,3 +1,6 @@
+import { ResponsiveToolbar } from './components/ResponsiveToolbar';
+import { DxfViews } from './components/DxfViews';
+import { CurrentStyle } from './components/StyleEditor';
 import { LayoutView } from './layouts/LayoutView';
 import { assetRegistry } from './assets/registry';
 import { newGeometryId } from './domain/geometryIntent';
@@ -119,6 +122,8 @@ export default function App() {
     switch (id) {
       case 'connector': case 'select': case 'line': case 'point': case 'polyline': case 'polygon': case 'text': case 'dimension': case 'measure':
         dispatch({ type: 'tool', tool: id }); break;
+      case 'rotate-selection': dispatch({type:'open-rotate-input'});break;
+      case 'copy-style':if(state.selectionId)dispatch({type:'copy-style',entityId:state.selectionId});break;
       case 'rotate-symbol': dispatch({ type: 'rotate-symbol' }); break;
       case 'move': dispatch({ type: 'open-move-input' }); break;
       case 'ortho': dispatch({ type: 'toggle-ortho' }); break;
@@ -138,8 +143,8 @@ export default function App() {
       }
       case 'cancel': setSymbolsOpen(false); window.dispatchEvent(new Event('geoservice:escape')); dispatch({ type: 'tool', tool: 'select' });
         if (state.dimensionPick) dispatch({ type: 'cancel-dimension-pick' });
-        else if (!state.dimensionRetarget && !state.selectionMove && !state.marqueeActive) dispatch({ type: 'select', entityId: null });
-        dispatch({ type: 'close-move-input' }); break;
+        else if (!state.dimensionRetarget && !state.selectionMove && !state.selectionRotate && !state.marqueeActive) dispatch({ type: 'select', entityId: null });
+        dispatch({ type: 'close-move-input' });dispatch({type:'close-rotate-input'}); break;
       case 'help': setShortcutsOpen(true); break;
     }
   }, [dispatch, fit, save, startNew, state]);
@@ -176,6 +181,8 @@ export default function App() {
       if (event.key === 'Delete' || event.key === 'Backspace') { clearSequence(); event.preventDefault(); runShortcut('delete'); return; }
       const key = event.key === '?' ? '?' : /^[a-z]$/i.test(event.key) && !event.shiftKey ? event.key.toUpperCase() : null;
       if (!key) return;
+      // R rotates an insertion ghost immediately; RO applies to a document selection.
+      if(key==='R'&&state.symbolPlacement){event.preventDefault();clearSequence();runShortcut('rotate-symbol');return;}
       const candidate = [...keyBuffer.current, key];
       if (!shortcutMatchesPrefix(candidate)) {
         const fallback = resolveShortcut(keyBuffer.current); clearSequence(); if (fallback) runShortcut(fallback.id);
@@ -208,14 +215,14 @@ export default function App() {
       <div className="header-divider" /><div className="document-title"><strong>{state.document.metadata.title}{dirty && <span className="dirty-mark" aria-label="Есть несохранённые изменения"> *</span>}</strong><span>MODEL X / Y / Z · Survey E / N · абсолютная H</span></div>
       <span className="header-version">Редактор · 0.3</span>
     </header>
-    <nav inert={georeferenceOpen || dxfOpen} className="toolbar" aria-label="Инструменты редактора">
+    <ResponsiveToolbar inert={georeferenceOpen || dxfOpen}>
       <div className="tool-group document-tools">
-        <button className="tool-button compact" aria-label="Новый документ" title="Новый документ · Ctrl/Cmd+N" onClick={startNew}>New</button>
-        <button className="tool-button compact" aria-label="Открыть JSON" title="Открыть JSON · Ctrl/Cmd+O" onClick={() => openInput.current?.click()}>Open</button>
-        <button className="tool-button compact" aria-label="Сохранить JSON" title="Сохранить JSON · Ctrl/Cmd+S" onClick={save}>Save</button>
-        <button className="tool-button compact" onClick={()=>{dispatch({type:'tool',tool:'select'});setDxfOpen(true);}}>DXF</button>
-        <label className="tool-button compact">Подложка<input style={{display:'none'}} aria-label="Импорт подложки" type="file" accept="image/png,image/jpeg,image/webp" disabled={!hydrationDone||!!state.layoutId||state.viewMode!=='plan'||!!state.transactionBefore} onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(!file)return;const document=state.document,viewport=state.viewport,layer=document.layers.find(l=>l.id===state.currentLayerId);if(!layer||layer.locked||!layer.visible){setNotice('Выберите видимый незаблокированный слой.');return;}void assetRegistry.import(file).then(asset=>{const current=editorRef.current;if(current.document!==document||current.transactionBefore||current.layoutId||current.viewMode!=='plan'){assetRegistry.releaseBitmap(asset.assetId);throw new Error('Вид или документ изменился во время импорта. Повторите импорт.');}const id=newGeometryId('underlay'),width=size.width/viewport.pixelsPerUnit*.65;dispatch({type:'execute',expectedDocument:document,command:{type:'add-entity',vertices:[],entity:{id,type:'raster_underlay',name:asset.originalName,assetId:asset.assetId,assetMetadata:asset,layerId:layer.id,position:{x:viewport.center.x,y:viewport.center.y},width,height:width*asset.heightPx/asset.widthPx,rotationDeg:0,opacity:.6,locked:false}}});dispatch({type:'tool',tool:'select'});dispatch({type:'select',entityId:id});setNotice('Подложка добавлена. Угловые ручки сохраняют пропорции; Shift — свободный размер.');}).catch(error=>setNotice(error instanceof Error?error.message:String(error)));}}/></label>
-        <button className="tool-button compact import-button" aria-label="Импорт координат" onClick={() => { dispatch({ type: 'tool', tool: 'select' }); setImportOpen(true); }}>Import</button>
+        <button className="tool-button compact" aria-label="Новый документ" title="Новый документ · Ctrl/Cmd+N" onClick={startNew}><Icon name="new" size={16} />New</button>
+        <button className="tool-button compact" aria-label="Открыть JSON" title="Открыть JSON · Ctrl/Cmd+O" onClick={() => openInput.current?.click()}><Icon name="open" size={16} />Open</button>
+        <button className="tool-button compact" aria-label="Сохранить JSON" title="Сохранить JSON · Ctrl/Cmd+S" onClick={save}><Icon name="save" size={16} />Save</button>
+        <button className="tool-button compact" onClick={()=>{dispatch({type:'tool',tool:'select'});setDxfOpen(true);}}><Icon name="import" size={16} />DXF</button>
+        <label className="tool-button compact" role="button" tabIndex={0} aria-label="Добавить подложку" onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.currentTarget.querySelector('input')?.click();}}}>Подложка<input style={{display:'none'}} aria-label="Импорт подложки" type="file" accept="image/png,image/jpeg,image/webp" disabled={!hydrationDone||!!state.layoutId||state.viewMode!=='plan'||!!state.transactionBefore} onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(!file)return;const document=state.document,viewport=state.viewport,layer=document.layers.find(l=>l.id===state.currentLayerId);if(!layer||layer.locked||!layer.visible){setNotice('Выберите видимый незаблокированный слой.');return;}void assetRegistry.import(file).then(asset=>{const current=editorRef.current;if(current.document!==document||current.transactionBefore||current.layoutId||current.viewMode!=='plan'){assetRegistry.releaseBitmap(asset.assetId);throw new Error('Вид или документ изменился во время импорта. Повторите импорт.');}const id=newGeometryId('underlay'),width=size.width/viewport.pixelsPerUnit*.65;dispatch({type:'execute',expectedDocument:document,command:{type:'add-entity',vertices:[],entity:{id,type:'raster_underlay',name:asset.originalName,assetId:asset.assetId,assetMetadata:asset,layerId:layer.id,position:{x:viewport.center.x,y:viewport.center.y},width,height:width*asset.heightPx/asset.widthPx,rotationDeg:0,opacity:.6,locked:false}}});dispatch({type:'tool',tool:'select'});dispatch({type:'select',entityId:id});setNotice('Подложка добавлена. Угловые ручки сохраняют пропорции; Shift — свободный размер.');}).catch(error=>setNotice(error instanceof Error?error.message:String(error)));}}/></label>
+        <button className="tool-button compact import-button" aria-label="Импорт координат" onClick={() => { dispatch({ type: 'tool', tool: 'select' }); setImportOpen(true); }}><Icon name="import" size={16} />Import</button>
       </div><div className="toolbar-divider" />
       <div className="tool-group">
         {([['select', 'cursor', 'Выбор'], ['point', 'point', 'Точка'], ['line', 'line', 'Линия'], ['connector', 'line', 'Соединение'], ['polyline', 'line', 'Полилиния'], ['polygon', 'polygon', 'Полигон'], ['text', 'text', 'Текст'], ['dimension', 'dimension', 'Размер'], ['measure', 'measure', 'Измерение'], ['pan', 'hand', 'Панорама']] as const).map(([tool, icon, label]) => {
@@ -224,15 +231,16 @@ export default function App() {
           return <button key={tool} className={`tool-button compact ${state.tool === tool ? 'active' : ''}`} aria-label={`Инструмент: ${label}`} aria-pressed={state.tool === tool} title={`${label}${shortcut ? ` · ${shortcut}` : ''}`} onClick={() => dispatch({ type: 'tool', tool })}><Icon name={icon} size={16} />{label}</button>;
         })}
       </div><div className="toolbar-divider" />
-      <button className="tool-button compact" aria-label="Переместить выбор" title="Переместить выбор · M" disabled={!state.selectedEntityIds.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'open-move-input' })}>Move…</button>
+      <button className="tool-button compact" aria-label="Повернуть выделенное" title="Точный поворот · RO" disabled={!!state.transactionBefore} onClick={()=>dispatch({type:'open-rotate-input'})}><Icon name="rotate" size={16} />Rotate…</button>
+      <button className="tool-button compact" aria-label="Переместить выбор" title="Переместить выбор · M" disabled={!state.selectedEntityIds.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'open-move-input' })}><Icon name="move" size={16} />Move…</button>
       <button className="tool-button compact" aria-label="Отменить" title="Отменить · ⌘/Ctrl+Z" disabled={!state.past.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'undo' })}><Icon name="undo" size={16} />Undo</button>
       <button className="tool-button compact" aria-label="Повторить" title="Повторить · ⌘/Ctrl+Shift+Z" disabled={!state.future.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'redo' })}><Icon name="redo" size={16} />Redo</button>
       <div className="toolbar-divider" /><button className="tool-button compact" title="Вписать · F / ZE" onClick={fit}><Icon name="fit" size={16} />Вписать</button>
       <button className="icon-button" aria-label="Горячие клавиши" title="Горячие клавиши · ?" onClick={() => setShortcutsOpen(true)}>?</button>
       <button className={`icon-button ${state.gridVisible ? 'grid-active' : ''}`} aria-label="Сетка" aria-pressed={state.gridVisible} onClick={() => dispatch({ type: 'toggle-grid' })}><Icon name="grid" size={16} /></button>
-      <button className="tool-button compact" aria-pressed={symbolsOpen || state.tool === 'symbol'} onClick={() => setSymbolsOpen(!symbolsOpen)}>Символы</button>
+      <button className="tool-button compact" aria-pressed={symbolsOpen || state.tool === 'symbol'} onClick={() => setSymbolsOpen(!symbolsOpen)}><Icon name="symbol" size={16} />Символы</button>
       <span className="toolbar-context">Слой: {state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'} · {state.document.coordinateSystem.name ?? 'Система координат'} · м</span>
-    </nav>
+    </ResponsiveToolbar>
     <div inert={georeferenceOpen || dxfOpen} className="survey-controls" aria-label="Привязки и подписи">
       <button className={`tool-button compact ${state.snapOptions.enabled ? 'active' : ''}`} aria-label="Привязки" aria-pressed={state.snapOptions.enabled} onClick={() => dispatch({ type: 'snap-options', patch: { enabled: !state.snapOptions.enabled } })}>SNAP {state.snapOptions.enabled ? 'ON' : 'OFF'}</button>
       <details className="survey-settings"><summary>Типы привязок</summary><div>
@@ -241,6 +249,7 @@ export default function App() {
       </div></details>
       <label>Сетка <input className="snap-step-input" aria-label="Шаг привязки сетки" type="number" min="0.000001" step="any" list="snap-steps" value={state.snapOptions.gridStep ?? 1} onChange={event => { const gridStep = Number(event.target.value); if (gridStep > 0 && Number.isFinite(gridStep)) dispatch({ type: 'snap-options', patch: { gridStep } }); }} /> м</label><datalist id="snap-steps">{[0.1, 0.25, 0.5, 1, 2, 5, 10, 20].map(step => <option key={step} value={step} />)}</datalist>
       <button className={`tool-button compact ${state.ortho ? 'active' : ''}`} aria-label="Ортогональный режим" aria-pressed={state.ortho} title="ORTHO · F8" onClick={() => dispatch({ type: 'toggle-ortho' })}>ORTHO {state.ortho ? 'ON' : 'OFF'}</button>
+      <DxfViews state={state} dispatch={dispatch} size={size}/><CurrentStyle state={state} dispatch={dispatch}/>
       {state.document.dxfLayouts?.length? <label className="view-select">DXF: <select aria-label="DXF контекст" value={state.layoutId??'model'} onChange={e=>dispatch({type:'dxf-layout',layoutId:e.target.value==='model'?null:e.target.value,size})}><option value="model">Model</option>{state.document.dxfLayouts.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></label>:null}
       {activeLayout(state)&&<label>Viewport: <select aria-label="DXF viewport" value={state.dxfViewportId??''} onChange={e=>dispatch({type:'dxf-viewport',viewportId:e.target.value})}>{activeLayout(state)!.viewports.map(v=><option key={v.id} value={v.id}>{v.number}{v.unsupportedReason?' · ограничение':''}</option>)}</select></label>}
       <label className="view-select">Вид: <select aria-label="Вид" disabled={!!state.layoutId} title={state.layoutId?'Листы DXF отображаются в плане; для аксонометрии выберите Model':undefined} value={state.viewMode==='plan'?'plan':state.projection.orientation} onChange={event=>dispatch({type:'view-mode',mode:event.target.value==='plan'?'plan':'axonometric',...(event.target.value==='plan'?{}:{orientation:event.target.value as 'NE'|'NW'|'SE'|'SW'}),size})}><option value="plan">План</option><option value="NE">Аксонометрия СВ</option><option value="NW">Аксонометрия СЗ</option><option value="SE">Аксонометрия ЮВ</option><option value="SW">Аксонометрия ЮЗ</option></select></label><label>Координаты <select aria-label="Отображение координат" value={state.coordinateDisplay} onChange={event => dispatch({ type: 'coordinate-display', mode: event.target.value as 'model' | 'survey' })}><option value="model">Model · X/Y</option><option value="survey">Survey · E/N</option></select></label>

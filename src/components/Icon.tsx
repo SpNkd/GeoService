@@ -1,5 +1,12 @@
-type IconName = 'arc' | 'circle' | 'block_instance' | 'imported_graphic' | 'symbol' | 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
+type IconName = 'new' | 'open' | 'save' | 'import' | 'rotate' | 'move' | 'arc' | 'circle' | 'block_instance' | 'imported_graphic' | 'symbol' | 'dimension' | 'measure' | 'cursor' | 'hand' | 'fit' | 'grid' | 'eye' | 'eye-off' | 'lock' | 'unlock' | 'layers' | 'point' | 'polygon' | 'line' | 'text' | 'crosshair' | 'plus' | 'minus' | 'undo' | 'redo' | 'trash';
 const paths: Record<IconName, string> = {
+  new: 'M5 2h9l5 5v15H5zM14 2v6h5M8 14h8m-4-4v8',
+  open: 'M3 20V5h7l2 3h9v12H3zM3 12h18',
+  save: 'M3 3h15l3 3v15H3zM7 3v6h10V3M7 21v-8h10v8',
+  import: 'M12 2v13m-5-5 5 5 5-5M4 16v6h16v-6',
+  rotate: 'M4 10a8 8 0 111 8M4 3v7h7',
+  move: 'M12 2v20M2 12h20M8 6l4-4 4 4m-8 12 4 4 4-4M6 8l-4 4 4 4m12-8 4 4-4 4',
+
   arc: 'M4 18a10 10 0 0116-12',
   circle: 'M22 12a10 10 0 11-20 0 10 10 0 0120 0z',
   block_instance: 'M3 3h18v18H3zM8 8h8v8H8z',
