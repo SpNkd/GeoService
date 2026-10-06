@@ -1,3 +1,4 @@
+import { resolveSelectionScope } from '../layouts/selection';
 import { currentViewEntityIds, viewContextKey } from '../layouts/context';
 import { editorViewDocument } from '../store/editor';
 import type { GeoDocument, Layer } from '../domain/model';
@@ -14,12 +15,13 @@ export const isDocumentPlanStale=(plan:DocumentOperationsPlan,editor:EditorState
 export function resolveDocumentPlan(actions:readonly DocumentAction[],document:GeoDocument,selectionIds:readonly string[],id:string,text:string,choices?:ReadonlyMap<number,ReadonlySet<string>>,context?:EditorState):DocumentOperationsPlan {
   const plan:DocumentOperationsPlan={id,text,basedOnDocument:document,selectionIds:[...selectionIds],actions:[],commands:[],error:null,matchedEntityIds:[]};
   if(!actions.length||actions.length>8||actions.some(a=>!documentActionSchema.safeParse(a).success)){plan.error='Неверный набор операций';return plan;}
-  const scoped=actions.some(a=>'query' in a&&a.query.scope==='current_view');if(scoped&&context)plan.viewContext=viewContextKey(context);const viewIds=scoped&&context?currentViewEntityIds(context,editorViewDocument(context,document,!!context.layoutId)):undefined;
+  const scoped=actions.some(a=>'query' in a&&a.query.scope!==undefined&&a.query.scope!=='document');if(scoped&&context)plan.viewContext=viewContextKey(context);const viewIds=scoped&&context?currentViewEntityIds(context,editorViewDocument(context,document,!!context.layoutId)):undefined;
   let layers=[...document.layers];const created=new Map<number,Layer>();
   for(const [ordinal,intent] of actions.entries()) {
-    let result='query'in intent?resolveDocumentQuery(intent.query,document,selectionIds,new Set(),viewIds):null;
+    const ids='query'in intent&&context&&intent.query.scope==='current_layout'?new Set(context.layoutId?resolveSelectionScope(editorViewDocument(context,document,true),{kind:'paper-visible',layoutId:context.layoutId},context).modelIds:[]):'query'in intent&&context&&intent.query.scope==='active_viewport'?new Set(context.layoutId&&context.dxfViewportId?resolveSelectionScope(editorViewDocument(context,document,true),{kind:'viewport-visible',layoutId:context.layoutId,viewportId:context.dxfViewportId},context).modelIds:[]):viewIds;
+    let result='query'in intent?resolveDocumentQuery(intent.query,document,selectionIds,new Set(),ids):null;
     const excludedGroups=new Set(choices?.get(ordinal)??(result?defaultExcludedGroups(result):[]));
-    if(result)result=resolveDocumentQuery(result.query,document,selectionIds,excludedGroups,viewIds);
+    if(result)result=resolveDocumentQuery(result.query,document,selectionIds,excludedGroups,ids);
     const action:ResolvedDocumentAction={intent,result,excludedGroups,layerNames:[],blocked:[],blockedCount:0};plan.actions.push(action);
     if(result?.error)action.blocked.push(result.error);
     if(result&&!result.entityIds.length)action.blocked.push('Нет включённых объектов. Уточните запрос или включите группу.');

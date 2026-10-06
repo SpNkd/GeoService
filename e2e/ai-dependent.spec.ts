@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { autosaveSnapshot } from './helpers/autosave';
 import { developmentMockProvider } from '../server/ai';
@@ -18,11 +19,11 @@ async function setup(page: Page, duplicate = false, coordinates = data) {
     const body = route.request().postDataJSON(); expect(Object.keys(body)).toEqual(['text']);
     await route.fulfill({ json: await provider.parseIntent({ text: body.text, signal: new AbortController().signal }) });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
-  await page.getByRole('button', { name: 'Импорт координат', exact: true }).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
+  await editorCommand(page, 'Импорт координат');
   await page.getByRole('textbox', { name: 'Вставьте координаты', exact: true }).fill(coordinates + (duplicate ? '\nP1\t1001\t2001\t14' : ''));
   await page.getByRole('button', { name: `Импортировать (${duplicate ? 5 : 4})`, exact: true }).click();
-  await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  await editorCommand(page, 'Сохранить JSON');
   await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);
 }
 async function snapshot(page: Page) { return { ...await autosaveSnapshot(page), writes: await page.evaluate(() => Reflect.get(window, '__writes').length) }; }
@@ -48,9 +49,9 @@ test('boundary plus all four edges: projection has no writes; one Apply/Undo/Red
   await expect(page.locator('[data-entity-type="point"]')).toHaveCount(4); await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);
   await page.getByRole('button', { name: 'Повторить', exact: true }).click(); await expect(mutations(page)).toHaveCount(5);
   expect(await mutations(page).evaluateAll(items => items.map(item => item.getAttribute('data-entity-id')))).toEqual(ids);
-  const downloadPromise = page.waitForEvent('download'); await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  const downloadPromise = page.waitForEvent('download'); await editorCommand(page, 'Сохранить JSON');
   const download = await downloadPromise, path = await download.path(); if (!path) throw Error('download');
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click(); await expect(mutations(page)).toHaveCount(0);
+  await editorCommand(page, 'Новый документ'); await expect(mutations(page)).toHaveCount(0);
   await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(path); await expect(mutations(page)).toHaveCount(5);
   expect(await mutations(page).evaluateAll(items => items.map(item => item.getAttribute('data-entity-id')))).toEqual(ids);
 });

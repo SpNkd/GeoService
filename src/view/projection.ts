@@ -4,7 +4,7 @@ export const PRESENTATION_DEFAULT_Z=0;
 export const AXON_ORIENTATIONS=['NE','NW','SE','SW'] as const;
 export type AxonOrientation=typeof AXON_ORIENTATIONS[number];
 export interface ProjectionContext {orientation:AxonOrientation;origin:WorldPoint}
-export type RenderCamera=Viewport & {projection?:ProjectionContext};
+export type RenderCamera=Viewport & {rotationDeg?:number; screenClip?:{x:number;y:number;width:number;height:number}; projection?:ProjectionContext};
 export const projectionOf=(view:Viewport)=>(view as RenderCamera).projection;
 export function projectAxonometricBasis(orientation:AxonOrientation='NE') {
   const c=Math.sqrt(3)/2,s=.5;
@@ -38,3 +38,6 @@ export function presentationArc(center:WorldPoint,radius:number,start:number,swe
   const error=.35/Math.max(pixelsPerUnit,1e-9),angle=2*Math.acos(Math.max(-1,Math.min(1,1-error/radius))),count=Math.max(8,Math.min(512,Math.ceil(sweep/Math.max(angle,1e-4))));
   return Array.from({length:count+1},(_,i)=>{const a=start+sweep*i/count;return {...center,x:center.x+radius*Math.cos(a),y:center.y+radius*Math.sin(a)};});
 }
+
+/** Temporary working angle belongs to the camera, never GeoDocument. */
+export const viewRotation=(view:Viewport)=>(view as RenderCamera).rotationDeg??0;

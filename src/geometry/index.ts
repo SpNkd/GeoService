@@ -1,4 +1,4 @@
-import { projectionOf, projectXYZToAxonometric, type RenderCamera } from '../view/projection';
+import { viewRotation, projectionOf, projectXYZToAxonometric, type RenderCamera } from '../view/projection';
 import type { Viewport, WorldPoint } from '../domain/model';
 
 /** Screen Y grows down. World Y grows north. */
@@ -50,12 +50,18 @@ export function pathLength(vertices: readonly WorldPoint[], closed = false): num
 }
 export function worldToScreen(point: WorldPoint, view: RenderCamera, size: ViewSize): ScreenPoint {
   const projection=projectionOf(view);if(projection)point=projectXYZToAxonometric(point,projection);
-  return { x: (point.x - view.center.x) * view.pixelsPerUnit + size.width / 2,
-    y: (view.center.y - point.y) * view.pixelsPerUnit + size.height / 2 };
+  const a=viewRotation(view)*Math.PI/180,c=Math.cos(a),s=Math.sin(a),x=point.x-view.center.x,y=point.y-view.center.y;
+  return {x:size.width/2+(x*c-y*s)*view.pixelsPerUnit,y:size.height/2-(x*s+y*c)*view.pixelsPerUnit};
 }
 export function screenToWorld(point: ScreenPoint, view: Viewport, size: ViewSize): WorldPoint {
-  return { x: view.center.x + (point.x - size.width / 2) / view.pixelsPerUnit,
-    y: view.center.y - (point.y - size.height / 2) / view.pixelsPerUnit };
+  const a=viewRotation(view)*Math.PI/180,c=Math.cos(a),s=Math.sin(a),x=(point.x-size.width/2)/view.pixelsPerUnit,y=(size.height/2-point.y)/view.pixelsPerUnit;
+  return {x:view.center.x+x*c+y*s,y:view.center.y-x*s+y*c};
+}
+/** Fit projected corners around a stable local midpoint; preserves the working angle. */
+export function fitRotatedBounds(box:Bounds|null,size:ViewSize,angle=0,padding=64):RenderCamera|null {
+  if(!box)return null;const center={x:box.minX/2+box.maxX/2,y:box.minY/2+box.maxY/2},camera={center,pixelsPerUnit:1,rotationDeg:angle};
+  const points=[{x:box.minX,y:box.minY},{x:box.minX,y:box.maxY},{x:box.maxX,y:box.minY},{x:box.maxX,y:box.maxY}].map(p=>worldToScreen(p,camera,{width:0,height:0}));
+  const fit=fitToBounds(bounds(points),size,padding);return fit?{center,pixelsPerUnit:fit.pixelsPerUnit,...(angle?{rotationDeg:angle}:{})}:null;
 }
 export function fitToBounds(box: Bounds | null, size: ViewSize, padding = 64): Viewport | null {
   if (!box || size.width <= 0 || size.height <= 0) return null;
@@ -68,15 +74,11 @@ export function fitToBounds(box: Bounds | null, size: ViewSize, padding = 64): V
   };
 }
 export function panViewport(view: Viewport, delta: ScreenPoint): Viewport {
-  return { ...view, center: { x: view.center.x - delta.x / view.pixelsPerUnit, y: view.center.y + delta.y / view.pixelsPerUnit } };
+  const center=screenToWorld({x:-delta.x,y:-delta.y},view,{width:0,height:0});return {...view,center};
 }
 export function zoomAt(view: Viewport, size: ViewSize, anchor: ScreenPoint, factor: number): Viewport {
-  const fixed = screenToWorld(anchor, view, size);
-  const pixelsPerUnit = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, view.pixelsPerUnit * factor));
-  return { pixelsPerUnit, center: {
-    x: fixed.x - (anchor.x - size.width / 2) / pixelsPerUnit,
-    y: fixed.y + (anchor.y - size.height / 2) / pixelsPerUnit,
-  } };
+  const fixed=screenToWorld(anchor,view,size),pixelsPerUnit=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,view.pixelsPerUnit*factor)),next={...view,pixelsPerUnit},q=screenToWorld(anchor,next,size);
+  return {...next,center:{x:view.center.x+fixed.x-q.x,y:view.center.y+fixed.y-q.y}};
 }
 /** 1 / 2 / 5 steps in world metres. Bounded line count even at extreme zoom. */
 export function gridStep(pixelsPerUnit: number): number {

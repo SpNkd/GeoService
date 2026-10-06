@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { test, expect, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import type { AiTaskIntent, SpatialAnchor } from '../src/ai/intent';
@@ -11,7 +12,7 @@ const task = (anchor: SpatialAnchor, dimensions: boolean): AiTaskIntent => ({act
 async function setup(page:Page, result:unknown) {
   await page.route('**/api/ai/config',route=>route.fulfill({json:{mode:'mock'}}));
   await page.route('**/api/ai/intent',route=>{expect(Object.keys(route.request().postDataJSON())).toEqual(['text']); return route.fulfill({json:result});});
-  await page.goto('/'); await page.getByRole('button',{name:'Новый документ',exact:true}).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
 }
 async function generate(page:Page,text:string) {await page.getByRole('textbox',{name:'Запрос',exact:true}).fill(text); await page.getByRole('button',{name:'Generate plan',exact:true}).click();}
 test('north sketch preview with six ghosts, assumptions, atomic Apply and one Undo/Redo',async ({page})=>{

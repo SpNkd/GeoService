@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
@@ -7,12 +8,12 @@ test.beforeEach(async ({ page }) => {
   const collected: string[] = []; errors.set(page, collected);
   page.on('pageerror', error => collected.push(error.message)); page.on('console', message => { if (message.type() === 'error') collected.push(message.text()); });
   await page.route('**/api/ai/config', route => route.fulfill({ json: { mode: 'mock' } }));
-  await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
 });
 test.afterEach(({ page }) => expect(errors.get(page)).toEqual([]));
 async function document(page: Page): Promise<GeoDocument> { return readAutosaveDocument(page); }
 async function controls(page: Page) {
-  await page.getByRole('button', { name: 'Импорт координат', exact: true }).click();
+  await editorCommand(page, 'Импорт координат');
   await page.getByRole('textbox', { name: 'Вставьте координаты', exact: true }).fill('Name\tEasting\tNorthing\tHeight\nP1\t0\t0\t2.5\nP2\t30\t0\t\nP3\t30\t20\t');
   await page.getByRole('combobox', { name: 'Система входных координат', exact: true }).selectOption('model');
   await page.getByRole('button', { name: 'Импортировать (3)', exact: true }).click();
@@ -24,7 +25,7 @@ async function surveyInputs(page: Page, baseline = '30') {
 }
 async function calibrate(page: Page) { await openCalibration(page); await surveyInputs(page); await page.getByRole('button', { name: 'Применить привязку', exact: true }).click(); }
 async function select(page: Page, name: string) { await page.locator(`[data-entity-type="point"][aria-label="${name}"] circle[r="14"]`).click(); }
-async function save(page: Page) { const event = page.waitForEvent('download'); await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click(); return (await (await event).path())!; }
+async function save(page: Page) { const event = page.waitForEvent('download'); await editorCommand(page, 'Сохранить JSON'); return (await (await event).path())!; }
 
 test('A: AI local 20×30, centered 6×5 and four dimensions; PointEntity corner controls, preview, unchanged geometry and north', async ({ page }) => {
   const text = 'Нарисуй участок 20×30, в центре дом 6×5 и проставь размеры дома.';
@@ -89,7 +90,7 @@ test('C: independent height, live h_absolute label, missing Z, metadata history,
   await page.getByRole('button', { name: 'Удалить высотную привязку', exact: true }).click(); await expect(page.locator('[data-entity-type="label"] text')).toHaveText('H=—');
   await page.getByRole('button', { name: 'Отменить', exact: true }).click(); await expect(page.locator('[data-entity-type="label"] text')).toHaveText('H=155.920');
   const path = await save(page), saved = JSON.parse(await readFile(path, 'utf8')); expect(saved.vertices).toEqual(vertices); expect(saved.horizontalReference).toBeUndefined();
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click(); await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(path);
+  await editorCommand(page, 'Новый документ'); await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(path);
   expect((await document(page))).toEqual(saved); await select(page, 'P1'); await expect(page.getByTestId('point-absolute-h')).toHaveText('155.920');
   await expect(page.getByRole('textbox', { name: 'Z', exact: true })).toHaveValue('2.5'); await select(page, 'P2'); await expect(page.getByTestId('point-absolute-h')).toHaveText('—');
 });

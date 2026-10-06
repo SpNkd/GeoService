@@ -17,7 +17,7 @@ export function RotateSelectionPanel({ state, dispatch }: {
         reason = error instanceof Error ? error.message : String(error);
     }
     const intrinsic = entities.length === 1 && ['text', 'symbol', 'block_instance', 'raster_underlay'].includes(entities[0]!.type);
-    if (state.layoutId || state.deepSelection || !entities.length && !state.rotateInputOpen)
+    if (state.layoutId&&!state.viewportEditing || state.deepSelection || !entities.length && !state.rotateInputOpen)
         return null;
     const disabled = !!reason || !!state.transactionBefore || state.viewMode === 'axonometric' && !intrinsic;
     const rotate = (angleDeg: number) => { try {

@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { test, expect, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import type { GeoDocument, DimensionEntity, PolygonEntity } from '../src/domain/model';
@@ -9,17 +10,17 @@ async function at(page: Page, x: number, y: number) {
   return { x: box.x + box.width/2 + (x-cx)*zoom, y: box.y + box.height/2 - (y-cy)*zoom };
 }
 async function clickWorld(page: Page, x: number, y: number) { const p = await at(page,x,y); await page.mouse.click(p.x,p.y); }
-async function tool(page: Page, name: string) { await page.getByRole('button', {name:`Инструмент: ${name}`,exact:true}).click(); }
+async function tool(page: Page, name: string) { await editorCommand(page,`Инструмент: ${name}`); }
 async function setup(page: Page) {
   await page.route('**/api/ai/config', route => route.fulfill({json:{mode:'mock'}}));
   const provider = developmentMockProvider();
   await page.route('**/api/ai/intent', async route => { const request = route.request().postDataJSON(); expect(Object.keys(request)).toEqual(['text']); await route.fulfill({json:await provider.parseIntent({text:request.text,signal:new AbortController().signal})}); });
-  await page.goto('/'); await page.getByRole('button',{name:'Новый документ',exact:true}).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
 }
 async function generate(page: Page, text: string) { await page.getByRole('textbox',{name:'Запрос',exact:true}).fill(text); await page.getByRole('button',{name:'Generate plan',exact:true}).click(); }
 async function roundTrip(page: Page) {
-  const [download] = await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Сохранить JSON',exact:true}).click()]);
-  await page.getByRole('button',{name:'Новый документ',exact:true}).click(); await page.getByLabel('Файл GeoDocument',{exact:true}).setInputFiles((await download.path())!);
+  const [download] = await Promise.all([page.waitForEvent('download'),editorCommand(page,'Сохранить JSON')]);
+  await editorCommand(page, 'Новый документ'); await page.getByLabel('Файл GeoDocument',{exact:true}).setInputFiles((await download.path())!);
 }
 test.beforeEach(async ({page}) => { await setup(page); });
 

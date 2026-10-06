@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
@@ -14,8 +15,8 @@ async function pointCenter(page: Page, name: string) { return center(point(page,
 async function clickPoint(page: Page, name: string) { const p = await pointCenter(page, name); await page.mouse.click(p.x, p.y); }
 async function documentWithDimension(page: Page, georeference = false) {
   await page.route('**/api/ai/config', route => route.fulfill({ json: { mode: 'mock' } }));
-  await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
-  await page.getByRole('button', { name: 'Импорт координат', exact: true }).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
+  await editorCommand(page, 'Импорт координат');
   await page.getByRole('textbox', { name: 'Вставьте координаты', exact: true }).fill(input);
   await page.getByRole('combobox', { name: 'Система входных координат', exact: true }).selectOption('model');
   await page.getByRole('button', { name: 'Импортировать (4)', exact: true }).click();
@@ -28,7 +29,7 @@ async function documentWithDimension(page: Page, georeference = false) {
     await page.getByRole('button', { name: 'Применить привязку', exact: true }).click();
     await expect(page.getByTestId('control-markers')).toBeVisible();
   }
-  await page.getByRole('button', { name: 'Инструмент: Размер', exact: true }).click(); await clickPoint(page, 'P1'); await clickPoint(page, 'P2');
+  await editorCommand(page, 'Инструмент: Размер'); await clickPoint(page, 'P1'); await clickPoint(page, 'P2');
   const a = await pointCenter(page, 'P1'), b = await pointCenter(page, 'P2'); await page.mouse.click((a.x + b.x) / 2, a.y + 48);
   await expect(page.locator('[data-entity-type="dimension"]')).toHaveCount(1);
   return (await document(page)).entities.find(entity => entity.type === 'dimension') as DimensionEntity;
@@ -52,10 +53,10 @@ test('endpoint grip previews without document/autosave changes, then retargets o
   expect(retargeted.vertices).toEqual(before.vertices);
   await page.getByRole('button', { name: 'Отменить', exact: true }).click(); expect(await document(page)).toEqual(before);
   await page.getByRole('button', { name: 'Повторить', exact: true }).click(); expect(await document(page)).toEqual(retargeted);
-  const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  const download = page.waitForEvent('download'); await editorCommand(page, 'Сохранить JSON');
   const file = (await (await download).path())!, saved = JSON.parse(await readFile(file, 'utf8')) as GeoDocument;
   expect(saved.entities.find(item => item.id === dimension.id)).toEqual(entity);
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click(); await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(file);
+  await editorCommand(page, 'Новый документ'); await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(file);
   expect((await document(page)).entities.find(item => item.id === dimension.id)).toEqual(entity);
 });
 
@@ -76,7 +77,7 @@ test('inspector pick accepts only existing vertices, supports cancel, and midpoi
   await rows.nth(0).getByRole('button', { name: 'Выбрать на схеме' }).click();
   await expect(page.getByTestId('editor-error')).toContainText('Выберите существующую вершину для начала');
   const canvasBox = (await page.getByTestId('drawing-canvas').boundingBox())!;
-  await page.mouse.click(canvasBox.x + canvasBox.width * 0.94, canvasBox.y + canvasBox.height * 0.92);
+  await page.mouse.click(canvasBox.x + canvasBox.width * 0.85, canvasBox.y + canvasBox.height * 0.4);
   await expect(page.getByTestId('editor-error')).toContainText('Выберите существующую вершину.');
   expect(await document(page)).toEqual(original);
   await page.keyboard.press('Escape'); expect(await document(page)).toEqual(original);
@@ -90,7 +91,7 @@ test('inspector pick accepts only existing vertices, supports cancel, and midpoi
   await page.getByRole('button', { name: 'Отменить', exact: true }).click(); expect(await document(page)).toEqual(original);
 
   // A line midpoint is a valid ordinary snap candidate, but dimension retarget accepts vertex candidates only.
-  await page.getByRole('button', { name: 'Инструмент: Линия', exact: true }).click(); await clickPoint(page, 'P1'); await clickPoint(page, 'P2');
+  await editorCommand(page, 'Инструмент: Линия'); await clickPoint(page, 'P1'); await clickPoint(page, 'P2');
   await expect(page.locator('[data-entity-type="line"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Инструмент: Выбор', exact: true }).click();
   // Drawing owns point clicks while its tool is active. Explicitly reselect the dimension after creating the line.

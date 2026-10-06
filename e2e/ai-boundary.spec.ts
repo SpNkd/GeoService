@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { autosaveSnapshot } from './helpers/autosave';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -19,12 +20,12 @@ async function setup(page: Page, output: unknown = boundary(), duplicates = fals
     try { await route.fulfill({ json: await provider.parseIntent({ text: route.request().postDataJSON().text, signal: new AbortController().signal }) }); }
     catch { await route.fulfill({ status: 502, json: { error: 'mock failure' } }); }
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
-  await page.getByRole('button', { name: 'Импорт координат', exact: true }).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
+  await editorCommand(page, 'Импорт координат');
   await page.getByRole('textbox', { name: 'Вставьте координаты', exact: true }).fill(data + (duplicates ? '\nP1\t562341.23\t6189345.22\t153' : ''));
   await page.getByRole('button', { name: `Импортировать (${duplicates ? 5 : 4})`, exact: true }).click();
   await expect(page.locator('[data-entity-type="point"]')).toHaveCount(duplicates ? 5 : 4);
-  await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  await editorCommand(page, 'Сохранить JSON');
   await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);
 }
 async function snapshot(page: Page) {
@@ -53,13 +54,13 @@ test('AI preview has no canonical/history/autosave effects; Apply/Undo/Redo/Save
   await expect(page.locator('[data-entity-type="point"]')).toHaveCount(4); await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);
   // The next Undo would undo import: AI contributes exactly one history step.
   await page.getByRole('button', { name: 'Повторить', exact: true }).click(); await expect(polygon).toHaveAttribute('data-entity-id', id!);
-  const downloading = page.waitForEvent('download'); await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  const downloading = page.waitForEvent('download'); await editorCommand(page, 'Сохранить JSON');
   const path = (await (await downloading).path())!, savedText = await readFile(path, 'utf8'), saved = JSON.parse(savedText);
   const savedBoundary = saved.entities.find((entity: { type: string }) => entity.type === 'polygon');
   expect(savedBoundary.vertexIds).toEqual(saved.entities.filter((entity: { type: string }) => entity.type === 'point').map((entity: { vertexId: string }) => entity.vertexId));
   expect(Object.keys(saved.vertices)).toHaveLength(4); expect(saved.ai).toBeUndefined();
   await writeFile('/private/tmp/geoservice-ai-manual.json', savedText);
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
+  await editorCommand(page, 'Новый документ');
   await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(path); await expect(polygon).toHaveAttribute('data-entity-id', id!);
   await expect(page.getByRole('button', { name: 'Отменить', exact: true })).toBeDisabled(); expect(errors).toEqual([]);
   await page.screenshot({ path: 'test-results/ai-boundary-applied.png' });

@@ -1,5 +1,4 @@
-import { Children, cloneElement, isValidElement, useEffect, useRef, useState, type ReactNode, type ReactElement } from 'react';
-import { toolbarLayout, type ToolbarItem } from '../editor/toolbarLayout';
+import { useEffect, useState, Children, cloneElement, isValidElement, type ReactNode, type ReactElement } from 'react';
 type NodeProps = {
     children?: ReactNode;
     className?: string;
@@ -10,24 +9,22 @@ type NodeProps = {
 function textOf(node: ReactNode): string { return typeof node === 'string' ? node : typeof node === 'number' ? String(node) : isValidElement<NodeProps>(node) ? textOf(node.props.children) : Array.isArray(node) ? node.map(textOf).join('') : ''; }
 function commands(children: ReactNode): ReactElement<NodeProps>[] { return Children.toArray(children).flatMap(node => { if (!isValidElement<NodeProps>(node))
     return []; const c = node.props.className ?? ''; if (c.includes('tool-group'))
-    return commands(node.props.children); if (c.includes('divider') || c === 'toolbar-context')
-    return []; return [node]; }); }
+    return commands(node.props.children); return c.includes('divider') || c === 'toolbar-context' ? [] : [node]; }); }
 export function ResponsiveToolbar({ children, inert = false }: {
     children: ReactNode;
     inert?: boolean;
 }) {
-    const ref = useRef<HTMLElement>(null), menu = useRef<HTMLDetailsElement>(null), [width, setWidth] = useState(() => window.innerWidth), nodes = commands(children);
-    useEffect(() => { if (!ref.current)
-        return; const observer = new ResizeObserver(([entry]) => { if (entry)
-        setWidth(w => Math.abs(w - entry.contentRect.width) > .5 ? entry.contentRect.width : w); }); observer.observe(ref.current); return () => observer.disconnect(); }, []);
-    const metadata: ToolbarItem[] = nodes.map((node, i) => { const label = node.props['aria-label'] ?? textOf(node), primary = /Инструмент: (Выбор|Точка|Линия|Полилиния|Полигон|Текст|Размер)$/.test(label), common = /Новый документ|Открыть JSON|Сохранить JSON|Отменить|Повторить|Переместить|Повернуть/.test(label), compactable = node.type === 'button' && !primary && Children.toArray(node.props.children).some(c => isValidElement(c)); return { id: String(i), priority: primary ? 0 : common ? 1 : 2, width: Math.max(34, Math.ceil(textOf(node).length * 6.7) + (Children.toArray(node.props.children).some(c => isValidElement(c)) ? 36 : 22)), compactWidth: 34, compactable }; });
-    const layout = toolbarLayout(width, metadata), overflowActive = layout.overflow.some(id => nodes[Number(id)]?.props['aria-pressed']);
-    const render = (id: string, inMenu = false) => { const node = nodes[Number(id)]!, item = metadata[Number(id)]!, label = node.props['aria-label'] ?? textOf(node), compact = layout.compact && item.compactable && !inMenu; const icons = Children.toArray(node.props.children).filter(c => isValidElement(c)); return <span className="toolbar-item" key={id} style={inMenu ? undefined : { width: compact ? item.compactWidth : item.width }}>{compact ? cloneElement(node, { 'aria-label': label, title: node.props.title ?? label, children: icons }) : cloneElement(node, { 'aria-label': label, title: node.props.title ?? label })}</span>; };
-    return <nav ref={ref} inert={inert} className="toolbar responsive-toolbar" aria-label="Инструменты редактора">{layout.visible.map(id => render(id))}{layout.overflow.length > 0 && <details ref={menu} className="toolbar-overflow" onKeyDown={e => { if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        menu.current!.open = false;
-        menu.current!.querySelector('summary')?.focus();
-    } }}><summary aria-label="Ещё инструменты" className={overflowActive ? 'active' : ''}>Ещё ▾{overflowActive && <span aria-hidden="true"> ●</span>}</summary><div aria-label="Дополнительные инструменты" onClick={e => { if (e.target instanceof Element && e.target.closest('button'))
-        menu.current!.open = false; }}>{layout.overflow.map(id => render(id, true))}</div></details>}</nav>;
+    const [width, setWidth] = useState(() => window.innerWidth);
+    useEffect(() => { const resize = () => setWidth(window.innerWidth); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize); }, []);
+    const nodes = commands(children), label = (n: ReactElement<NodeProps>) => n.props['aria-label'] ?? textOf(n), take = (re: RegExp) => nodes.filter(n => re.test(label(n))), render = (n: ReactElement<NodeProps>) => cloneElement(n, { 'aria-label': label(n), title: n.props.title ?? label(n) });
+    const group = (name: string, entries: ReactElement<NodeProps>[], active = false) => <details className={`toolbar-menu ${name === 'Ещё' ? 'toolbar-overflow' : ''}`} data-popup key={name}><summary aria-label={name === 'Ещё' ? 'Ещё инструменты' : undefined} className={active ? 'active' : ''}>{name} ▾</summary><div>{entries.map((n, i) => <span key={i}>{render(n)}</span>)}</div></details>;
+    const lines = take(/^Инструмент: (Линия|Полилиния)$/), polyline = lines.find(n => label(n).endsWith('Полилиния'))?.props['aria-pressed'];
+    return <nav inert={inert} className="toolbar semantic-toolbar" aria-label="Инструменты редактора">
+ {group('Файл / данные', take(/Новый документ|Открыть JSON|Сохранить JSON|^DXF$|[Пп]одложк|Импорт координат/))}
+ {group('Правка', take(/Повернуть выделенное|Переместить выбор/))}
+ <div className="semantic-draw" role="group" aria-label="Рисование">{take(/^Инструмент: (Выбор|Точка)$/).map(render)}{group(polyline ? 'Полилиния' : 'Линия', lines, lines.some(n => n.props['aria-pressed']))}{take(/^Инструмент: (Полигон|Текст|Соединение)$/).map(render)}{take(/^Символы$/).map(render)}</div>
+ {group('Инженерия', take(/^Инструмент: (Размер|Измерение|Панорама)$/))}
+ <div className="semantic-history" role="group" aria-label="История">{take(/^(Отменить|Повторить)$/).map(n => cloneElement(render(n), { children: Children.toArray(n.props.children).filter(isValidElement) }))}</div>
+ {width < 1100 ? group('Ещё', take(/Горячие клавиши/)) : take(/Горячие клавиши/).map(render)}
+ </nav>;
 }

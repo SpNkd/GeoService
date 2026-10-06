@@ -1,4 +1,4 @@
-import { projectionOf, projectAxonometricBasis } from '../view/projection';
+import { viewRotation, projectionOf, projectAxonometricBasis } from '../view/projection';
 import { AxonCanvasRenderer } from './AxonCanvasRenderer';
 import type { Entity, GeoDocument, Viewport, WorldPoint } from '../domain/model';
 import { entityPoints, entityVertexIds, type Vertex } from '../domain/model';
@@ -25,7 +25,7 @@ export const canvasMetrics = () => ({ ...metrics, frames: [...metrics.frames] })
 export function canvasTransform(view: Viewport, size: ViewSize, origin: WorldPoint, dpr = 1): Matrix {
   const p = worldToScreen(origin, view, size), z = view.pixelsPerUnit;
   const projection=projectionOf(view);if(projection){const b=projectAxonometricBasis(projection.orientation);return [b.x.x*z*dpr,-b.x.y*z*dpr,b.y.x*z*dpr,-b.y.y*z*dpr,p.x*dpr,p.y*dpr];}
-  return [z * dpr, 0, 0, -z * dpr, p.x * dpr, p.y * dpr];
+  const a=viewRotation(view)*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return [z*c*dpr,-z*s*dpr,-z*s*dpr,-z*c*dpr,p.x*dpr,p.y*dpr];
 }
 export function appendPrimitive(path: Pick<Path2D, 'moveTo' | 'lineTo' | 'closePath' | 'arc'>, p: VectorPrimitive) {
   if (p.kind === 'path') {
@@ -41,10 +41,12 @@ export function appendPrimitive(path: Pick<Path2D, 'moveTo' | 'lineTo' | 'closeP
 const styleKey = (p: VectorPrimitive) => [p.layerId, p.colorMode, p.stroke, p.lineWeight, p.dash, p.visible, p.fillOpacity].join('|');
 
 /** Per active Canvas service; weak geometry keys never retain an obsolete document or SVG representation. */
+const sharedLists=new WeakMap<VectorPrimitive[],DrawList>();
+const sharedNative=new WeakMap<Entity,{vertices:Vertex[];list:DrawList}>();
 export class CanvasSceneRenderer {
   private axon=new AxonCanvasRenderer();
-  private lists = new WeakMap<VectorPrimitive[], DrawList>();
-  private native = new WeakMap<Entity, { vertices: Vertex[]; list: DrawList }>();
+  private lists = sharedLists;
+  private native = sharedNative;
   private pending: number | null = null;
   private input: { document: GeoDocument; items: RenderItem[]; view: Viewport; size: ViewSize; dpr: number } | null = null;
   private drawn = new Set<string>();

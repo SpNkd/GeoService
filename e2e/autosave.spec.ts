@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { expect, test } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import { createSampleDocument } from '../src/sample/document';
@@ -6,7 +7,7 @@ import { serializeDocument } from '../src/persistence/serialization';
 test('committed document restores from IndexedDB after reload and remains editable', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('drawing-canvas')).toBeVisible();
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
+  await editorCommand(page, 'Новый документ');
   await page.getByRole('button', { name: 'Создать слой', exact: true }).click();
   await expect(page.getByTestId('persistence-status')).toHaveText('Сохранено локально');
   const first = await readAutosaveDocument(page);

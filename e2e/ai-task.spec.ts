@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { autosaveSnapshot } from './helpers/autosave';
 import { developmentMockProvider } from '../server/ai';
@@ -18,11 +19,11 @@ async function setup(page: Page, duplicate = false) {
     const body = route.request().postDataJSON(); expect(Object.keys(body)).toEqual(['text']);
     await route.fulfill({ json: await provider.parseIntent({ text: body.text, signal: new AbortController().signal }) });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
-  await page.getByRole('button', { name: 'Импорт координат', exact: true }).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
+  await editorCommand(page, 'Импорт координат');
   await page.getByRole('textbox', { name: 'Вставьте координаты', exact: true }).fill(data + (duplicate ? '\nP1\t1001\t2001\t14' : ''));
   await page.getByRole('button', { name: `Импортировать (${duplicate ? 5 : 4})`, exact: true }).click();
-  await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  await editorCommand(page, 'Сохранить JSON');
   await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);
 }
 async function snapshot(page: Page) { return { ...await autosaveSnapshot(page), writes: await page.evaluate(() => Reflect.get(window, '__writes').length) }; }

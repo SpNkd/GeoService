@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { test, expect, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
@@ -13,10 +14,10 @@ async function position(page: Page, name: string) {
 async function clickPoint(page: Page, name: string, dx = 0, dy = 0) {
   const p = await position(page, name); await page.mouse.click(p.x + dx, p.y + dy);
 }
-async function tool(page: Page, name: string) { await page.getByRole('button', { name: `Инструмент: ${name}`, exact: true }).click(); }
+async function tool(page: Page, name: string) { await editorCommand(page,`Инструмент: ${name}`); }
 async function importPoints(page: Page) {
-  await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
-  await page.getByRole('button', { name: 'Импорт координат', exact: true }).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
+  await editorCommand(page, 'Импорт координат');
   await page.getByRole('textbox', { name: 'Вставьте координаты', exact: true }).fill(input);
   await page.getByRole('button', { name: 'Импортировать (4)', exact: true }).click();
   await expect(page.locator('[data-entity-type="point"]')).toHaveCount(4);
@@ -67,12 +68,12 @@ test('dimension value follows shared drag and Undo, then Save/Open/reload preser
   await movePoint(page, 'P2', -32, -35); await expect(value).not.toHaveText('10,000 м'); const moved = await value.textContent();
   await page.getByRole('button', { name: 'Отменить', exact: true }).click(); await expect(value).toHaveText('10,000 м');
   await page.getByRole('button', { name: 'Повторить', exact: true }).click(); await expect(value).toHaveText(moved!);
-  const downloadPromise = page.waitForEvent('download'); await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  const downloadPromise = page.waitForEvent('download'); await editorCommand(page, 'Сохранить JSON');
   const path = (await (await downloadPromise).path())!, saved = JSON.parse(await readFile(path, 'utf8')) as GeoDocument;
   expect(saved.entities.find(e => e.type === 'dimension')).toEqual(dim); expect(saved.schemaVersion).toBe(2);
   await readAutosaveDocument(page);
   await page.reload(); await expect(value).toHaveText(moved!);
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
+  await editorCommand(page, 'Новый документ');
   await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(path); await expect(value).toHaveText(moved!);
   expect((await doc(page)).entities.find(e => e.type === 'dimension')).toEqual(dim); expect(errors).toEqual([]);
   await page.screenshot({ path: 'test-results/survey-dimension.png' });

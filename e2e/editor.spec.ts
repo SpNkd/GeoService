@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { test, expect, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 
@@ -16,7 +17,7 @@ async function selectPoint(page: Page, id = 'sp1') {
   await expect(page.getByTestId('selected-id')).toHaveText(id);
 }
 async function createPath(page: Page, tool: string, points: [number, number][]) {
-  await page.getByRole('button', { name: `Инструмент: ${tool}`, exact: true }).click();
+  await editorCommand(page,`Инструмент: ${tool}`);
   for (const [x, y] of points) await clickScreen(page, x, y);
 }
 
@@ -30,6 +31,8 @@ test('point creation, inspector coordinates, Cmd/Ctrl+Z and redo preserve the sa
   const x = page.getByRole('textbox', { name: 'X', exact: true });
   await x.fill('562341.234123456'); await page.getByRole('textbox', { name: 'Y', exact: true }).fill('6189345.2212345');
   await page.getByRole('textbox', { name: 'Z', exact: true }).fill('152.3400123');
+  await page.getByRole('textbox', { name: 'Z', exact: true }).blur();
+  await page.getByTestId('drawing-canvas').focus();
   await page.keyboard.press('Control+z');
   await expect(page.getByRole('textbox', { name: 'Z', exact: true })).toHaveValue('');
   await page.keyboard.press('Control+Shift+z');
@@ -41,7 +44,7 @@ test('point creation, inspector coordinates, Cmd/Ctrl+Z and redo preserve the sa
 
 test('creates a real two-vertex line and restores it with undo and redo', async ({ page }) => {
   const before = await entityCount(page, 'line');
-  await page.getByRole('button', { name: 'Инструмент: Линия', exact: true }).click();
+  await editorCommand(page, 'Инструмент: Линия');
   await clickScreen(page, 0.18, 0.2); await expect(page.getByText(/выберите конечную точку/i)).toBeVisible();
   await clickScreen(page, 0.36, 0.27);
   await expect(page.locator('[data-entity-type="line"]')).toHaveCount(before + 1);
@@ -66,7 +69,7 @@ test('creates a polygon from world vertices and shows its computed area', async 
 
 test('double-click finishes a polyline; text tool creates an independently selectable annotation', async ({ page }) => {
   const lines = await entityCount(page, 'polyline');
-  await page.getByRole('button', { name: 'Инструмент: Полилиния', exact: true }).click();
+  await editorCommand(page, 'Инструмент: Полилиния');
   await clickScreen(page, 0.16, 0.34); await clickScreen(page, 0.26, 0.37); await clickScreen(page, 0.34, 0.31);
   await page.mouse.dblclick((await canvasBox(page)).x + (await canvasBox(page)).width * 0.44, (await canvasBox(page)).y + (await canvasBox(page)).height * 0.27);
   await expect(page.locator('[data-entity-type="polyline"]')).toHaveCount(lines + 1);
@@ -114,7 +117,10 @@ test('locked layers permit selection and inspection while blocking geometry edit
 test('cancelled drawing leaves no entity; deletion and undo/redo preserve vertex lifetime', async ({ page }) => {
   const before = await entityCount(page, 'polygon');
   await createPath(page, 'Полигон', [[0.2, 0.2], [0.4, 0.2], [0.36, 0.35]]);
-  await page.keyboard.press('Escape'); await expect(page.locator('[data-entity-type="polygon"]')).toHaveCount(before);
+  await page.keyboard.press('Escape'); await expect(page.locator('.drawing-preview')).toHaveCount(0); await expect(page.locator('[data-entity-type="polygon"]')).toHaveCount(before);
+  await expect(page.getByRole('button', { name: 'Инструмент: Полигон', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Инструмент: Выбор', exact: true })).toHaveAttribute('aria-pressed','true');
   await selectPoint(page);
   await page.keyboard.press('Delete'); await expect(page.locator('[data-entity-id="sp1"]')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Отменить' })).toBeEnabled();
@@ -140,7 +146,7 @@ test('wheel zoom and space-pan move the camera while the world point remains unc
   await expect(canvas).not.toHaveAttribute('data-center-x', oldCenter!);
   await expect(page.getByRole('textbox', { name: 'X', exact: true })).toHaveValue(originalX);
   await expect(page.getByRole('textbox', { name: 'Y', exact: true })).toHaveValue(originalY);
-  await page.getByRole('button', { name: 'Вписать', exact: true }).click();
+  await editorCommand(page, 'Вписать');
   await expect(canvas).toHaveAttribute('data-center-x', '1030'); await expect(canvas).toHaveAttribute('data-center-y', '2020');
 });
 

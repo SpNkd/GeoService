@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { test, expect } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 
@@ -27,7 +28,7 @@ test('layer rows select, expose properties, rename with undo, and eye/lock do no
 });
 
 test('Text hit target selects, drag is one undo step, and double-click editing suppresses shortcuts', async ({ page }) => {
-  await page.getByRole('button', { name: 'Инструмент: Текст', exact: true }).click();
+  await page.getByRole('button', { name: 'Инструмент: Текст', exact: true, includeHidden: true }).click();
   const canvas = page.getByTestId('drawing-canvas'), box = (await canvas.boundingBox())!;
   await page.mouse.click(box.x + 130, box.y + 130);
   const entry = page.getByRole('textbox', { name: 'Текст аннотации' }); await entry.fill('Линия L-17'); await entry.press('Enter');
@@ -47,24 +48,24 @@ test('Text hit target selects, drag is one undo step, and double-click editing s
   const editor = page.getByRole('textbox', { name: 'Редактировать текст' }); await expect(editor).toBeVisible();
   await editor.fill('Проверка '); await page.keyboard.press('l');
   await expect(editor).toHaveValue('Проверка l');
-  await expect(page.getByRole('button', { name: 'Инструмент: Линия', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'Инструмент: Линия', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'false');
   await page.keyboard.press('Escape'); await expect(text.locator('text.annotation-label')).toHaveText('Линия L-17');
   await rect.dblclick(); await editor.fill('Committed text'); await editor.press('Enter');
   await expect(text.locator('text.annotation-label')).toHaveText('Committed text');
   await page.keyboard.press('Control+z'); await expect(text.locator('text.annotation-label')).toHaveText('Линия L-17');
   await page.keyboard.press('Delete'); await expect(text).toHaveCount(0);
   await page.keyboard.press('l');
-  await expect(page.getByRole('button', { name: 'Инструмент: Линия', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Инструмент: Линия', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('CAD sequences resolve deterministically and linked labels follow geometry with persistent offset', async ({ page }) => {
   await page.keyboard.press('p'); await page.keyboard.press('l');
-  await expect(page.getByRole('button', { name: 'Инструмент: Полилиния', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Инструмент: Полилиния', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('d'); await page.keyboard.press('i'); await page.keyboard.press('m');
-  await expect(page.getByRole('button', { name: 'Инструмент: Размер', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Инструмент: Размер', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
   await page.keyboard.press('d'); await page.keyboard.press('i'); await page.waitForTimeout(950);
-  await expect(page.getByRole('button', { name: 'Инструмент: Измерение', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Инструмент: Измерение', exact: true, includeHidden: true })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
   await page.locator('[data-entity-id="baseline-01"] line[stroke="transparent"]').click({ force: true });
   await page.getByRole('button', { name: 'Добавить подпись' }).click();
@@ -76,9 +77,9 @@ test('CAD sequences resolve deterministically and linked labels follow geometry 
   await page.keyboard.press('Control+z');
   const restored = await readAutosaveDocument(page).then(document => document.entities.find(entity => entity.type === 'label'));
   expect(restored!.dx).not.toBe(beforeMove!.dx);
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click()]);
+  const [download] = await Promise.all([page.waitForEvent('download'), editorCommand(page,'Сохранить JSON')]);
   const savedPath = await download.path(); expect(savedPath).toBeTruthy();
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
+  await editorCommand(page, 'Новый документ');
   await page.locator('input[type="file"][aria-label="Файл GeoDocument"]').setInputFiles(savedPath!);
   await expect(page.locator('[data-entity-type="label"]')).toHaveCount(1);
   await page.keyboard.press('?'); await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();

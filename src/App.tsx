@@ -1,10 +1,13 @@
+import { modelViewportCamera } from './layouts/camera';
+import { useEditorFocus, shortcutSuppressed } from './editor/focus';
+import { ViewOrientation } from './components/ViewOrientation';
 import { ResponsiveToolbar } from './components/ResponsiveToolbar';
 import { DxfViews } from './components/DxfViews';
 import { CurrentStyle } from './components/StyleEditor';
 import { LayoutView } from './layouts/LayoutView';
 import { assetRegistry } from './assets/registry';
 import { newGeometryId } from './domain/geometryIntent';
-import { activeLayout, currentViewEntityIds } from './layouts/context';
+import { activeDxfViewport, activeLayout, currentViewEntityIds } from './layouts/context';
 import { editorViewDocument } from './store/editor';
 import { DocumentSearch } from './components/DocumentSearch';
 import { documentSurveyXY } from './geometry/georeferencing';
@@ -49,6 +52,7 @@ const storageFailureMessage = (failure: AutosaveError, startup = false) => {
 };
 
 export default function App() {
+  useEditorFocus();
   const [startupDocument] = useState(createSampleDocument);
   const [application, dispatch] = useReducer(applicationReducer, startupDocument, (document): ApplicationState => ({ editor: initialEditorState(document), ai: { status: 'idle' } }));
   const state = application.editor;
@@ -89,8 +93,8 @@ export default function App() {
   useEffect(()=>{if(!hydrationDone)return;if(skipNextAutosave.current){skipNextAutosave.current=false;return;}const revision=++autosaveRevision.current;pendingAutosave.current=true;setPersistence(previous=>previous.state==='error'?previous:{state:'saving'});if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=window.setTimeout(()=>{autosaveTimer.current=null;void saveAutosave(committed,committedDirty).then(record=>{if(revision!==autosaveRevision.current||!record)return;pendingAutosave.current=false;void getAutosaveInfo().then(info=>{if(revision===autosaveRevision.current)setPersistence(info?{state:'saved',info}:{state:'saved'});}).catch(()=>{if(revision===autosaveRevision.current)setPersistence({state:'saved'});});}).catch(error=>{if(revision!==autosaveRevision.current)return;pendingAutosave.current=false;const failure=error instanceof AutosaveError?error:new AutosaveError('WRITE_FAILED','Ошибка IndexedDB.');const message=storageFailureMessage(failure);setPersistence({state:'error',message});setNotice(message);});},500);return()=>{if(autosaveTimer.current!==null){window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;}};},[committed,committedDirty,hydrationDone]);
   useEffect(()=>{if(!hydrationDone)return;const flush=()=>{if(!pendingAutosave.current)return;if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;const current=latestCommitted.current;void saveAutosave(current.document,current.dirty);};window.addEventListener('pagehide',flush);return()=>window.removeEventListener('pagehide',flush);},[hydrationDone]);
   const [cursor, setCursor] = useState<ScreenPoint | null>(null);
-  const effectiveViewIds=useMemo(()=>currentViewEntityIds({document:state.document,layoutId:state.layoutId,dxfViewportId:state.dxfViewportId},editorViewDocument({document:state.document,isolation:state.isolation},state.document,!!state.layoutId)),[state.document,state.isolation,state.layoutId,state.dxfViewportId]);
-  const cursorWorld = cursor && state.viewMode==='plan' ? screenToWorld(cursor, state.viewport, size) : null;
+  const effectiveViewIds=useMemo(()=>currentViewEntityIds({document:state.document,layoutId:state.layoutId,dxfViewportId:state.dxfViewportId,viewportEditing:state.viewportEditing,viewportNavigation:state.viewportNavigation??null,isolation:state.isolation},editorViewDocument({document:state.document,isolation:state.isolation},state.document,!!state.layoutId)),[state.document,state.isolation,state.layoutId,state.dxfViewportId,state.viewportEditing,state.viewportNavigation]);
+  const cursorWorld = cursor && state.viewMode==='plan' ? state.layoutId?state.viewportEditing&&state.layoutViewport&&activeDxfViewport(state)?screenToWorld(cursor,modelViewportCamera(activeDxfViewport(state)!,state.layoutViewport,size),size):null:screenToWorld(cursor, state.viewport, size) : null;
   const cursorSurvey = cursorWorld && state.coordinateDisplay === 'survey' ? documentSurveyXY(state.document, cursorWorld) : null;
   const fitted = useRef(false);
   const onResize = useCallback((next: ViewSize) => {
@@ -141,7 +145,7 @@ export default function App() {
         if (deletions.length) { dispatch({ type: 'execute-batch', commands: deletions }); dispatch({ type: 'select', entityId: null }); }
         break;
       }
-      case 'cancel': setSymbolsOpen(false); window.dispatchEvent(new Event('geoservice:escape')); dispatch({ type: 'tool', tool: 'select' });
+      case 'cancel': {const transient=new Event('geoservice:escape',{cancelable:true});window.dispatchEvent(transient);if(transient.defaultPrevented)break;if(state.viewportEditing&&state.tool==='select'){dispatch({type:'viewport-editing',active:false});break;}}setSymbolsOpen(false); dispatch({ type: 'tool', tool: 'select' });
         if (state.dimensionPick) dispatch({ type: 'cancel-dimension-pick' });
         else if (!state.dimensionRetarget && !state.selectionMove && !state.selectionRotate && !state.marqueeActive) dispatch({ type: 'select', entityId: null });
         dispatch({ type: 'close-move-input' });dispatch({type:'close-rotate-input'}); break;
@@ -151,13 +155,13 @@ export default function App() {
   useEffect(() => {
     const clearSequence = () => { keyBuffer.current = []; setSequenceHint(''); if (sequenceTimer.current !== null) window.clearTimeout(sequenceTimer.current); sequenceTimer.current = null; };
     const executeBuffer = () => { const match = resolveShortcut(keyBuffer.current); clearSequence(); if (match) runShortcut(match.id); };
-    const suppressed = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"], [data-shortcut-suppressed]'));
+    const suppressed=shortcutSuppressed;
     const keydown = (event: KeyboardEvent) => {
       if (!hydrationDone) { event.preventDefault(); return; }
       if (state.dimensionPick) {
         if (event.key === 'Escape') { event.preventDefault(); dispatch({ type: 'cancel-dimension-pick' }); return; }
         if (event.metaKey || event.ctrlKey) { if (['s', 'o', 'n', 'z', 'y'].includes(event.key.toLowerCase())) event.preventDefault(); return; }
-        if (!suppressed(event.target)) event.preventDefault();
+        if (!suppressed(event.target,event.key)) event.preventDefault();
         return;
       }
       if(dxfOpen){if(event.key==='Escape'){event.preventDefault();setDxfOpen(false);}if(event.metaKey||event.ctrlKey)event.preventDefault();return;}
@@ -166,7 +170,8 @@ export default function App() {
         if (event.metaKey || event.ctrlKey) { if (['s', 'o', 'n', 'z', 'y'].includes(event.key.toLowerCase())) event.preventDefault(); }
         return;
       }
-      if (event.code === 'Space' && !suppressed(event.target) && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); setSpaceHeld(true); return; }
+      if (suppressed(event.target,event.key)) { clearSequence(); return; }
+      if (event.code === 'Space' && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); setSpaceHeld(true); return; }
       if (event.metaKey || event.ctrlKey) {
         clearSequence(); const key = event.key.toLowerCase();
         if (key === 's' || key === 'o' || key === 'n' || key === 'z' || key === 'y') {
@@ -174,9 +179,9 @@ export default function App() {
         }
         return;
       }
-      if (suppressed(event.target)) { clearSequence(); return; }
       if (event.altKey || event.repeat) return;
       if (event.key === 'F8') { event.preventDefault(); clearSequence(); runShortcut('ortho'); return; }
+      if (event.key === 'Escape' && state.viewAlign) {event.preventDefault();dispatch({type:'align-view',axis:null});return;}
       if (event.key === 'Escape') { clearSequence(); if (shortcutsOpen) setShortcutsOpen(false); else runShortcut('cancel'); event.preventDefault(); return; }
       if (event.key === 'Delete' || event.key === 'Backspace') { clearSequence(); event.preventDefault(); runShortcut('delete'); return; }
       const key = event.key === '?' ? '?' : /^[a-z]$/i.test(event.key) && !event.shiftKey ? event.key.toUpperCase() : null;
@@ -235,21 +240,21 @@ export default function App() {
       <button className="tool-button compact" aria-label="Переместить выбор" title="Переместить выбор · M" disabled={!state.selectedEntityIds.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'open-move-input' })}><Icon name="move" size={16} />Move…</button>
       <button className="tool-button compact" aria-label="Отменить" title="Отменить · ⌘/Ctrl+Z" disabled={!state.past.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'undo' })}><Icon name="undo" size={16} />Undo</button>
       <button className="tool-button compact" aria-label="Повторить" title="Повторить · ⌘/Ctrl+Shift+Z" disabled={!state.future.length || Boolean(state.transactionBefore)} onClick={() => dispatch({ type: 'redo' })}><Icon name="redo" size={16} />Redo</button>
-      <div className="toolbar-divider" /><button className="tool-button compact" title="Вписать · F / ZE" onClick={fit}><Icon name="fit" size={16} />Вписать</button>
+
       <button className="icon-button" aria-label="Горячие клавиши" title="Горячие клавиши · ?" onClick={() => setShortcutsOpen(true)}>?</button>
-      <button className={`icon-button ${state.gridVisible ? 'grid-active' : ''}`} aria-label="Сетка" aria-pressed={state.gridVisible} onClick={() => dispatch({ type: 'toggle-grid' })}><Icon name="grid" size={16} /></button>
+
       <button className="tool-button compact" aria-pressed={symbolsOpen || state.tool === 'symbol'} onClick={() => setSymbolsOpen(!symbolsOpen)}><Icon name="symbol" size={16} />Символы</button>
       <span className="toolbar-context">Слой: {state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'} · {state.document.coordinateSystem.name ?? 'Система координат'} · м</span>
     </ResponsiveToolbar>
     <div inert={georeferenceOpen || dxfOpen} className="survey-controls" aria-label="Привязки и подписи">
       <button className={`tool-button compact ${state.snapOptions.enabled ? 'active' : ''}`} aria-label="Привязки" aria-pressed={state.snapOptions.enabled} onClick={() => dispatch({ type: 'snap-options', patch: { enabled: !state.snapOptions.enabled } })}>SNAP {state.snapOptions.enabled ? 'ON' : 'OFF'}</button>
-      <details className="survey-settings"><summary>Типы привязок</summary><div>
+      <details className="survey-settings" data-popup><summary>Типы привязок</summary><div>
         {(['vertex', 'midpoint', 'grid'] as const).map(type => <label key={type}><input type="checkbox" checked={state.snapOptions[type]} onChange={event => dispatch({ type: 'snap-options', patch: { [type]: event.target.checked } })} />{type === 'vertex' ? 'Vertex' : type === 'midpoint' ? 'Midpoint' : 'Grid'}</label>)}
         <small>Допуск 10 px · скрытые слои исключены</small>
       </div></details>
       <label>Сетка <input className="snap-step-input" aria-label="Шаг привязки сетки" type="number" min="0.000001" step="any" list="snap-steps" value={state.snapOptions.gridStep ?? 1} onChange={event => { const gridStep = Number(event.target.value); if (gridStep > 0 && Number.isFinite(gridStep)) dispatch({ type: 'snap-options', patch: { gridStep } }); }} /> м</label><datalist id="snap-steps">{[0.1, 0.25, 0.5, 1, 2, 5, 10, 20].map(step => <option key={step} value={step} />)}</datalist>
       <button className={`tool-button compact ${state.ortho ? 'active' : ''}`} aria-label="Ортогональный режим" aria-pressed={state.ortho} title="ORTHO · F8" onClick={() => dispatch({ type: 'toggle-ortho' })}>ORTHO {state.ortho ? 'ON' : 'OFF'}</button>
-      <DxfViews state={state} dispatch={dispatch} size={size}/><CurrentStyle state={state} dispatch={dispatch}/>
+      <ViewOrientation state={state} dispatch={dispatch}/><DxfViews state={state} dispatch={dispatch} size={size}/><CurrentStyle state={state} dispatch={dispatch}/>
       {state.document.dxfLayouts?.length? <label className="view-select">DXF: <select aria-label="DXF контекст" value={state.layoutId??'model'} onChange={e=>dispatch({type:'dxf-layout',layoutId:e.target.value==='model'?null:e.target.value,size})}><option value="model">Model</option>{state.document.dxfLayouts.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></label>:null}
       {activeLayout(state)&&<label>Viewport: <select aria-label="DXF viewport" value={state.dxfViewportId??''} onChange={e=>dispatch({type:'dxf-viewport',viewportId:e.target.value})}>{activeLayout(state)!.viewports.map(v=><option key={v.id} value={v.id}>{v.number}{v.unsupportedReason?' · ограничение':''}</option>)}</select></label>}
       <label className="view-select">Вид: <select aria-label="Вид" disabled={!!state.layoutId} title={state.layoutId?'Листы DXF отображаются в плане; для аксонометрии выберите Model':undefined} value={state.viewMode==='plan'?'plan':state.projection.orientation} onChange={event=>dispatch({type:'view-mode',mode:event.target.value==='plan'?'plan':'axonometric',...(event.target.value==='plan'?{}:{orientation:event.target.value as 'NE'|'NW'|'SE'|'SW'}),size})}><option value="plan">План</option><option value="NE">Аксонометрия СВ</option><option value="NW">Аксонометрия СЗ</option><option value="SE">Аксонометрия ЮВ</option><option value="SW">Аксонометрия ЮЗ</option></select></label><label>Координаты <select aria-label="Отображение координат" value={state.coordinateDisplay} onChange={event => dispatch({ type: 'coordinate-display', mode: event.target.value as 'model' | 'survey' })}><option value="model">Model · X/Y</option><option value="survey">Survey · E/N</option></select></label>
@@ -257,11 +262,11 @@ export default function App() {
       <label><input type="checkbox" checked={state.showLineLengths} onChange={() => dispatch({ type: 'toggle-line-lengths' })} />Длины линий</label>
     </div>
     <main className="workspace"><LayersPanel inert={georeferenceOpen || dxfOpen} state={state} dispatch={dispatch} onCalibrate={openCalibration} /><div className="drawing-area">
-      {state.layoutId?<LayoutView key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize}/>:<Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={dxfOpen || importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} processPreview={application.ai.status==='process-preview'&&!state.transactionBefore?application.ai.plan:undefined} documentHighlightIds={application.ai.status==='document-preview'&&!state.transactionBefore?application.ai.plan.matchedEntityIds:application.ai.status==='document-applied'?application.ai.resultPlan?.matchedEntityIds:undefined} aiReferenceIds={application.ai.status==='preview'?application.ai.plan.referenceEntityIds:undefined} />}
+      {state.layoutId?<LayoutView key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} spaceHeld={spaceHeld} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus}/>:<Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={dxfOpen || importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} processPreview={application.ai.status==='process-preview'&&!state.transactionBefore?application.ai.plan:undefined} documentHighlightIds={application.ai.status==='document-preview'&&!state.transactionBefore?application.ai.plan.matchedEntityIds:application.ai.status==='document-applied'?application.ai.resultPlan?.matchedEntityIds:undefined} aiReferenceIds={application.ai.status==='preview'?application.ai.plan.referenceEntityIds:undefined} />}
       {state.isolation&&<div className="isolation-banner" role="status">Изоляция: {state.isolation.label} <button type="button" onClick={()=>dispatch({type:'exit-isolation'})}>Выйти из изоляции</button></div>}
-      <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" onClick={fit}><Icon name="fit" /></button></div>
+      <div className="zoom-controls"><button className="icon-button" aria-label="Увеличить" onClick={() => zoom(1.25)}><Icon name="plus" /></button><button className="icon-button" aria-label="Уменьшить" onClick={() => zoom(0.8)}><Icon name="minus" /></button><button className="icon-button" aria-label="Вписать схему в вид" title="Вписать · F / ZE" onClick={fit}><Icon name="fit" /></button><button className="icon-button" aria-label="Сетка" disabled={!!state.layoutId&&!state.viewportEditing} aria-pressed={state.gridVisible&&(!state.layoutId||state.viewportEditing)} title={state.layoutId&&!state.viewportEditing?'Сетка MODEL доступна в активном viewport':'Сетка'} onClick={()=>dispatch({type:'toggle-grid'})}><Icon name="grid"/></button></div>
       {!state.layoutId&&<div className="scale-bar" aria-label={`Масштабная линейка ${step} метров`}><span>{formatMeasure(step, step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0)} м</span><div style={{ width: step * state.viewport.pixelsPerUnit }} /></div>}
-    </div><div inert={georeferenceOpen || dxfOpen} className="right-column"><PropertyInspector state={state} dispatch={dispatch} size={size} /><DocumentSearch currentViewIds={effectiveViewIds} document={state.document} dispatch={dispatch} size={size} transactionActive={Boolean(state.transactionBefore)}/><AiPanel size={size} ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
+    </div><div inert={georeferenceOpen || dxfOpen} className="right-column"><div className="scope-summary" hidden={!state.selectionScopeLabel&&!state.selectedPaperIds.length}>{state.selectionScopeLabel} · MODEL: {state.selectedEntityIds.length} · Paper Space только чтение: {state.selectedPaperIds.length}</div><PropertyInspector state={state} dispatch={dispatch} size={size} /><DocumentSearch state={state} currentViewIds={effectiveViewIds} document={state.document} dispatch={dispatch} size={size} transactionActive={Boolean(state.transactionBefore)}/><AiPanel size={size} ai={application.ai} dispatch={dispatch} transactionActive={Boolean(state.transactionBefore)} documentEpoch={state.documentEpoch} /></div></main>
     <footer className="status-bar"><span className={`status-ready ${state.error ? 'status-error' : ''}`} data-testid="editor-error"><span className={state.error ? 'error-dot' : 'live-dot'} />{state.error ?? (state.dimensionPick ? `Выберите существующую вершину для ${state.dimensionPick.endpoint === 'start' ? 'начала' : 'конца'} размера · Esc отмена` : null) ?? (sequenceHint ? `${sequenceHint}…` : measurementStatus ?? (snapStatus ? `SNAP: ${snapStatus.metadata.label}` : null)) ?? (state.selectionMove ? `Перемещение: ΔX ${formatMeasure(state.selectionMove.delta.x)} · ΔY ${formatMeasure(state.selectionMove.delta.y)} м${state.selectionMove.resolved.affectedEntityIds.length ? ` · затронет ${state.selectionMove.resolved.affectedEntityIds.length} связанных объектов` : ''}` : state.selectedEntityIds.length > 1 ? `Выбрано: ${state.selectedEntityIds.length} объектов` : selected ? `Выбрано: ${selected.name}` : 'Готов к работе')}</span>
       <div className="status-coordinates"><Icon name="crosshair" size={14} /><span>{state.coordinateDisplay === 'model' ? 'X' : 'E'} <b data-testid="cursor-x">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.x) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.e) : '—'}</b></span><span>{state.coordinateDisplay === 'model' ? 'Y' : 'N'} <b data-testid="cursor-y">{state.coordinateDisplay === 'model' ? cursorWorld ? formatCoordinate(cursorWorld.y) : '—' : cursorSurvey ? formatCoordinate(cursorSurvey.n) : '—'}</b></span><span>м</span></div>
       <span className="status-grid">Привязка: {state.snapOptions.gridStep ?? 1} м · ORTHO {state.ortho ? 'ON' : 'OFF'}</span><span className={`persistence-status${persistence.state==='error'?' error':''}`} data-testid="persistence-status" role="status" title={persistence.info?`${persistence.info.entityCount} объектов · ${(persistence.info.approximateSerializedBytes/1024**2).toFixed(2)} MiB · ${persistence.info.savedAt}`:persistence.message}>{persistence.state==='saving'?'Сохранение…':persistence.state==='error'?'Автосохранение не выполнено':'Сохранено локально'}</span><span className="status-zoom" data-testid="zoom-label">{state.layoutId?'Paper Space':`${formatMeasure(state.viewport.pixelsPerUnit)} px/м`}</span>

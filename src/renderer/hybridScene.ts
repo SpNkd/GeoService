@@ -1,3 +1,4 @@
+import type { RenderCamera } from '../view/projection';
 import type { Entity, GeoDocument, Viewport } from '../domain/model';
 import { bounds, screenToWorld, type Bounds, type ViewSize } from '../geometry';
 import { entityBoundsPoints } from '../geometry/entityBounds';
@@ -21,9 +22,8 @@ export function composeScene(items: RenderItem[], mode: RendererMode): { strata:
   return { strata: fallback ? [{ kind: 'svg', items }] : strata, fallback };
 }
 export function viewportBounds(view: Viewport, size: ViewSize, paddingPx = 12): Bounds {
-  const a = screenToWorld({ x: -paddingPx, y: -paddingPx }, view, size);
-  const b = screenToWorld({ x: size.width + paddingPx, y: size.height + paddingPx }, view, size);
-  return { minX: a.x, maxX: b.x, minY: b.y, maxY: a.y };
+  const clip=(view as RenderCamera).screenClip,x=Math.max(0,clip?.x??0)-paddingPx,y=Math.max(0,clip?.y??0)-paddingPx,X=Math.min(size.width,clip?clip.x+clip.width:size.width)+paddingPx,Y=Math.min(size.height,clip?clip.y+clip.height:size.height)+paddingPx;
+  return bounds([[x,y],[X,y],[x,Y],[X,Y]].map(([x,y])=>screenToWorld({x:x!,y:y!},view,size)))!;
 }
 export const intersects = (a: Bounds, b: Bounds) => a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
 const boxes = new WeakMap<GeoDocument, WeakMap<Entity, Bounds | null>>();

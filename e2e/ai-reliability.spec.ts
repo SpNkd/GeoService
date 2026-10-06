@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { autosaveSnapshot } from './helpers/autosave';
 import { createDiagnostic, type AiDiagnostic } from '../src/ai/reliability';
@@ -24,7 +25,7 @@ async function setup(page: Page, scenario: 'success' | 'unsupported' | '502' | '
       return route.fulfill({ status: diagnostic.httpStatus, json: { error: { code: diagnostic.errorCode }, diagnostics: diagnostic } }); }
     return route.fulfill({ json: { result, diagnostics: diagnostic } });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
   await expect(page.getByText('MOCK · демо')).toBeVisible();
   const before = await autosaveSnapshot(page);
   await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text);
@@ -78,7 +79,7 @@ test('Copy diagnostics is redacted and includes trace and resolver status', asyn
 test('real provider manual smoke (opt-in): trace, exact semantic preview, no mutation', async ({ page }) => {
   test.skip(process.env.AI_REAL_BROWSER_SMOKE !== '1', 'Paid network smoke requires explicit opt-in');
   await page.goto('/'); await expect(page.getByText('OpenRouter', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
+  await editorCommand(page, 'Новый документ');
   const before = await autosaveSnapshot(page);
   await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text);
   await page.getByRole('button', { name: 'Generate plan', exact: true }).click();

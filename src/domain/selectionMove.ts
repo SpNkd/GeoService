@@ -74,7 +74,7 @@ export function projectSelectionMove(document: GeoDocument, resolved: ResolvedSe
   return changed ? { ...projected, entities: labelIds.size ? entities : projected.entities } : document;
 }
 
-export function selectionTranslation(start: WorldPoint, current: WorldPoint, shift = false): Translation {
+export function selectionTranslation(start: WorldPoint, current: WorldPoint, shift = false, rotationDeg=0): Translation {
   const x = current.x - start.x, y = current.y - start.y;
-  return shift ? Math.abs(x) > Math.abs(y) ? { x, y: 0 } : { x: 0, y } : { x, y };
+  if(!shift)return {x,y};const a=rotationDeg*Math.PI/180,c=Math.cos(a),s=Math.sin(a),X=x*c-y*s,Y=x*s+y*c,dx=Math.abs(X)>Math.abs(Y)?X:0,dy=Math.abs(X)>Math.abs(Y)?0:Y;return {x:dx*c+dy*s,y:-dx*s+dy*c};
 }

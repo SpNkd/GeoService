@@ -1,4 +1,4 @@
-import { projectionOf } from '../view/projection';
+import { viewRotation, projectionOf } from '../view/projection';
 import { ConnectorView } from './ConnectorView';
 import { VectorView } from './VectorView';
 import { SymbolView } from './SymbolView';
@@ -82,7 +82,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
     }
     case 'text': {
       const p = screen[0]!,fontSize=style.textSize??(entity.height?entity.height*viewport.pixelsPerUnit:entity.fontSize);
-      shape = <g transform={`translate(${p.x} ${p.y}) rotate(${- (entity.rotationDeg??0)})`}>
+      shape = <g transform={`translate(${p.x} ${p.y}) rotate(${-((entity.rotationDeg??0)+viewRotation(viewport))})`}>
         <rect x={-7} y={-fontSize-7} width={Math.max(28, Math.max(...entity.content.split('\n').map(line=>line.length)) * fontSize * 0.7 + 14)} height={fontSize * (1 + (entity.content.split('\n').length-1)*1.2) + 14} fill={selected ? '#277ec110' : 'transparent'} stroke={selected ? selectionColor : 'transparent'} strokeDasharray="3 3" pointerEvents="all" />
         <text x={0} y={0} fill={textColor} fontSize={fontSize} className="annotation-label" pointerEvents="none">{entity.content.split('\n').map((line,i)=><tspan key={i} x={0} dy={i?1.2*fontSize:0}>{line}</tspan>)}</text>
       </g>;

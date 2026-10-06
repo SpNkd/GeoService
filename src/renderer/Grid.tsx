@@ -1,12 +1,12 @@
 import type { Viewport } from '../domain/model';
-import { screenToWorld, worldToScreen, type ViewSize } from '../geometry';
+import { bounds, screenToWorld, worldToScreen, type ViewSize } from '../geometry';
 
 import { visualGridSteps } from '../geometry/grid';
 
 export function Grid({ viewport, size, snapStep = 1 }: { viewport: Viewport; size: ViewSize; snapStep?: number }) {
   const { minor: step, major } = visualGridSteps(snapStep, viewport.pixelsPerUnit);
-  const topLeft = screenToWorld({ x: 0, y: 0 }, viewport, size);
-  const bottomRight = screenToWorld({ x: size.width, y: size.height }, viewport, size);
+  const box=bounds([[0,0],[size.width,0],[0,size.height],[size.width,size.height]].map(([x,y])=>screenToWorld({x:x!,y:y!},viewport,size)))!;
+  const topLeft={x:box.minX,y:box.maxY},bottomRight={x:box.maxX,y:box.minY};
   const lines: React.ReactNode[] = [];
   const labels: React.ReactNode[] = [];
   // Integer indices avoid accumulated floating-point drift in fractional grid steps.
@@ -18,13 +18,13 @@ export function Grid({ viewport, size, snapStep = 1 }: { viewport: Viewport; siz
   for (let offset = 0; offset < xCount; offset++) {
     const i = firstX + offset;
     const x = worldToScreen({ x: i * step, y: 0 }, viewport, size).x;
-    lines.push(<line key={`x${i}`} data-grid-kind={i % 5 === 0 ? 'major' : 'minor'} stroke={i % 5 === 0 ? '#cad6df' : '#e7edf1'} x1={x} y1={0} x2={x} y2={size.height} />);
+    lines.push(<line key={`x${i}`} data-grid-kind={i % 5 === 0 ? 'major' : 'minor'} stroke={i % 5 === 0 ? '#cad6df' : '#e7edf1'} x1={worldToScreen({x:i*step,y:box.minY},viewport,size).x} y1={worldToScreen({x:i*step,y:box.minY},viewport,size).y} x2={worldToScreen({x:i*step,y:box.maxY},viewport,size).x} y2={worldToScreen({x:i*step,y:box.maxY},viewport,size).y} />);
     if (i % 5 === 0) labels.push(<text key={`x${i}`} x={x + 5} y={18}>{Number((i * step).toPrecision(12))}</text>);
   }
   for (let offset = 0; offset < yCount; offset++) {
     const i = firstY + offset;
     const y = worldToScreen({ x: 0, y: i * step }, viewport, size).y;
-    lines.push(<line key={`y${i}`} data-grid-kind={i % 5 === 0 ? 'major' : 'minor'} stroke={i % 5 === 0 ? '#cad6df' : '#e7edf1'} x1={0} y1={y} x2={size.width} y2={y} />);
+    lines.push(<line key={`y${i}`} data-grid-kind={i % 5 === 0 ? 'major' : 'minor'} stroke={i % 5 === 0 ? '#cad6df' : '#e7edf1'} x1={worldToScreen({x:box.minX,y:i*step},viewport,size).x} y1={worldToScreen({x:box.minX,y:i*step},viewport,size).y} x2={worldToScreen({x:box.maxX,y:i*step},viewport,size).x} y2={worldToScreen({x:box.maxX,y:i*step},viewport,size).y} />);
     if (y > 35 && i % 5 === 0) labels.push(<text key={`y${i}`} x={8} y={y - 6}>{Number((i * step).toPrecision(12))}</text>);
   }
   return <g data-minor-step={step} data-major-step={major} className="world-grid" pointerEvents="none">

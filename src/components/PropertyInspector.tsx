@@ -203,7 +203,7 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
   const locked = entity ? isLayerLocked(state.document, entity) : false;
   return <aside className="right-panel" aria-label="Свойства объекта">
     <div className="panel-heading"><h2>Свойства</h2><span className="subtle">{selectedLayer ? 'Слой' : state.selectedEntityIds.length > 1 ? `${state.selectedEntityIds.length} объектов` : entity ? '1 объект' : `Текущий: ${state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'}`}</span></div>
-    {state.selectedEntityIds.length>1 && <SelectionSummary state={state} dispatch={dispatch} size={size}/>}
+    {(state.selectedEntityIds.length>1||state.selectedPaperIds.length>0||!!state.selectionScopeLabel) && <SelectionSummary state={state} dispatch={dispatch} size={size}/>}
     <RotateSelectionPanel state={state} dispatch={dispatch}/>
     {!selectedLayer&&<SelectionStyle state={state} dispatch={dispatch}/>}
     {selectedLayer&&<LayerStyleEditor state={state} dispatch={dispatch} layerId={selectedLayer.id}/>}

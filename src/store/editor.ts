@@ -1,3 +1,7 @@
+import {activeDxfViewport} from '../layouts/context';
+import {modelViewportCamera,navigationFromCamera,type ViewportNavigation} from '../layouts/camera';
+import { viewRotation } from '../view/projection';
+import { selectionPaperBounds, paperDocument, paperEntityId, resolveSelectionScope, type SelectionScope } from '../layouts/selection';
 import { projectSelectionTransform, resolveSelectionTransform, selectionPivot, AXON_ROTATE_MESSAGE } from '../domain/selectionTransform';
 import { styleKeysFor, capturedStyle, type StyleOverrides } from '../styles/model';
 import { projectedSceneBounds, projectionOrigin } from '../view/geometry';
@@ -10,8 +14,8 @@ import { nextSymbolRotation } from '../symbols/types';
 import { layerBounds } from '../geometry/entityBounds';
 import type { GeoDocument, Viewport } from '../domain/model';
 import { applyCommand, applyCommandsAtomically, isLayerLocked, type DocumentCommand } from '../domain/commands';
-import { fitToBounds, panViewport, zoomAt, type ScreenPoint, type ViewSize } from '../geometry';
-import { selectionBounds, visibleBounds } from '../renderer/selectors';
+import { fitRotatedBounds, fitToBounds, panViewport, zoomAt, type ScreenPoint, type ViewSize } from '../geometry';
+import { selectionBounds, visibleBounds, renderItems } from '../renderer/selectors';
 import { deserializeDocument, documentFingerprint } from '../persistence/serialization';
 import { commandFromOrderedPoints } from '../domain/geometryIntent';
 import { validateDocument } from '../persistence/documentSchema';
@@ -25,6 +29,11 @@ export type PointLabelMode = 'name' | 'name-z' | 'z';
 export type ConnectorInteraction = {kind:'create';start:ConnectorEndpoint;target:ConnectorEndpoint|null} | {kind:'retarget';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint|null};
 export const AXON_EDIT_MESSAGE='Перемещение в аксонометрии пока выполняется через точные координаты X/Y/Z. Для свободного перемещения используйте вид План.';
 export interface EditorState {
+  viewportEditing:boolean;
+  viewportNavigation?:ViewportNavigation|null;
+  selectedPaperIds:string[];
+  selectionScopeLabel:string|null;
+  viewAlign: {axis:'horizontal'|'vertical';first:import('../domain/model').WorldPoint|null}|null;
   currentStyle:StyleOverrides;
   styleClipboard:StyleOverrides|null;
   rotateInputOpen:boolean;
@@ -58,6 +67,11 @@ export interface EditorState {
 }
 export const editorCamera=(state:Pick<EditorState,'viewport'|'viewMode'|'projection'>):RenderCamera=>state.viewMode==='plan'?state.viewport:{...state.viewport,projection:state.projection};
 export type EditorAction =
+  | {type:'selection-scope';scope:SelectionScope}
+  | {type:'viewport-editing';active:boolean;viewportId?:string}
+  | {type:'view-angle';angle:number}
+  | {type:'align-view';axis:'horizontal'|'vertical'|null}
+  | {type:'align-view-point';point:import('../domain/model').WorldPoint}
   | {type:'current-style';patch:StyleOverrides}
   | {type:'apply-selection-style';patch:StyleOverrides}
   | {type:'copy-style';entityId:string}
@@ -149,15 +163,30 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { currentStyle:{},styleClipboard:null,rotateInputOpen:false,rotateInputFocusEpoch:0,selectionRotate:null,layoutViewport:null,layoutId:null,dxfViewportId:null,modelViewMode:'plan',layerPanelFilter:'all',viewMode:'plan',projection:{orientation:'NE',origin:{x:0,y:0,z:0}},planViewport:null,axonViewport:null,connectorInteraction:null,isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { viewportEditing:false,selectedPaperIds:[],selectionScopeLabel:null,viewAlign:null,currentStyle:{},styleClipboard:null,rotateInputOpen:false,rotateInputFocusEpoch:0,selectionRotate:null,layoutViewport:null,layoutId:null,dxfViewportId:null,modelViewMode:'plan',layerPanelFilter:'all',viewMode:'plan',projection:{orientation:'NE',origin:{x:0,y:0,z:0}},planViewport:null,axonViewport:null,connectorInteraction:null,isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
 export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFingerprint'> & Partial<Pick<EditorState, 'transactionBefore'>>) =>
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
+const layerViewCommands = new Set<DocumentCommand['type']>(['set-layer-visibility', 'set-layer-lock', 'set-layer-style', 'reset-layer-style', 'create-layer', 'move-layer', 'update-layer']);
+function reconcilePaperSelection(document: GeoDocument, state: EditorState) {
+  if (!state.selectedPaperIds.length) return state.selectedPaperIds;
+  const layout = document.dxfLayouts?.find(l => l.id === state.layoutId);
+  const visible = new Set(layout ? renderItems(paperDocument(document, layout)).map(item => item.entity.id) : []);
+  return state.selectedPaperIds.filter(id => visible.has(id));
+}
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   if(state.viewMode==='axonometric'&&['begin-selection-move','begin-dimension-pick','begin-dimension-retarget','begin-connector-retarget'].includes(action.type))return {...state,error:AXON_EDIT_MESSAGE};
+  const layerOnly = action.type === 'execute' ? layerViewCommands.has(action.command.type) : action.type === 'execute-batch' && action.commands.every(c => layerViewCommands.has(c.type));
+  if(state.selectedPaperIds.length&&!layerOnly&&['execute','execute-batch','transient','begin-selection-move','begin-selection-rotate','apply-selection-style','paste-style'].includes(action.type))return {...state,error:'В выборе есть объекты Paper Space только для чтения. Выберите объекты MODEL отдельно.'};
   switch (action.type) {
+    case 'selection-scope':{if(state.transactionBefore)return state;const result=resolveSelectionScope(action.scope.kind==='model-all'?state.document:editorViewDocument(state,state.document,true),action.scope,state);return {...state,selectedEntityIds:result.modelIds,selectedPaperIds:result.paperIds,selectionId:result.modelIds.length===1?result.modelIds[0]!:null,selectionScopeLabel:result.label,deepSelection:null,error:null};}
+    case 'viewport-editing':{if(state.transactionBefore)return state;const vp=state.document.dxfLayouts?.find(l=>l.id===state.layoutId)?.viewports.find(v=>v.id===(action.viewportId??state.dxfViewportId));return action.active&&(!vp||vp.unsupportedReason)?{...state,error:vp?.unsupportedReason??'Выберите поддерживаемый MODEL viewport.'}:{...state,viewportNavigation:null,viewportEditing:action.active,dxfViewportId:vp?.id??state.dxfViewportId,tool:'select',deepSelection:null,selectedPaperIds:[],viewAlign:null,error:null};}
+    case 'view-angle':return state.layoutId||state.viewMode!=='plan'||state.transactionBefore||!Number.isFinite(action.angle)?state:{...state,viewport:{...state.viewport,rotationDeg:((action.angle%360)+360)%360} as RenderCamera,viewAlign:null};
+    case 'align-view':return state.layoutId||state.viewMode!=='plan'||state.transactionBefore?state:{...state,viewAlign:action.axis?{axis:action.axis,first:null}:null,tool:'select'};
+    case 'align-view-point':{const align=state.viewAlign;if(!align)return state;if(!align.first)return {...state,viewAlign:{...align,first:action.point}};const dx=action.point.x-align.first.x,dy=action.point.y-align.first.y;if(Math.hypot(dx,dy)<1e-9)return {...state,error:'Точки направления должны различаться.'};return editorReducer(state,{type:'view-angle',angle:(align.axis==='vertical'?90:0)-Math.atan2(dy,dx)*180/Math.PI});}
+
     case 'apply-selection-style':{
       const selected=state.document.entities.filter(e=>state.selectedEntityIds.includes(e.id)),keys=Object.keys(action.patch),targets=selected.filter(e=>keys.every(k=>styleKeysFor(e).includes(k as keyof import('../styles/model').StyleValues)));
       if(!targets.length)return {...state,error:'Выбор не поддерживает это свойство стиля.'};const next=editorReducer(state,{type:'execute',command:{type:'set-entity-style',entityIds:targets.map(e=>e.id),patch:action.patch}});
@@ -175,7 +204,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'open-rotate-input':return {...state,rotateInputOpen:true,rotateInputFocusEpoch:state.rotateInputFocusEpoch+1,tool:'select'};
     case 'close-rotate-input':return {...state,rotateInputOpen:false};
     case 'begin-selection-rotate':{
-      if(state.layoutId||state.viewMode!=='plan')return {...state,error:AXON_ROTATE_MESSAGE};
+      if(state.layoutId&&!state.viewportEditing||state.viewMode!=='plan')return {...state,error:AXON_ROTATE_MESSAGE};
       if(state.deepSelection)return {...state,error:NESTED_MOVE_MESSAGE};if(state.transactionBefore)return state;
       try{const resolved=resolveSelectionTransform(state.document,action.entityIds,'rotate'),pivot=selectionPivot(state.document,action.entityIds);return {...state,selectionRotate:{resolved,pivot,angleDeg:0,previewDocument:state.document},transactionBefore:state.document,error:null};}catch(error){return {...state,error:error instanceof Error?error.message:String(error)};}
     }
@@ -190,18 +219,18 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'fit-dxf-viewport':{
       if(state.transactionBefore)return state;const next=state.layoutId===action.layoutId?state:editorReducer(state,{type:'dxf-layout',layoutId:action.layoutId,size:action.size}),v=next.document.dxfLayouts?.find(l=>l.id===action.layoutId)?.viewports.find(v=>v.id===action.viewportId);if(!v)return state;
       const viewport=fitToBounds({minX:v.centerPaper.x-v.sizePaper.width/2,maxX:v.centerPaper.x+v.sizePaper.width/2,minY:v.centerPaper.y-v.sizePaper.height/2,maxY:v.centerPaper.y+v.sizePaper.height/2},action.size,55);
-      return {...next,dxfViewportId:v.id,layoutViewport:viewport??next.layoutViewport,deepSelection:null};
+      return {...next,viewportNavigation:null,dxfViewportId:v.id,layoutViewport:viewport??next.layoutViewport,viewportEditing:next.viewportEditing&&!v.unsupportedReason,deepSelection:null};
     }
     case 'layout-camera':return state.layoutId?{...state,layoutViewport:action.viewport}:state;
     case 'layer-panel-filter':return {...state,layerPanelFilter:action.filter};
     case 'isolate-layers':return {...state,isolation:{entityIds:[],layerIds:[...new Set(action.layerIds)],label:action.label}};
-    case 'dxf-viewport':{const layout=state.document.dxfLayouts?.find(l=>l.id===state.layoutId);return !state.transactionBefore&&layout?.viewports.some(v=>v.id===action.viewportId)?{...state,dxfViewportId:action.viewportId,deepSelection:null}:state;}
+    case 'dxf-viewport':{const layout=state.document.dxfLayouts?.find(l=>l.id===state.layoutId);return !state.transactionBefore&&layout?.viewports.some(v=>v.id===action.viewportId)?{...state,viewportNavigation:null,dxfViewportId:action.viewportId,viewportEditing:state.viewportEditing&&!layout.viewports.find(v=>v.id===action.viewportId)?.unsupportedReason,deepSelection:null}:state;}
     case 'dxf-layout':{
       if(state.transactionBefore)return {...state,error:'Завершите редактирование перед сменой листа.'};
-      if(action.layoutId===null){const next={...state,layoutId:null,dxfViewportId:null,layoutViewport:null};return editorReducer(next,{type:'view-mode',mode:state.modelViewMode,size:action.size});}
+      if(action.layoutId===null){const next={...state,layoutId:null,dxfViewportId:null,layoutViewport:null,viewportEditing:false,selectedPaperIds:[],viewAlign:null};return editorReducer(next,{type:'view-mode',mode:state.modelViewMode,size:action.size});}
       const layout=state.document.dxfLayouts?.find(l=>l.id===action.layoutId);if(!layout)return state;
       const mode=state.layoutId?state.modelViewMode:state.viewMode,next=editorReducer({...state,layoutId:null},{type:'view-mode',mode:'plan',size:action.size});
-      return {...next,layoutViewport:null,layoutId:layout.id,dxfViewportId:layout.viewports[0]?.id??null,modelViewMode:mode,tool:'select',error:null};
+      return {...next,layoutViewport:null,layoutId:layout.id,viewportEditing:false,selectedPaperIds:[],viewAlign:null,dxfViewportId:layout.viewports[0]?.id??null,modelViewMode:mode,tool:'select',error:null};
     }
     case 'view-mode': {
       if(state.layoutId&&action.mode==='axonometric')return {...state,error:'Листы DXF отображаются в плане. Для аксонометрии выберите Model.'};
@@ -214,7 +243,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const viewport=action.mode==='plan'?(state.planViewport??state.viewport):(!first&&!changed?(state.axonViewport??state.viewport):(fitToBounds(projectedSceneBounds(editorViewDocument(state),projection),action.size,85)??{center:{x:0,y:0},pixelsPerUnit:40}));
       return {...state,viewMode:action.mode,projection,viewport,planViewport:state.viewMode==='plan'?state.viewport:state.planViewport,axonViewport:state.viewMode==='axonometric'?state.viewport:state.axonViewport,tool:'select',symbolPlacement:null,connectorInteraction:null,dimensionPick:null,deepSelection:null,hitStackStatus:null,error:null};
     }
-    case 'fit-view': {if(state.layoutId)return {...state,layoutViewport:null};const doc=editorViewDocument(state),box=state.viewMode==='axonometric'?projectedSceneBounds(doc,state.projection):visibleBounds(doc),viewport=fitToBounds(box,action.size,85);return viewport?{...state,viewport}:state;}
+    case 'fit-view': {if(state.layoutId)return state.viewportEditing?{...state,viewportNavigation:null}:{...state,layoutViewport:null};const doc=editorViewDocument(state),box=state.viewMode==='axonometric'?projectedSceneBounds(doc,state.projection):visibleBounds(doc),viewport=fitRotatedBounds(box,action.size,state.viewMode==='plan'?viewRotation(state.viewport):0,85);return viewport?{...state,viewport}:state;}
 
     case 'cancel-connector':return state.connectorInteraction?{...state,connectorInteraction:null,transactionBefore:null,error:null}:state;
     case 'preview-connector-port':return state.connectorInteraction?{...state,connectorInteraction:{...state.connectorInteraction,target:action.target}}:state;
@@ -244,11 +273,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     case 'select-entities': {
+      state={...state,selectedPaperIds:[],selectionScopeLabel:null};
       if(state.transactionBefore)return state;
       const requested=new Set(action.entityIds),ids=state.document.entities.filter(e=>requested.has(e.id)).map(e=>e.id);
-      return {...state,selectedEntityIds:ids,selectionId:ids.at(-1)??null,orderedPointIds:[],selectedLayerId:null,deepSelection:null,hitStackStatus:null,tool:'select',error:null};
+      const paperIds=(state.document.dxfLayouts??[]).flatMap(l=>l.paperPrimitives.map((_,i)=>paperEntityId(l,i))).filter(id=>requested.has(id));
+      return {...state,selectedPaperIds:paperIds,selectedEntityIds:ids,selectionId:ids.at(-1)??null,orderedPointIds:[],selectedLayerId:null,deepSelection:null,hitStackStatus:null,tool:'select',error:null};
     }
-    case 'fit-entities': if(state.layoutId)return {...state,layoutViewport:null}; {const viewport=fitToBounds(state.viewMode==='axonometric'?projectedSceneBounds(state.document,state.projection,action.entityIds):selectionBounds(state.document,action.entityIds),action.size,85);return viewport?{...state,viewport}:state;}
+    case 'fit-entities': if(state.viewportEditing&&state.layoutViewport){const vp=activeDxfViewport(state),paper=state.layoutViewport;if(vp){const width=vp.sizePaper.width*paper.pixelsPerUnit,height=vp.sizePaper.height*paper.pixelsPerUnit,fit=fitRotatedBounds(selectionBounds(state.document,action.entityIds),{width,height},vp.twist,20);return fit?{...state,viewportNavigation:{viewportId:vp.id,modelCenter:fit.center,scale:fit.pixelsPerUnit/paper.pixelsPerUnit}}:state;}}if(state.layoutId){const layout=state.document.dxfLayouts?.find(l=>l.id===state.layoutId);const box=layout?selectionPaperBounds(state.document,layout,action.entityIds,state.viewportEditing?state.dxfViewportId??undefined:undefined):null,viewport=fitToBounds(box,action.size,55);return viewport?{...state,layoutViewport:viewport}:{...state,error:'Объекты вне текущего листа. Выберите Model для показа.'};} {const viewport=state.viewMode==='axonometric'?fitToBounds(projectedSceneBounds(state.document,state.projection,action.entityIds),action.size,85):fitRotatedBounds(selectionBounds(state.document,action.entityIds),action.size,viewRotation(state.viewport),85);return viewport?{...state,viewport}:state;}
     case 'isolate-entities': {
       if(state.transactionBefore)return state;
       const known=new Set(state.document.entities.map(e=>e.id)),entityIds=[...new Set(action.entityIds)].filter(id=>known.has(id));
@@ -259,9 +290,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'deep-select': {
       const id=reconcileSelection(editorViewDocument(state),action.candidate.ownerEntityId);
       if(!id || state.transactionBefore || action.candidate.selection && !resolveDeepSelection(state.document, action.candidate.selection))return state;
-      return {...state,selectionId:id,selectedEntityIds:[id],selectedLayerId:null,orderedPointIds:[],deepSelection:action.candidate.selection,hitStackStatus:{index:action.index,count:action.count},moveInputOpen:false,error:null};
+      return {...state,selectedPaperIds:[],selectionScopeLabel:null,selectionId:id,selectedEntityIds:[id],selectedLayerId:null,orderedPointIds:[],deepSelection:action.candidate.selection,hitStackStatus:{index:action.index,count:action.count},moveInputOpen:false,error:null};
     }
-    case 'fit-layer': if(state.layoutId)return {...state,layoutViewport:null}; { const viewport = fitToBounds(state.viewMode==='axonometric'?projectedSceneBounds(state.document,state.projection,undefined,action.layerId):layerBounds(state.document, action.layerId), action.size, 85); return viewport ? { ...state, viewport } : state; }
+    case 'fit-layer': if(state.viewportEditing)return editorReducer(state,{type:'fit-entities',entityIds:state.document.entities.filter(e=>e.layerId===action.layerId).map(e=>e.id),size:action.size});if(state.layoutId)return {...state,layoutViewport:null}; { const viewport = state.viewMode==='axonometric'?fitToBounds(projectedSceneBounds(state.document,state.projection,undefined,action.layerId),action.size,85):fitRotatedBounds(layerBounds(state.document,action.layerId),action.size,viewRotation(state.viewport),85); return viewport ? { ...state, viewport } : state; }
     case 'choose-symbol': {
       if(state.viewMode==='axonometric')return {...state,error:AXON_EDIT_MESSAGE};
       if (state.transactionBefore) return state;
@@ -288,7 +319,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const selectedEntityIds = [...selected];
       const oldOrder = action.mode === 'replace' ? [] : state.orderedPointIds.filter(id=>selected.has(id));
       const newPoints = selectedEntityIds.filter(id=>!oldOrder.includes(id) && state.document.entities.some(e=>e.id===id && e.type==='point'));
-      return { ...state, marqueeActive:false, selectedEntityIds, selectionId:selectedEntityIds.at(-1)??null, selectedLayerId:null, orderedPointIds:[...oldOrder,...newPoints] };
+      return { ...state, selectedPaperIds:action.mode==='replace'?[]:state.selectedPaperIds,selectionScopeLabel:null, marqueeActive:false, selectedEntityIds, selectionId:selectedEntityIds.at(-1)??null, selectedLayerId:null, orderedPointIds:[...oldOrder,...newPoints] };
     }
     case 'open-move-input': if(state.deepSelection)return {...state,error:NESTED_MOVE_MESSAGE}; return state.transactionBefore ? state : { ...state, moveInputOpen: true, moveInputFocusEpoch: state.moveInputFocusEpoch + 1, tool: 'select', symbolPlacement: null };
     case 'close-move-input': return { ...state, moveInputOpen: false };
@@ -400,7 +431,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         if (document === state.document) return { ...state, error: null };
         const hiddenSelection = action.type === 'execute' && action.command.type === 'set-layer-visibility' && !action.command.visible
           && state.document.entities.find(item => item.id === state.selectionId)?.layerId === action.command.layerId;
-        return { ...state, ...reconcileLayers(document, state), document, past: pushHistory(state.past, state.document), future: [],
+        return { ...state, ...reconcileLayers(document, state), selectedPaperIds:reconcilePaperSelection(document,state), document, past: pushHistory(state.past, state.document), future: [],
           selectionId: hiddenSelection ? null : reconcileSelection(document, state.selectionId), selectedEntityIds: hiddenSelection ? [] : state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
       } catch (error) {
         return { ...state, error: error instanceof Error ? error.message : 'Не удалось изменить документ' };
@@ -441,7 +472,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if (state.transactionBefore) return editorReducer({ ...state, transactionBefore: null }, action);
       if (!state.past.length) return state;
       const document = state.past[state.past.length - 1]!;
-      return { ...state, ...reconcileLayers(document, state), document, past: state.past.slice(0, -1), future: [...state.future, state.document],
+      return { ...state, ...reconcileLayers(document, state), selectedPaperIds:reconcilePaperSelection(document,state), document, past: state.past.slice(0, -1), future: [...state.future, state.document],
         selectionId: reconcileSelection(document, state.selectionId), selectedEntityIds: state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
     }
     case 'redo': {
@@ -452,12 +483,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if (state.dimensionRetarget || state.dimensionPick) return { ...state, transactionBefore: null, dimensionRetarget: null, dimensionPick: null };
       if (!state.future.length || state.transactionBefore) return state;
       const document = state.future[state.future.length - 1]!;
-      return { ...state, ...reconcileLayers(document, state), document, past: pushHistory(state.past, state.document), future: state.future.slice(0, -1),
+      return { ...state, ...reconcileLayers(document, state), selectedPaperIds:reconcilePaperSelection(document,state), document, past: pushHistory(state.past, state.document), future: state.future.slice(0, -1),
         selectionId: reconcileSelection(document, state.selectionId), selectedEntityIds: state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
     }
     case 'clear-error': return { ...state, error: null };
     case 'report-error': return { ...state, error: action.message };
     case 'select': {
+      state={...state,selectedPaperIds:[],selectionScopeLabel:null};
       state={...state,deepSelection:null,hitStackStatus:null};
       if (action.entityId === null) return { ...state, selectionId: null, selectedEntityIds: [], selectedLayerId: null, orderedPointIds: [], dimensionPick: null };
       const entity = state.document.entities.find(item => item.id === action.entityId);
@@ -471,15 +503,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return { ...state, selectionId, selectedEntityIds, selectedLayerId: null, orderedPointIds };
     }
     case 'select-layer': return state.document.layers.some(layer => layer.id === action.layerId)
-      ? { ...state, deepSelection:null,hitStackStatus:null,currentLayerId: action.layerId, selectedLayerId: action.layerId, selectionId: null, selectedEntityIds: [], orderedPointIds: [], moveInputOpen: false } : state;
+      ? { ...state, selectedPaperIds:[],selectionScopeLabel:null,deepSelection:null,hitStackStatus:null,currentLayerId: action.layerId, selectedLayerId: action.layerId, selectionId: null, selectedEntityIds: [], orderedPointIds: [], moveInputOpen: false } : state;
     case 'select-layer-objects': {
       if (!state.document.layers.some(layer => layer.id === action.layerId)) return state;
       const ids = state.document.entities.filter(entity => entity.layerId === action.layerId).map(entity => entity.id);
-      return { ...state, deepSelection:null,hitStackStatus:null,currentLayerId: action.layerId, selectedLayerId: null, selectedEntityIds: ids, selectionId: ids[0] ?? null, orderedPointIds: [] };
+      return { ...state, selectedPaperIds:[],selectionScopeLabel:null,deepSelection:null,hitStackStatus:null,currentLayerId: action.layerId, selectedLayerId: null, selectedEntityIds: ids, selectionId: ids[0] ?? null, orderedPointIds: [] };
     }
     case 'viewport': return { ...state, viewport: action.viewport };
-    case 'pan': if(state.layoutId)return state.layoutViewport?{...state,layoutViewport:panViewport(state.layoutViewport,action.delta)}:state;return { ...state, viewport: panViewport(state.viewport, action.delta) };
-    case 'zoom': if(state.layoutId)return state.layoutViewport?{...state,layoutViewport:zoomAt(state.layoutViewport,action.size,action.anchor,action.factor)}:state;return { ...state, viewport: zoomAt(state.viewport, action.size, action.anchor, action.factor) };
+    case 'pan': if(state.viewportEditing&&state.layoutViewport){const vp=activeDxfViewport(state);if(vp)return {...state,viewportNavigation:navigationFromCamera(vp,panViewport(modelViewportCamera(vp,state.layoutViewport),action.delta),state.layoutViewport)};}if(state.layoutId)return state.layoutViewport?{...state,layoutViewport:panViewport(state.layoutViewport,action.delta)}:state;return { ...state, viewport: panViewport(state.viewport, action.delta) };
+    case 'zoom': if(state.viewportEditing&&state.layoutViewport){const vp=activeDxfViewport(state);if(vp)return {...state,viewportNavigation:navigationFromCamera(vp,zoomAt(modelViewportCamera(vp,state.layoutViewport),action.size,action.anchor,action.factor),state.layoutViewport)};}if(state.layoutId)return state.layoutViewport?{...state,layoutViewport:zoomAt(state.layoutViewport,action.size,action.anchor,action.factor)}:state;return { ...state, viewport: zoomAt(state.viewport, action.size, action.anchor, action.factor) };
     case 'tool': if(state.viewMode==='axonometric'&&!['select','pan'].includes(action.tool))return {...state,error:AXON_EDIT_MESSAGE}; state=editorReducer(state,{type:'cancel-connector'}); return { ...state,deepSelection:null,hitStackStatus:null, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
     case 'toggle-grid': return { ...state, gridVisible: !state.gridVisible };
   }

@@ -1,3 +1,4 @@
+import { editorCommand } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { autosaveSnapshot } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
@@ -19,11 +20,11 @@ async function setup(page: Page, duplicate = false) {
     const body = route.request().postDataJSON(); expect(Object.keys(body)).toEqual(['text']);
     await route.fulfill({ json: await provider.parseIntent({ text: body.text, signal: new AbortController().signal }) });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Новый документ', exact: true }).click();
-  await page.getByRole('button', { name: 'Импорт координат', exact: true }).click();
+  await page.goto('/'); await editorCommand(page, 'Новый документ');
+  await editorCommand(page, 'Импорт координат');
   await page.getByRole('textbox', { name: 'Вставьте координаты', exact: true }).fill(data + (duplicate ? '\nP1\t1001\t2001\t14' : ''));
   await page.getByRole('button', { name: `Импортировать (${duplicate ? 5 : 4})`, exact: true }).click();
-  await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  await editorCommand(page, 'Сохранить JSON');
   await expect(page.getByLabel('Есть несохранённые изменения')).toHaveCount(0);
 }
 async function snapshot(page: Page) { return { ...await autosaveSnapshot(page), writes: await page.evaluate(() => Reflect.get(window, '__writes').length) }; }
@@ -42,11 +43,11 @@ test('polyline preview/Apply/Undo/Redo shares canonical vertices and persists wi
   await page.getByRole('button', { name: 'Отменить', exact: true }).click(); await expect(path).toHaveCount(0); await expect(page.locator('[data-entity-type="point"]')).toHaveCount(4);
   await page.getByRole('button', { name: 'Повторить', exact: true }).click(); await expect(path).toHaveAttribute('data-entity-id', id!);
   await generate(page, 'Поставь размер между P1 и P2'); await page.getByRole('button', { name: 'Apply', exact: true }).click();
-  const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Сохранить JSON', exact: true }).click();
+  const download = page.waitForEvent('download'); await editorCommand(page, 'Сохранить JSON');
   const file = (await (await download).path())!, saved = JSON.parse(await readFile(file, 'utf8'));
   expect(saved.entities.filter((e: {type: string}) => ['polyline', 'dimension'].includes(e.type))).toHaveLength(2); expect(Object.keys(saved.vertices)).toHaveLength(4);
   expect(saved.entities.some((e: object) => 'generatedByAI' in e)).toBe(false);
-  await page.getByRole('button', { name: 'Новый документ', exact: true }).click(); await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(file);
+  await editorCommand(page, 'Новый документ'); await page.getByLabel('Файл GeoDocument', { exact: true }).setInputFiles(file);
   await expect(path).toHaveAttribute('data-entity-id', id!); await expect(page.getByTestId('dimension-value')).toHaveText('60,000 м');
 });
 test('dimension offset is local before Apply; moving source updates dimension and Undo restores it', async ({ page }) => {
