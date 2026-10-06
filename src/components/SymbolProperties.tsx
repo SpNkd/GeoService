@@ -3,7 +3,7 @@ import type { GeoDocument, SymbolEntity } from '../domain/model';
 import type { EditorAction } from '../store/editor';
 import { requireSymbol } from '../symbols/registry';
 import { MAX_SYMBOL_SCALE, MIN_SYMBOL_SCALE, normalizeSymbolRotation } from '../symbols/types';
-import { documentSurveyXY } from '../geometry/georeferencing';
+import { documentSurveyXY, modelToAbsoluteZ } from '../geometry/georeferencing';
 import { formatCoordinate } from '../geometry/format';
 import { absoluteMoveCommand } from '../domain/exactMove';
 function NumericField({label,value,min,max,disabled,onCommit}:{label:string;value:number;min?:number;max?:number;disabled:boolean;onCommit:(v:number)=>void}) {
@@ -15,6 +15,10 @@ function NumericField({label,value,min,max,disabled,onCommit}:{label:string;valu
 }
 export function SymbolProperties({entity,document,locked,dispatch}:{entity:SymbolEntity;document:GeoDocument;locked:boolean;dispatch:Dispatch<EditorAction>}) {
   const definition=requireSymbol(entity.libraryId,entity.symbolId),survey=documentSurveyXY(document,entity.position);
+  const [zDraft,setZDraft]=useState(entity.position.z===undefined?'':String(entity.position.z));
+  useEffect(()=>setZDraft(entity.position.z===undefined?'':String(entity.position.z)),[entity.position.z]);
+  const commitZ=()=>{const z=zDraft.trim()?Number(zDraft):undefined;if(z!==undefined&&!Number.isFinite(z)){setZDraft(entity.position.z===undefined?'':String(entity.position.z));return;}const position={...entity.position};if(z===undefined)delete position.z;else position.z=z;dispatch({type:'execute',command:{type:'set-symbol-position',entityId:entity.id,position}});};
+  const absolute=modelToAbsoluteZ(entity.position.z,document.verticalReference);
   const [name,setName]=useState(entity.name);
   useEffect(()=>setName(entity.name),[entity.name]);
   const position=(axis:'x'|'y',value:number)=>{try{dispatch({type:'execute',expectedDocument:document,command:absoluteMoveCommand(document,[entity.id],{...entity.position,[axis]:value})});}catch(error){dispatch({type:'report-error',message:error instanceof Error?error.message:'Нельзя переместить символ'});}};
@@ -24,6 +28,8 @@ export function SymbolProperties({entity,document,locked,dispatch}:{entity:Symbo
     <NumericField label="Масштаб символа" value={entity.scale} min={MIN_SYMBOL_SCALE} max={MAX_SYMBOL_SCALE} disabled={locked} onCommit={scale=>dispatch({type:'execute',command:{type:'update-entity',entityId:entity.id,patch:{scale}}})}/>
     <p className="property-note">Масштаб {MIN_SYMBOL_SCALE}–{MAX_SYMBOL_SCALE} изменяет изображение. Поворот относительно MODEL осей.</p>
     <NumericField label="MODEL X" value={entity.position.x} disabled={locked} onCommit={v=>position('x',v)}/><NumericField label="MODEL Y" value={entity.position.y} disabled={locked} onCommit={v=>position('y',v)}/>
+    <label className="coordinate-field"><span>MODEL Z</span><input aria-label="MODEL Z" type="number" step="any" placeholder="Нет Z · уровень 0" disabled={locked} value={zDraft} onChange={e=>setZDraft(e.target.value)} onBlur={commitZ} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/></label>
+    {document.verticalReference&&<dl className="property-facts"><dt>Absolute H</dt><dd data-testid="symbol-absolute-h">{absolute===undefined?'—':formatCoordinate(absolute)}</dd></dl>}
     {survey&&<dl className="property-facts"><dt>SURVEY E</dt><dd>{formatCoordinate(survey.e)}</dd><dt>SURVEY N</dt><dd>{formatCoordinate(survey.n)}</dd></dl>}
     <p className="property-note">Порты · {definition.ports.length}. Инструмент «Соединение» подключает символы; связи следуют за ними.</p>
   </div>;

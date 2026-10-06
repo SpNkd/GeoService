@@ -1,3 +1,4 @@
+import { presentationZ } from '../view/projection';
 import { modelToAbsoluteZ } from './georeferencing';
 import type { Entity, GeoDocument, LabelEntity, WorldPoint } from '../domain/model';
 import { entityVertexIds, getVertex, vertexPoint } from '../domain/model';
@@ -9,7 +10,7 @@ export function labelAnchor(document: GeoDocument, target: Entity): WorldPoint {
   if (target.type === 'symbol') return { ...target.position };
   const points = entityVertexIds(target).map(id => vertexPoint(getVertex(document.vertices, id)));
   if (target.type === 'point') return points[0]!;
-  if (target.type === 'line') return { x: (points[0]!.x + points[1]!.x) / 2, y: (points[0]!.y + points[1]!.y) / 2 };
+  if (target.type === 'line') return { ...(points.some(p=>p.z!==undefined)?{z:(presentationZ(points[0]!)+presentationZ(points[1]!))/2}:{}), x: (points[0]!.x + points[1]!.x) / 2, y: (points[0]!.y + points[1]!.y) / 2 };
   if (target.type === 'polyline') {
     const total = pathLength(points);
     if (!total) return points[0]!;
@@ -19,7 +20,7 @@ export function labelAnchor(document: GeoDocument, target: Entity): WorldPoint {
       const length = distance(points[i - 1]!, points[i]!);
       if (passed + length >= middle) {
         const t = length ? (middle - passed) / length : 0;
-        return { x: points[i - 1]!.x + (points[i]!.x - points[i - 1]!.x) * t, y: points[i - 1]!.y + (points[i]!.y - points[i - 1]!.y) * t };
+        return { ...(points.some(p=>p.z!==undefined)?{z:presentationZ(points[i-1]!)+(presentationZ(points[i]!)-presentationZ(points[i-1]!))*t}:{}), x: points[i - 1]!.x + (points[i]!.x - points[i - 1]!.x) * t, y: points[i - 1]!.y + (points[i]!.y - points[i - 1]!.y) * t };
       }
       passed += length;
     }
@@ -32,9 +33,9 @@ export function labelAnchor(document: GeoDocument, target: Entity): WorldPoint {
     const cross = (a.x - origin.x) * (b.y - origin.y) - (b.x - origin.x) * (a.y - origin.y);
     crossSum += cross; xSum += (a.x + b.x - 2 * origin.x) * cross; ySum += (a.y + b.y - 2 * origin.y) * cross;
   }
-  if (Math.abs(crossSum) > 1e-12) return { x: origin.x + xSum / (3 * crossSum), y: origin.y + ySum / (3 * crossSum) };
+  if (Math.abs(crossSum) > 1e-12) return { ...(points.some(p=>p.z!==undefined)?{z:points.reduce((n,p)=>n+presentationZ(p),0)/points.length}:{}), x: origin.x + xSum / (3 * crossSum), y: origin.y + ySum / (3 * crossSum) };
   const box = bounds(points)!;
-  return { x: box.minX / 2 + box.maxX / 2, y: box.minY / 2 + box.maxY / 2 };
+  return { ...(points.some(p=>p.z!==undefined)?{z:points.reduce((n,p)=>n+presentationZ(p),0)/points.length}:{}), x: box.minX / 2 + box.maxX / 2, y: box.minY / 2 + box.maxY / 2 };
 }
 
 export function defaultLabelTemplate(target: Entity): string {
@@ -68,5 +69,5 @@ export function resolvedLabelPosition(document: GeoDocument, label: LabelEntity)
   const target = document.entities.find(entity => entity.id === label.targetId);
   if (!target) return null;
   const anchor = labelAnchor(document, target);
-  return { x: anchor.x + label.dx, y: anchor.y + label.dy };
+  return { ...anchor, x: anchor.x + label.dx, y: anchor.y + label.dy };
 }

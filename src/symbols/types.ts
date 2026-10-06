@@ -1,4 +1,4 @@
-export interface SymbolPoint { x: number; y: number }
+export interface SymbolPoint { x: number; y: number; z?: number }
 export type SymbolPrimitive =
   | { type: 'line'; start: SymbolPoint; end: SymbolPoint }
   | { type: 'polyline' | 'polygon'; points: SymbolPoint[] }

@@ -4,10 +4,11 @@ import { requireSymbol } from './registry';
 import { normalizeSymbolRotation, type SymbolDefinition, type SymbolPoint, type SymbolPort, type SymbolPrimitive } from './types';
 export function symbolLocalToWorld(instance:SymbolEntity, point:SymbolPoint, definition:SymbolDefinition=requireSymbol(instance.libraryId,instance.symbolId,instance.libraryVersion)):SymbolPoint {
   const theta=instance.rotationDeg*Math.PI/180, scale=instance.scale*definition.defaultSize;
-  return {x:instance.position.x+scale*(point.x*Math.cos(theta)-point.y*Math.sin(theta)),y:instance.position.y+scale*(point.x*Math.sin(theta)+point.y*Math.cos(theta))};
+  return {...(instance.position.z===undefined?{}:{z:instance.position.z}),x:instance.position.x+scale*(point.x*Math.cos(theta)-point.y*Math.sin(theta)),y:instance.position.y+scale*(point.x*Math.sin(theta)+point.y*Math.cos(theta))};
 }
 export function symbolLocalPortToWorld(instance:SymbolEntity,port:SymbolPort,definition?:SymbolDefinition) {
-  return {...symbolLocalToWorld(instance,port.position,definition),directionDeg:normalizeSymbolRotation(port.directionDeg+instance.rotationDeg)};
+  const d=definition??requireSymbol(instance.libraryId,instance.symbolId,instance.libraryVersion);
+  return {...symbolLocalToWorld(instance,port.position,d),...(instance.position.z!==undefined||port.position.z!==undefined?{z:(instance.position.z??0)+(port.position.z??0)*instance.scale*d.defaultSize}:{}),directionDeg:normalizeSymbolRotation(port.directionDeg+instance.rotationDeg)};
 }
 export function primitivePoints(primitive:Exclude<SymbolPrimitive,{type:'circle'}>):SymbolPoint[] {
   if(primitive.type==='line') return [primitive.start,primitive.end];

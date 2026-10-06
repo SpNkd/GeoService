@@ -1,10 +1,12 @@
+import { projectionOf } from '../view/projection';
+import { connectorPresentationRoute } from '../view/geometry';
 import type { ConnectorEntity, GeoDocument, Viewport } from '../domain/model';
 import type { ViewSize } from '../geometry';
 import { worldToScreen } from '../geometry';
 import { connectorRoute } from '../connectors/model';
 import { vectorPath } from '../vectors/path';
 export function ConnectorView({entity,document,viewport,size,stroke,lineWeight,dash,editable}:{entity:ConnectorEntity;document:GeoDocument;viewport:Viewport;size:ViewSize;stroke:string;lineWeight:number;dash?:string|undefined;editable:boolean}) {
-  const points=connectorRoute(document,entity).map(p=>worldToScreen(p,viewport,size)),d=vectorPath(points,false);
+  const points=(projectionOf(viewport)?connectorPresentationRoute(document,entity):connectorRoute(document,entity)).map(p=>worldToScreen(p,viewport,size)),d=vectorPath(points,false);
   return <>
     <path data-connector-hit="" d={d} stroke="transparent" strokeWidth={14} fill="none"/>
     <path data-testid="connector-route" d={d} stroke={stroke} strokeWidth={lineWeight} strokeDasharray={dash} strokeLinejoin="round" fill="none" pointerEvents="none"/>

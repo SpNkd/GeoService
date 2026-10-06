@@ -1,3 +1,5 @@
+import { projectionOf, projectAxonometricBasis } from '../view/projection';
+import { AxonCanvasRenderer } from './AxonCanvasRenderer';
 import type { Entity, GeoDocument, Viewport, WorldPoint } from '../domain/model';
 import { entityPoints, entityVertexIds, type Vertex } from '../domain/model';
 import { worldToScreen, type ViewSize } from '../geometry';
@@ -22,6 +24,7 @@ export const canvasMetrics = () => ({ ...metrics, frames: [...metrics.frames] })
 /** The matrix maps small origin-relative coordinates to CSS/device pixels without huge cancelling products. */
 export function canvasTransform(view: Viewport, size: ViewSize, origin: WorldPoint, dpr = 1): Matrix {
   const p = worldToScreen(origin, view, size), z = view.pixelsPerUnit;
+  const projection=projectionOf(view);if(projection){const b=projectAxonometricBasis(projection.orientation);return [b.x.x*z*dpr,-b.x.y*z*dpr,b.y.x*z*dpr,-b.y.y*z*dpr,p.x*dpr,p.y*dpr];}
   return [z * dpr, 0, 0, -z * dpr, p.x * dpr, p.y * dpr];
 }
 export function appendPrimitive(path: Pick<Path2D, 'moveTo' | 'lineTo' | 'closePath' | 'arc'>, p: VectorPrimitive) {
@@ -39,6 +42,7 @@ const styleKey = (p: VectorPrimitive) => [p.layerId, p.colorMode, p.stroke, p.li
 
 /** Per active Canvas service; weak geometry keys never retain an obsolete document or SVG representation. */
 export class CanvasSceneRenderer {
+  private axon=new AxonCanvasRenderer();
   private lists = new WeakMap<VectorPrimitive[], DrawList>();
   private native = new WeakMap<Entity, { vertices: Vertex[]; list: DrawList }>();
   private pending: number | null = null;
@@ -91,6 +95,7 @@ export class CanvasSceneRenderer {
     if (this.canvas.width !== width) this.canvas.width = width;
     if (this.canvas.height !== height) this.canvas.height = height;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, width, height);
+    if(projectionOf(view)){this.drawn=new Set(this.axon.draw(ctx,document,items,view,size,dpr));const ms=performance.now()-start;metrics.draws++;metrics.drawMs+=ms;metrics.drawnOwners+=this.drawn.size;metrics.culledOwners+=items.length-this.drawn.size;metrics.frames.push(ms);if(metrics.frames.length>512)metrics.frames.shift();if(import.meta.env.DEV)this.canvas.dataset.drawnOwners=JSON.stringify([...this.drawn]);return;}
     const visible = viewportBounds(view, size), resolve = createVectorStyleResolver(document);
     this.drawn.clear();
     let currentMatrix:Matrix|null=null;

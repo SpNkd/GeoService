@@ -1,5 +1,4 @@
 import { DocumentSearch } from './components/DocumentSearch';
-import { editorViewDocument } from './store/editor';
 import { documentSurveyXY } from './geometry/georeferencing';
 import { entityPoints, type HorizontalReference } from './domain/model';
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -81,7 +80,7 @@ export default function App() {
   useEffect(()=>{if(!hydrationDone)return;if(skipNextAutosave.current){skipNextAutosave.current=false;return;}const revision=++autosaveRevision.current;pendingAutosave.current=true;setPersistence(previous=>previous.state==='error'?previous:{state:'saving'});if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=window.setTimeout(()=>{autosaveTimer.current=null;void saveAutosave(committed,committedDirty).then(record=>{if(revision!==autosaveRevision.current||!record)return;pendingAutosave.current=false;void getAutosaveInfo().then(info=>{if(revision===autosaveRevision.current)setPersistence(info?{state:'saved',info}:{state:'saved'});}).catch(()=>{if(revision===autosaveRevision.current)setPersistence({state:'saved'});});}).catch(error=>{if(revision!==autosaveRevision.current)return;pendingAutosave.current=false;const failure=error instanceof AutosaveError?error:new AutosaveError('WRITE_FAILED','Ошибка IndexedDB.');const message=storageFailureMessage(failure);setPersistence({state:'error',message});setNotice(message);});},500);return()=>{if(autosaveTimer.current!==null){window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;}};},[committed,committedDirty,hydrationDone]);
   useEffect(()=>{if(!hydrationDone)return;const flush=()=>{if(!pendingAutosave.current)return;if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;const current=latestCommitted.current;void saveAutosave(current.document,current.dirty);};window.addEventListener('pagehide',flush);return()=>window.removeEventListener('pagehide',flush);},[hydrationDone]);
   const [cursor, setCursor] = useState<ScreenPoint | null>(null);
-  const cursorWorld = cursor ? screenToWorld(cursor, state.viewport, size) : null;
+  const cursorWorld = cursor && state.viewMode==='plan' ? screenToWorld(cursor, state.viewport, size) : null;
   const cursorSurvey = cursorWorld && state.coordinateDisplay === 'survey' ? documentSurveyXY(state.document, cursorWorld) : null;
   const fitted = useRef(false);
   const onResize = useCallback((next: ViewSize) => {
@@ -93,9 +92,8 @@ export default function App() {
   }, [committed]);
   const openCalibration = useCallback(() => { dispatch({type:'tool',tool:'select'}); setGeoreferenceOpen(true); },[dispatch]);
   const fit = useCallback(() => {
-    const viewport = fitToBounds(visibleBounds(editorViewDocument({document:state.document,isolation:state.isolation})), size, 85);
-    if (viewport) dispatch({ type: 'viewport', viewport });
-  }, [dispatch, size, state.document, state.isolation]);
+    dispatch({type:'fit-view',size});
+  }, [dispatch, size]);
   const save = useCallback(() => {
     try {
       const text = serializeDocument(state.document);
@@ -192,8 +190,8 @@ export default function App() {
   useEffect(() => {
     if (aiTask?.resolution.status !== 'ready' || aiTask.id === fittedAiTask.current || !aiTask.requiresConfirmation || size.width <= 1) return;
     const viewport = fitToBounds(bounds([...taskPreviews(aiTask).flatMap(preview => preview.result.geometry), ...aiTask.referenceEntityIds.flatMap(id=>{const entity=aiTask.basedOnDocument.entities.find(e=>e.id===id);return entity?entityPoints(entity,aiTask.basedOnDocument.vertices):[];})]), size, 100);
-    if (viewport) { dispatch({ type: 'viewport', viewport }); fittedAiTask.current = aiTask.id; }
-  }, [aiTask, size]);
+    if (viewport&&state.viewMode==='plan') { dispatch({ type: 'viewport', viewport }); fittedAiTask.current = aiTask.id; }
+  }, [aiTask, size, state.viewMode]);
   const zoom = (factor: number) => dispatch({ type: 'zoom', size, anchor: { x: size.width / 2, y: size.height / 2 }, factor });
   const step = gridStep(state.viewport.pixelsPerUnit);
   const selected = state.document.entities.find(entity => entity.id === state.selectionId);
@@ -235,10 +233,9 @@ export default function App() {
       </div></details>
       <label>Сетка <input className="snap-step-input" aria-label="Шаг привязки сетки" type="number" min="0.000001" step="any" list="snap-steps" value={state.snapOptions.gridStep ?? 1} onChange={event => { const gridStep = Number(event.target.value); if (gridStep > 0 && Number.isFinite(gridStep)) dispatch({ type: 'snap-options', patch: { gridStep } }); }} /> м</label><datalist id="snap-steps">{[0.1, 0.25, 0.5, 1, 2, 5, 10, 20].map(step => <option key={step} value={step} />)}</datalist>
       <button className={`tool-button compact ${state.ortho ? 'active' : ''}`} aria-label="Ортогональный режим" aria-pressed={state.ortho} title="ORTHO · F8" onClick={() => dispatch({ type: 'toggle-ortho' })}>ORTHO {state.ortho ? 'ON' : 'OFF'}</button>
-      <label>Координаты <select aria-label="Отображение координат" value={state.coordinateDisplay} onChange={event => dispatch({ type: 'coordinate-display', mode: event.target.value as 'model' | 'survey' })}><option value="model">Model · X/Y</option><option value="survey">Survey · E/N</option></select></label>
+      <label className="view-select">Вид: <select aria-label="Вид" value={state.viewMode==='plan'?'plan':state.projection.orientation} onChange={event=>dispatch({type:'view-mode',mode:event.target.value==='plan'?'plan':'axonometric',...(event.target.value==='plan'?{}:{orientation:event.target.value as 'NE'|'NW'|'SE'|'SW'}),size})}><option value="plan">План</option><option value="NE">Аксонометрия СВ</option><option value="NW">Аксонометрия СЗ</option><option value="SE">Аксонометрия ЮВ</option><option value="SW">Аксонометрия ЮЗ</option></select></label><label>Координаты <select aria-label="Отображение координат" value={state.coordinateDisplay} onChange={event => dispatch({ type: 'coordinate-display', mode: event.target.value as 'model' | 'survey' })}><option value="model">Model · X/Y</option><option value="survey">Survey · E/N</option></select></label>
       <label>Подписи точек <select aria-label="Подписи точек" value={state.pointLabelMode} onChange={event => dispatch({ type: 'point-labels', mode: event.target.value as PointLabelMode })}><option value="name">Имя</option><option value="name-z">Имя + Z</option><option value="z">Только Z</option></select></label>
       <label><input type="checkbox" checked={state.showLineLengths} onChange={() => dispatch({ type: 'toggle-line-lengths' })} />Длины линий</label>
-      <span>Shift + клик: добавить в выбор</span>
     </div>
     <main className="workspace"><LayersPanel inert={georeferenceOpen || dxfOpen} state={state} dispatch={dispatch} onCalibrate={openCalibration} /><div className="drawing-area">
       <Canvas key={state.documentEpoch} state={state} dispatch={dispatch} size={size} onResize={onResize} onCursor={setCursor} onSnap={setSnapStatus} onMeasure={setMeasurementStatus} disabled={dxfOpen || importOpen || (georeferenceOpen && pickingControl === null)} referencePreview={referencePreview ?? undefined} onPickPoint={pickingControl === null ? undefined : id => { setPickedControl({ slot: pickingControl, id }); setPickingControl(null); }} spaceHeld={spaceHeld} sequenceHint={sequenceHint} aiPreview={aiPreview} processPreview={application.ai.status==='process-preview'&&!state.transactionBefore?application.ai.plan:undefined} documentHighlightIds={application.ai.status==='document-preview'&&!state.transactionBefore?application.ai.plan.matchedEntityIds:undefined} aiReferenceIds={application.ai.status==='preview'?application.ai.plan.referenceEntityIds:undefined} />

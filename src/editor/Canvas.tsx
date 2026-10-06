@@ -1,3 +1,7 @@
+import { editorCamera, AXON_EDIT_MESSAGE } from '../store/editor';
+import { hitProjectedEntities, projectedSceneBounds, sortProjectedItems } from '../view/geometry';
+import { canvasEntity } from '../renderer/hybridScene';
+import { AxonGrid, AxonAxes } from '../renderer/AxonGrid';
 import { ProcessGhost } from '../renderer/ProcessGhost';
 import type { ProcessPlan } from '../process/plan';
 import { hitSymbolPort } from '../connectors/ports';
@@ -43,7 +47,7 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; documentHighlightIds?:readonly string[]|undefined; aiReferenceIds?: readonly string[] | undefined; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
+type Drag = {kind:'axon-inspect';pointerId:number;start:ScreenPoint;warned:boolean} | {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
 export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], processPreview, aiReferenceIds = [], documentHighlightIds = [], onPickPoint, referencePreview }: Props) {
@@ -60,14 +64,16 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const [snap, setSnap] = useState<SnapResult | null>(null);
   const [textDraft, setTextDraft] = useState<{ anchor: GeometryAnchor; screen: ScreenPoint; content: string } | null>(null);
   const [editingText, setEditingText] = useState<{ entityId: string; content: string; screen: ScreenPoint } | null>(null);
-  const { viewport, tool, isolation } = state;
+  const { tool, isolation } = state;
+  const viewport=useMemo(()=>editorCamera({viewport:state.viewport,viewMode:state.viewMode,projection:state.projection}),[state.viewport,state.viewMode,state.projection]);
+  const axon=state.viewMode==='axonometric';
   const canonical = state.selectionMove?.previewDocument ?? state.document;
   const document = useMemo(()=>editorViewDocument({document:canonical,isolation}),[isolation,canonical]);
   const committedBase=state.transactionBefore??state.document;
   const committed = useMemo(()=>editorViewDocument({document:committedBase,isolation}),[isolation,committedBase]);
   const provider = useMemo(() => createSnapProvider(committed), [committed]);
-  const items = useMemo(() => renderItems(document), [document]);
-  const scene=useMemo(()=>composeScene(items,rendererMode),[items,rendererMode]);
+  const items = useMemo(() => axon?sortProjectedItems(renderItems(document),document,state.projection):renderItems(document), [document,axon,state.projection]);
+  const scene=useMemo(()=>axon?{strata:[{kind:'canvas' as const,items:items.filter(i=>canvasEntity(i.entity))},{kind:'svg' as const,items:items.filter(i=>!canvasEntity(i.entity))}].filter(s=>s.items.length>0),fallback:false}:composeScene(items,rendererMode),[items,rendererMode,axon]);
   const nativeRoots=useMemo(()=>rendererMode==='svg'||scene.fallback?undefined:scene.strata.filter(s=>s.kind==='svg').flatMap(s=>s.items.flatMap(({entity:e})=>e.type==='block_instance'?[e.blockDefinitionId]:e.type==='imported_graphic'?e.primitives.flatMap(p=>p.kind==='block'?[p.blockDefinitionId]:[]):[])),[scene,rendererMode]);
   const previousTool = useRef(tool);
   const announceSnap = useCallback((result: SnapResult | null) => { setSnap(result); onSnap(result); }, [onSnap]);
@@ -76,7 +82,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     if (frame.current !== null) cancelAnimationFrame(frame.current);
     frame.current = null; pending.current = null;
     announceSnap(null);
-  }, [tool, state.snapOptions, announceSnap, onMeasure]);
+  }, [tool, state.viewMode, state.snapOptions, announceSnap, onMeasure]);
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
   useEffect(() => { onMeasure(null); onSnap(null); }, [onMeasure, onSnap]);
   useEffect(() => {
@@ -145,6 +151,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (active.pointerId === pointerId) { dispatch({ type: 'pan', delta: { x: point.x - active.last.x, y: point.y - active.last.y } }); active.last = point; }
       announceSnap(null); return;
     }
+    if(axon){if(active?.kind==='axon-inspect'&&!active.warned&&Math.hypot(point.x-active.start.x,point.y-active.start.y)>3){active.warned=true;dispatch({type:'report-error',message:AXON_EDIT_MESSAGE});}announceSnap(null);if(ref.current)ref.current.style.cursor=hitProjectedEntities(document,point,viewport,size).length?'pointer':'';return;}
     if(active?.kind==='connector-retarget'&&active.pointerId===pointerId){const target=hitSymbolPort(document,point,viewport,size);active.candidate=target;setPortHover(target);setDrawCursor(screenToWorld(point,viewport,size));dispatch({type:'preview-connector-port',target});announceSnap(null);return;}
     if(tool==='connector'||state.connectorInteraction?.kind==='retarget'){const target=hitSymbolPort(document,point,viewport,size);setPortHover(target);setDrawCursor(screenToWorld(point,viewport,size));announceSnap(null);return;}
     if (active?.kind === 'dimension-retarget' && active.pointerId === pointerId) {
@@ -220,6 +227,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       drag.current = { kind: 'pan', pointerId: event.pointerId, last: point };
       event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); return;
     }
+    if(axon){const ids=hitProjectedEntities(document,point,viewport,size),id=ids[0]??null;if(onPickPoint){if(document.entities.some(e=>e.id===id&&e.type==='point'))onPickPoint(id!);return;}dispatch({type:'select',entityId:id,toggle:event.shiftKey||event.ctrlKey||event.metaKey});drag.current={kind:'axon-inspect',pointerId:event.pointerId,start:point,warned:false};event.currentTarget.setPointerCapture(event.pointerId);return;}
     if (onPickPoint) { const entity = document.entities.find(item => item.id === hit?.getAttribute('data-entity-id')); if (entity?.type === 'point') onPickPoint(entity.id); return; }
     if(tool==='connector'||state.connectorInteraction?.kind==='retarget'){
       const target=hitSymbolPort(document,point,viewport,size);setPortHover(target);
@@ -391,7 +399,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     else if (active.kind === 'selection') {
       dispatch({ type: active.moved ? 'finish-selection-move' : 'cancel-transaction' });
       if (!active.moved && active.toggleOnClick) dispatch({ type: 'select', entityId: active.entityId, toggle: true });
-    } else if (active.kind !== 'pan') dispatch({ type: 'commit-transaction' });
+    } else if (active.kind !== 'pan'&&active.kind!=='axon-inspect') dispatch({ type: 'commit-transaction' });
     drag.current = null; setDragging(false); announceSnap(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
@@ -413,21 +421,21 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   useEffect(() => onMeasure(measurementStatus), [measurementStatus, onMeasure]);
   const previewPoints = [...draft.map(anchor => worldToScreen(anchor.position, viewport, size)), ...(drawCursor && !(tool === 'measure' && draft.length === 2) ? [worldToScreen(drawCursor, viewport, size)] : [])];
   const snapScreen = snap ? worldToScreen(snap.worldPosition, viewport, size) : null;
-  const selectionBox = state.selectedEntityIds.length > 1 ? selectionBounds(document, state.selectedEntityIds) : null;
-  const selectionTopLeft = selectionBox && worldToScreen({ x: selectionBox.minX, y: selectionBox.maxY }, viewport, size);
+  const selectionBox = state.selectedEntityIds.length > 1 ? (axon?projectedSceneBounds(document,state.projection,state.selectedEntityIds):selectionBounds(document, state.selectedEntityIds)) : null;
+  const selectionTopLeft = selectionBox && worldToScreen({ x: selectionBox.minX, y: selectionBox.maxY }, axon?state.viewport:viewport, size);
   const reference = referencePreview ?? document.horizontalReference;
   const north = surveyNorthDirection(reference?.transform);
   const surveyAvailable = Boolean(reference) || documentModelFrame(document) === 'projected';
   return <div className="canvas-wrap">
     <svg ref={ref} className={`drawing-canvas tool-${tool}`}
-      data-testid="drawing-canvas" data-center-x={viewport.center.x} data-center-y={viewport.center.y} data-zoom={viewport.pixelsPerUnit}
+      data-view-mode={state.viewMode} data-orientation={state.projection.orientation} data-origin-x={state.projection.origin.x} data-origin-y={state.projection.origin.y} data-origin-z={state.projection.origin.z} data-testid="drawing-canvas" data-center-x={viewport.center.x} data-center-y={viewport.center.y} data-zoom={viewport.pixelsPerUnit}
       data-renderer={scene.fallback?'svg-fallback':rendererMode}
       aria-label="Геодезическая схема" tabIndex={0} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={cancelDrag}
       onKeyDown={event => { if (event.key === 'Enter' && (tool === 'polyline' || tool === 'polygon') && draft.length) { event.preventDefault(); finishPath(); } }}
       onLostPointerCapture={() => { if(drag.current?.kind==='marquee') {dispatch({type:'cancel-marquee'});setMarquee(null);}  if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'cancel-transaction' }); drag.current = null; setDragging(false); }}
       onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); announceSnap(null); }}
       onDoubleClick={event => {
-        if (disabled || onPickPoint || state.deepSelection || event.altKey) return;
+        if (axon || disabled || onPickPoint || state.deepSelection || event.altKey) return;
         const area=event.currentTarget.getBoundingClientRect(),point={x:event.clientX-area.left,y:event.clientY-area.top};
         const id=hitOwners(document,screenToWorld(point,viewport,size),7/viewport.pixelsPerUnit,viewport.pixelsPerUnit)[0];
         if (tool === 'select' && id) {
@@ -440,9 +448,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         const points = draft.length > 1 && distance(draft[draft.length - 1]!.position, draft[draft.length - 2]!.position) < 1e-9 ? draft.slice(0, -1) : draft;
         finishPath(points.length && distance(last.position, points[points.length - 1]!.position) < 1e-9 ? points : [...points, last]);
       }} onContextMenu={event => event.preventDefault()}>
-      <BlockDefinitions document={document} {...(nativeRoots?{roots:nativeRoots}:{})} />
-      {state.gridVisible && <Grid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep ?? 1} />}
-      {scene.strata.map((stratum,index)=>stratum.kind==='canvas'?<CanvasStratum key={`canvas-${index}`} document={document} items={stratum.items} viewport={viewport} size={size}/>:<g key={`svg-${index}`}>{stratum.items.map(item => processPreview?.status==='ready'&&processPreview.removedConnectorIds.includes(item.entity.id)?null:<EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
+      {!axon&&<BlockDefinitions document={document} {...(nativeRoots?{roots:nativeRoots}:{})} />}
+      {state.gridVisible && (axon?<AxonGrid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep??1}/>:<Grid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep ?? 1} />)}
+      {scene.strata.map((stratum,index)=>stratum.kind==='canvas'?<CanvasStratum key={`canvas-${index}`} document={document} items={stratum.items} viewport={viewport} size={size}/>:<g key={`svg-${index}`}>{stratum.items.filter(item=>!axon||!state.selectedEntityIds.includes(item.entity.id)).map(item => processPreview?.status==='ready'&&processPreview.removedConnectorIds.includes(item.entity.id)?null:<EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
         selected={!state.deepSelection && state.selectedEntityIds.includes(item.entity.id) || state.orderedPointIds.includes(item.entity.id)}
         dimensionRetarget={state.dimensionRetarget?.dimensionId === item.entity.id ? state.dimensionRetarget : null}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
@@ -460,6 +468,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       {processPreview&&<ProcessGhost plan={processPreview} viewport={viewport} size={size}/>}
       {aiPreview.map((action, index) => <AiPreviewView key={action.id} result={action.result} viewport={viewport} size={size} actionNumber={aiPreview.length > 1 ? index + 1 : undefined} />)}
       {!state.deepSelection&&scene.strata.filter(s=>s.kind==='canvas').flatMap(s=>s.items).filter(item=>state.selectedEntityIds.includes(item.entity.id)).map(item=><CanvasSelectionView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}/>)}
+      {axon&&items.filter(item=>!canvasEntity(item.entity)&&state.selectedEntityIds.includes(item.entity.id)).map(item=><EntityView key={`selected-${item.entity.id}`} item={item} document={document} viewport={viewport} size={size} selected pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths}/>)}
       {state.deepSelection && <DeepSelectionView document={document} selection={state.deepSelection} viewport={viewport} size={size} />}
       {(tool==='connector'||state.connectorInteraction?.kind==='retarget')&&<ConnectorOverlay document={document} viewport={viewport} size={size} interaction={state.connectorInteraction} cursor={drawCursor} hover={portHover}/>}
       {tool === 'symbol' && state.symbolPlacement && drawCursor && <g pointerEvents="none"><SymbolView entity={{ type: 'symbol', id: 'ghost', name: 'Ghost', layerId: state.currentLayerId, ...state.symbolPlacement, position: { x: drawCursor.x, y: drawCursor.y }, scale: 1 }} viewport={viewport} size={size} color="#21836e" ghost /></g>}
@@ -485,8 +494,8 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     {editingText && <form className="text-entry inline-text-editor" style={{ left: Math.min(editingText.screen.x + 8, size.width - 230), top: Math.min(editingText.screen.y + 8, size.height - 60) }} onSubmit={event => { event.preventDefault(); if (editingText.content.trim()) dispatch({ type: 'execute', command: { type: 'update-entity', entityId: editingText.entityId, patch: { content: editingText.content } } }); setEditingText(null); ref.current?.focus(); }} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setEditingText(null); ref.current?.focus(); } }}>
       <label>Редактировать текст<input autoFocus aria-label="Редактировать текст" value={editingText.content} onChange={event => setEditingText({ ...editingText, content: event.target.value })} /></label><button type="submit">Готово</button><button type="button" onClick={() => setEditingText(null)}>Отмена</button>
     </form>}
-    <div className="canvas-caption"><span className="live-dot" /> МОДЕЛЬ <span>Метры · X / Y</span></div>
-    <div className="north-arrow" aria-label={surveyAvailable ? "Survey North в MODEL viewport" : "Ось MODEL +Y; Survey не задан"} data-testid="north-arrow" data-screen-x={north.screen.x} data-screen-y={north.screen.y} data-preview={Boolean(referencePreview)}><b>{surveyAvailable ? 'N' : '+Y'}</b><svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true"><g transform={`rotate(${north.rotationDegrees})`}><path d="M0 -18L-7 13l7-5 7 5z" fill="#405d6b" /><path d="M0 -18v26l7 5z" fill="#c7d4dc" /></g></svg></div>
-    <div className="canvas-help">{state.hitStackStatus && <span data-testid="hit-stack-status">Выбор {state.hitStackStatus.index+1}/{state.hitStackStatus.count} · {state.deepSelection?.blockPath.join(' → ')} · {state.deepSelection?.sourceType} </span>}{sequenceHint ? `${sequenceHint}…` : tool==='connector'||state.connectorInteraction?.kind==='retarget'?`${state.connectorInteraction?.kind==='retarget'?'Выберите новый порт':state.connectorInteraction?'Выберите конечный порт':'Выберите начальный порт'} · только свободные совместимые порты · Esc отмена`:tool === 'symbol' ? 'Символ: клик — вставить в текущий слой · R — поворот · Esc — отмена' : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Рамка → WINDOW / ← CROSSING · Shift добавляет · Ctrl/Cmd переключает · Drag за тело — перенос · Shift + drag — X/Y · M — Δ или MODEL X/Y · Space + drag — вид`}</div>
+    <div className="canvas-caption"><span className="live-dot" /> {axon?'АКСОНОМЕТРИЯ':'МОДЕЛЬ'} <span>{axon?'Метры · MODEL X / Y / Z':'Метры · X / Y'}</span></div>
+    {axon?<AxonAxes viewport={viewport}/>:<div className="north-arrow" aria-label={surveyAvailable ? "Survey North в MODEL viewport" : "Ось MODEL +Y; Survey не задан"} data-testid="north-arrow" data-screen-x={north.screen.x} data-screen-y={north.screen.y} data-preview={Boolean(referencePreview)}><b>{surveyAvailable ? 'N' : '+Y'}</b><svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true"><g transform={`rotate(${north.rotationDegrees})`}><path d="M0 -18L-7 13l7-5 7 5z" fill="#405d6b" /><path d="M0 -18v26l7 5z" fill="#c7d4dc" /></g></svg></div>}
+    <div className={`canvas-help${axon?' axon-help':''}`}>{state.hitStackStatus && <span data-testid="hit-stack-status">Выбор {state.hitStackStatus.index+1}/{state.hitStackStatus.count} · {state.deepSelection?.blockPath.join(' → ')} · {state.deepSelection?.sourceType} </span>}{axon?'Объекты без Z отображаются на уровне 0.000 · Выбор и точные X/Y/Z · Space + drag — вид. 3D-маршрут не задан; вертикальный переход отображается у конечного порта.':sequenceHint ? `${sequenceHint}…` : tool==='connector'||state.connectorInteraction?.kind==='retarget'?`${state.connectorInteraction?.kind==='retarget'?'Выберите новый порт':state.connectorInteraction?'Выберите конечный порт':'Выберите начальный порт'} · только свободные совместимые порты · Esc отмена`:tool === 'symbol' ? 'Символ: клик — вставить в текущий слой · R — поворот · Esc — отмена' : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Рамка → WINDOW / ← CROSSING · Shift добавляет · Ctrl/Cmd переключает · Drag за тело — перенос · Shift + drag — X/Y · M — Δ или MODEL X/Y · Space + drag — вид`}</div>
   </div>;
 });

@@ -1,3 +1,4 @@
+import { projectionOf } from '../view/projection';
 import { ConnectorView } from './ConnectorView';
 import { VectorView } from './VectorView';
 import { SymbolView } from './SymbolView';
@@ -22,7 +23,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   const world = entityPoints(entity, document.vertices);
   const screen = world.map(point => worldToScreen(point, viewport, size));
   const stroke = selected ? selectionColor : style.stroke;
-  const editable = selected && !layer.locked;
+  const editable = selected && !layer.locked && !projectionOf(viewport);
   const locked = editable && (entity.type === 'line' || entity.type === 'polyline' || entity.type === 'polygon') ? lockedVertexIds(document) : null;
   const attributes = { stroke, strokeWidth: selected ? 2.2 : style.lineWeight, strokeDasharray: style.dash };
   let shape: React.ReactNode;

@@ -14,6 +14,7 @@ import { blockAttributeLocalPosition } from '../vectors/geometry';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
+  | {type:'set-symbol-position';entityId:string;position:WorldPoint}
   | {type:'retarget-connector';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint}
   | {type:'set-connector-routing';entityId:string;routing:'direct'|'orthogonal'}
   | { type: 'set-entities-layer'; entityIds: string[]; layerId: string }
@@ -236,6 +237,13 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     const entities = document.entities.map(item => item.id === text.id ? { ...item, vertexId } : item);
     if (shared && !entities.some(item => item.id !== text.id && entityVertexIds(item).includes(old.id))) delete vertices[old.id];
     return { ...document, vertices, entities };
+  }
+  if(command.type==='set-symbol-position') {
+    const entity=document.entities.find(e=>e.id===command.entityId);if(!entity||entity.type!=='symbol')throw new Error('Символ не найден');
+    if(isLayerLocked(document,entity))throw new Error('Слой символа заблокирован');
+    if(!finitePoint(command.position))throw new Error('Координаты должны быть конечными числами');
+    if(entity.position.x===command.position.x&&entity.position.y===command.position.y&&entity.position.z===command.position.z)return document;
+    return {...document,entities:document.entities.map(e=>e===entity?{...entity,position:{...command.position}}:e)};
   }
   if(command.type==='update-block-attribute') {
     const owner=document.entities.find(item=>item.id===command.entityId);

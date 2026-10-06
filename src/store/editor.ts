@@ -1,3 +1,5 @@
+import { projectedSceneBounds, projectionOrigin } from '../view/geometry';
+import type { AxonOrientation, ProjectionContext, RenderCamera } from '../view/projection';
 import { connectorVisible, portTargetError } from '../connectors/model';
 import type { ConnectorEndpoint } from '../domain/model';
 import { NESTED_MOVE_MESSAGE, resolveDeepSelection, type DeepSelection } from '../editor/deepSelection';
@@ -19,7 +21,12 @@ import { resolveSelectionMove, projectSelectionMove, type ResolvedSelectionMove,
 export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure' | 'symbol' | 'connector';
 export type PointLabelMode = 'name' | 'name-z' | 'z';
 export type ConnectorInteraction = {kind:'create';start:ConnectorEndpoint;target:ConnectorEndpoint|null} | {kind:'retarget';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint|null};
+export const AXON_EDIT_MESSAGE='Перемещение в аксонометрии пока выполняется через точные координаты X/Y/Z. Для свободного перемещения используйте вид План.';
 export interface EditorState {
+  viewMode:'plan'|'axonometric';
+  projection:ProjectionContext;
+  planViewport:Viewport|null;
+  axonViewport:Viewport|null;
   connectorInteraction:ConnectorInteraction|null;
   isolation: {entityIds:readonly string[];label:string} | null;
   deepSelection: DeepSelection | null;
@@ -37,7 +44,10 @@ export interface EditorState {
   savedFingerprint: string; documentEpoch: number;
   orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean; ortho: boolean;
 }
+export const editorCamera=(state:Pick<EditorState,'viewport'|'viewMode'|'projection'>):RenderCamera=>state.viewMode==='plan'?state.viewport:{...state.viewport,projection:state.projection};
 export type EditorAction =
+  | {type:'view-mode';mode:'plan'|'axonometric';orientation?:AxonOrientation;size:ViewSize}
+  | {type:'fit-view';size:ViewSize}
   | {type:'pick-connector-port';target:ConnectorEndpoint}
   | {type:'begin-connector-retarget';entityId:string;endpoint:'start'|'end'}
   | {type:'preview-connector-port';target:ConnectorEndpoint|null}
@@ -113,14 +123,27 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { connectorInteraction:null,isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { viewMode:'plan',projection:{orientation:'NE',origin:{x:0,y:0,z:0}},planViewport:null,axonViewport:null,connectorInteraction:null,isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
 export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFingerprint'> & Partial<Pick<EditorState, 'transactionBefore'>>) =>
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
+  if(state.viewMode==='axonometric'&&['begin-selection-move','begin-dimension-pick','begin-dimension-retarget','begin-connector-retarget'].includes(action.type))return {...state,error:AXON_EDIT_MESSAGE};
   switch (action.type) {
+    case 'view-mode': {
+      if(state.transactionBefore)return {...state,error:'Завершите текущее редактирование перед сменой вида.'};
+      const orientation=action.orientation??state.projection.orientation;
+      if(action.mode===state.viewMode&&(action.mode==='plan'||orientation===state.projection.orientation))return state;
+      const first=state.axonViewport===null&&state.viewMode==='plan';
+      const projection={orientation,origin:first?projectionOrigin(editorViewDocument(state)):state.projection.origin};
+      const changed=orientation!==state.projection.orientation;
+      const viewport=action.mode==='plan'?(state.planViewport??state.viewport):(!first&&!changed?(state.axonViewport??state.viewport):(fitToBounds(projectedSceneBounds(editorViewDocument(state),projection),action.size,85)??{center:{x:0,y:0},pixelsPerUnit:40}));
+      return {...state,viewMode:action.mode,projection,viewport,planViewport:state.viewMode==='plan'?state.viewport:state.planViewport,axonViewport:state.viewMode==='axonometric'?state.viewport:state.axonViewport,tool:'select',symbolPlacement:null,connectorInteraction:null,dimensionPick:null,deepSelection:null,hitStackStatus:null,error:null};
+    }
+    case 'fit-view': {const doc=editorViewDocument(state),box=state.viewMode==='axonometric'?projectedSceneBounds(doc,state.projection):visibleBounds(doc),viewport=fitToBounds(box,action.size,85);return viewport?{...state,viewport}:state;}
+
     case 'cancel-connector':return state.connectorInteraction?{...state,connectorInteraction:null,transactionBefore:null,error:null}:state;
     case 'preview-connector-port':return state.connectorInteraction?{...state,connectorInteraction:{...state.connectorInteraction,target:action.target}}:state;
     case 'begin-connector-retarget':{
@@ -153,7 +176,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const requested=new Set(action.entityIds),ids=state.document.entities.filter(e=>requested.has(e.id)).map(e=>e.id);
       return {...state,selectedEntityIds:ids,selectionId:ids.at(-1)??null,orderedPointIds:[],selectedLayerId:null,deepSelection:null,hitStackStatus:null,tool:'select',error:null};
     }
-    case 'fit-entities': {const viewport=fitToBounds(selectionBounds(state.document,action.entityIds),action.size,85);return viewport?{...state,viewport}:state;}
+    case 'fit-entities': {const viewport=fitToBounds(state.viewMode==='axonometric'?projectedSceneBounds(state.document,state.projection,action.entityIds):selectionBounds(state.document,action.entityIds),action.size,85);return viewport?{...state,viewport}:state;}
     case 'isolate-entities': {
       if(state.transactionBefore)return state;
       const known=new Set(state.document.entities.map(e=>e.id)),entityIds=[...new Set(action.entityIds)].filter(id=>known.has(id));
@@ -166,8 +189,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if(!id || state.transactionBefore || action.candidate.selection && !resolveDeepSelection(state.document, action.candidate.selection))return state;
       return {...state,selectionId:id,selectedEntityIds:[id],selectedLayerId:null,orderedPointIds:[],deepSelection:action.candidate.selection,hitStackStatus:{index:action.index,count:action.count},moveInputOpen:false,error:null};
     }
-    case 'fit-layer': { const viewport = fitToBounds(layerBounds(state.document, action.layerId), action.size, 85); return viewport ? { ...state, viewport } : state; }
+    case 'fit-layer': { const viewport = fitToBounds(state.viewMode==='axonometric'?projectedSceneBounds(state.document,state.projection,undefined,action.layerId):layerBounds(state.document, action.layerId), action.size, 85); return viewport ? { ...state, viewport } : state; }
     case 'choose-symbol': {
+      if(state.viewMode==='axonometric')return {...state,error:AXON_EDIT_MESSAGE};
       if (state.transactionBefore) return state;
       try { const definition = requireSymbol(action.libraryId, action.symbolId); return { ...state, tool: 'symbol', symbolPlacement: { libraryId: action.libraryId, symbolId: action.symbolId, rotationDeg: definition.allowedRotations?.[0] ?? 0 }, error: null }; }
       catch (error) { return { ...state, error: error instanceof Error ? error.message : 'Символ не найден' }; }
@@ -380,7 +404,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'viewport': return { ...state, viewport: action.viewport };
     case 'pan': return { ...state, viewport: panViewport(state.viewport, action.delta) };
     case 'zoom': return { ...state, viewport: zoomAt(state.viewport, action.size, action.anchor, action.factor) };
-    case 'tool': state=editorReducer(state,{type:'cancel-connector'}); return { ...state,deepSelection:null,hitStackStatus:null, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
+    case 'tool': if(state.viewMode==='axonometric'&&!['select','pan'].includes(action.tool))return {...state,error:AXON_EDIT_MESSAGE}; state=editorReducer(state,{type:'cancel-connector'}); return { ...state,deepSelection:null,hitStackStatus:null, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
     case 'toggle-grid': return { ...state, gridVisible: !state.gridVisible };
   }
 }

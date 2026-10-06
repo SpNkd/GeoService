@@ -1,3 +1,4 @@
+import { projectedSceneBounds } from '../view/geometry';
 import { bounds, fitToBounds } from '../geometry';
 import { symbolBoundsPoints } from '../symbols/transforms';
 import { resolvePort } from '../connectors/model';
@@ -42,7 +43,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
     case 'process-fit-preview': {
       if(state.ai.status!=='process-preview'||state.ai.plan.status!=='ready'||state.editor.transactionBefore||processPlanStale(state.ai.plan,state.editor))return state;
       const plan=state.ai.plan,points=[...plan.symbols.flatMap(symbolBoundsPoints),...plan.connectors.flatMap(e=>[resolvePort(plan.projectedDocument!,e.start).world,resolvePort(plan.projectedDocument!,e.end).world])];
-      const viewport=fitToBounds(bounds(points),action.size,85);
+      const viewport=fitToBounds(state.editor.viewMode==='axonometric'?projectedSceneBounds(plan.projectedDocument!,state.editor.projection,[...plan.symbols,...plan.connectors].map(e=>e.id)):bounds(points),action.size,85);
       return viewport?{...state,editor:editorReducer(state.editor,{type:'viewport',viewport})}:state;
     }
     case 'process-refresh': {
@@ -88,7 +89,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       if (event.type === 'failure') return { ...state, ai: { status: 'error', message: event.message, ...(event.code ? { code: event.code } : {}), id: event.id, originalText: state.ai.text } };
       if ('status' in event.result && event.result.status === 'needs_clarification') return { ...state, ai: { status: 'needs_clarification', originalText: state.ai.text, questions: event.result.questions } };
       if ('status' in event.result) return { ...state, ai: { status: 'error', message: 'Эта команда пока не поддерживается.', code: 'UNSUPPORTED', id: event.id, originalText: state.ai.text } };
-      if(event.result.actions.every(isProcessAction))return {...state,ai:{status:'process-preview',notice:null,plan:resolveProcessPlan(event.result.actions,state.editor.transactionBefore??state.editor.document,{id:event.id,text:state.ai.text,targetLayerId:state.ai.targetLayerId,selectionIds:state.ai.selectionEntityIds,origin:state.editor.viewport.center})}};
+      if(event.result.actions.every(isProcessAction))return {...state,ai:{status:'process-preview',notice:null,plan:resolveProcessPlan(event.result.actions,state.editor.transactionBefore??state.editor.document,{id:event.id,text:state.ai.text,targetLayerId:state.ai.targetLayerId,selectionIds:state.ai.selectionEntityIds,origin:state.editor.viewMode==='plan'?state.editor.viewport.center:(state.editor.planViewport?.center??state.editor.projection.origin)})}};
       if(event.result.actions.every(isDocumentAction))return {...state,ai:{status:'document-preview',notice:null,plan:resolveDocumentPlan(event.result.actions,state.editor.transactionBefore??state.editor.document,state.ai.selectionEntityIds,event.id,state.ai.text)}};
       return { ...state, ai: { status: 'preview', notice: null, plan: resolveAiTaskPlan(event.result,
         state.editor.transactionBefore ?? state.editor.document, new Map(), { id: event.id, text: state.ai.text, targetLayerId:state.ai.targetLayerId,selectionEntityIds:state.ai.selectionEntityIds }) } };

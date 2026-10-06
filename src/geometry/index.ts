@@ -1,3 +1,4 @@
+import { projectionOf, projectXYZToAxonometric, type RenderCamera } from '../view/projection';
 import type { Viewport, WorldPoint } from '../domain/model';
 
 /** Screen Y grows down. World Y grows north. */
@@ -47,7 +48,8 @@ export function pathLength(vertices: readonly WorldPoint[], closed = false): num
   if (closed && vertices.length > 1) length += distance(vertices[vertices.length - 1]!, vertices[0]!);
   return length;
 }
-export function worldToScreen(point: WorldPoint, view: Viewport, size: ViewSize): ScreenPoint {
+export function worldToScreen(point: WorldPoint, view: RenderCamera, size: ViewSize): ScreenPoint {
+  const projection=projectionOf(view);if(projection)point=projectXYZToAxonometric(point,projection);
   return { x: (point.x - view.center.x) * view.pixelsPerUnit + size.width / 2,
     y: (view.center.y - point.y) * view.pixelsPerUnit + size.height / 2 };
 }

@@ -8,6 +8,7 @@ import type { DocumentCommand } from './commands';
 const entity = z.discriminatedUnion('type', [entitySchema.options[0].strict(), ...entitySchema.options.slice(1).map(option => option.strict())])
   .refine(value => !('vertexIds' in value) || value.vertexIds.length <= 50000, 'Объект превышает лимит 50 000 ссылок на вершины');
 const commandSchema = z.discriminatedUnion('type', [
+  z.strictObject({type:z.literal('set-symbol-position'),entityId:id,position:worldPointSchema.strict()}),
   z.strictObject({type:z.literal('retarget-connector'),entityId:id,endpoint:z.enum(['start','end']),target:connectorEndpointSchema}),
   z.strictObject({type:z.literal('set-connector-routing'),entityId:id,routing:z.enum(['direct','orthogonal'])}),
   z.strictObject({type:z.literal('set-entities-layer'),entityIds:z.array(id).min(1).max(50000),layerId:id}),
