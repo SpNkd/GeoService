@@ -14,7 +14,7 @@ export const worldPointSchema = z.object({ x: finiteNumber, y: finiteNumber, z: 
 // Literal paint colours only: the layer swatch also uses this value in CSS background.
 const paintColour = z.string().max(100).refine(value => /^(?:[a-z]*|#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})|(?:rgb|hsl)a?\([\d\s.,%+\-/]+\))$/i.test(value.trim()), 'Ожидается цвет без URL, CSS variables или внешних ресурсов');
 const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional(), visible: z.boolean().optional(), source: sourceSchema.optional() };
-export const symbolEntitySchema = z.object({ ...base, type: z.literal('symbol'), libraryId: id, symbolId: id, position: symbolPositionSchema, rotationDeg: finiteNumber.min(0).lt(360), scale: symbolScaleSchema, properties: symbolPropertiesSchema.optional() });
+export const symbolEntitySchema = z.object({ ...base, type: z.literal('symbol'), libraryId: id, libraryVersion: id.optional(), symbolId: id, position: symbolPositionSchema, rotationDeg: finiteNumber.min(0).lt(360), scale: symbolScaleSchema, properties: symbolPropertiesSchema.optional() });
 export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('point'), vertexId: id }),
   z.object({ ...base, type: z.literal('line'), startVertexId: id, endVertexId: id }),
@@ -82,7 +82,7 @@ export function validateDocumentSemantics(document: GeoDocument): void {
   for (const [key, vertex] of Object.entries(document.vertices)) if (key !== vertex.id) throw new Error(`Vertex key ${key} does not match ID ${vertex.id}`);
   for (const layer of document.layers) if (!styles.has(layer.styleId)) throw new Error(`Layer ${layer.id} references missing style ${layer.styleId}`);
   for (const entity of document.entities) {
-    if (entity.type === 'symbol') { const definition = requireSymbol(entity.libraryId, entity.symbolId); if (definition.allowedRotations && !definition.allowedRotations.includes(entity.rotationDeg)) throw new Error(`Поворот символа ${entity.id} не разрешён определением`); }
+    if (entity.type === 'symbol') { const definition = requireSymbol(entity.libraryId, entity.symbolId, entity.libraryVersion); if (definition.allowedRotations && !definition.allowedRotations.includes(entity.rotationDeg)) throw new Error(`Поворот символа ${entity.id} не разрешён определением`); }
     if (!layers.has(entity.layerId)) throw new Error(`Entity ${entity.id} references missing layer ${entity.layerId}`);
     if (entity.styleId && !styles.has(entity.styleId)) throw new Error(`Entity ${entity.id} references missing style ${entity.styleId}`);
     for (const id of entityVertexIds(entity)) if (!Object.hasOwn(document.vertices, id)) throw new Error(`Entity ${entity.id} references missing vertex ${id}`);

@@ -22,7 +22,8 @@ export function registerSymbolLibrary(raw:SymbolLibrary):void {
 export const getLibrary=(libraryId:string)=>libraries.get(libraryId);
 export const getSymbol=(libraryId:string,symbolId:string)=>getLibrary(libraryId)?.symbols.find(symbol=>symbol.id===symbolId);
 export const listLibraries=()=>[...libraries.values()];
-export function requireSymbol(libraryId:string,symbolId:string) {
+export function requireSymbol(libraryId:string,symbolId:string,libraryVersion?:string) {
+  if(libraryVersion!==undefined&&getLibrary(libraryId)?.version!==libraryVersion)throw new Error(`Неизвестная версия библиотеки «${libraryId}»: ${libraryVersion}`);
   const symbol=getSymbol(libraryId,symbolId);
   if(!symbol) throw new Error(`Неизвестное обозначение: библиотека «${libraryId}», символ «${symbolId}». Подключите соответствующую библиотеку.`);
   return symbol;

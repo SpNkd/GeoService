@@ -1,3 +1,4 @@
+import { isProcessAction, processActionSchema, validateProcessActions } from '../process/schema';
 import { z } from 'zod';
 import { documentActionSchema, isDocumentAction } from '../documentOperations/schema';
 import { normalizeQuery } from '../documentOperations/aliases';
@@ -41,7 +42,7 @@ export const rectanglePlacementSchema = z.discriminatedUnion('type', [
 export const createRectangleIntentSchema = z.strictObject({ type: z.literal('create_rectangle'), name: names, width: z.number().finite().positive(), height: z.number().finite().positive(), sizeSource: z.string().trim().min(1).max(240).optional(), placement: rectanglePlacementSchema });
 export const alongEdgeIntentSchema = z.strictObject({type:z.literal('create_line_along_polygon_edge'),name:names,reference:entityReferenceSchema,side:z.enum(['north','south','east','west']),offsetMeters:z.number().finite().nonnegative(),offsetSide:z.enum(['inside','outside'])});
 export const rectangleArrayIntentSchema = z.strictObject({type:z.literal('create_rectangle_array'),nameBase:names,count:z.number().int().min(1).max(50),width:z.number().finite().positive(),height:z.number().finite().positive(),sizeSource:z.string().trim().min(1).max(240).nullish(),reference:entityReferenceSchema,direction:z.enum(['north','south','east','west']),gapFromReference:gapSchema,itemGap:z.number().finite().nonnegative()});
-export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, createRectangleIntentSchema,alongEdgeIntentSchema,rectangleArrayIntentSchema,...documentActionSchema.options]);
+export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, createRectangleIntentSchema,alongEdgeIntentSchema,rectangleArrayIntentSchema,...documentActionSchema.options,...processActionSchema.options]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 export const requestedPointNames = (action: AiAction): readonly string[] => 'pointNames' in action ? action.pointNames : [];
 export const clarificationSchema = z.strictObject({ status: z.literal('needs_clarification'), questions: z.array(z.string().trim().min(1).max(AI_LIMITS.clarificationQuestionLength)).min(1).max(AI_LIMITS.clarificationQuestions) });
@@ -51,6 +52,7 @@ export const aiTaskSchema = z.strictObject({ actions: z.array(aiActionSchema).mi
     if (task.actions.reduce((sum, action) => sum + ('points' in action ? action.points.length : requestedPointNames(action).length), 0) > AI_LIMITS.totalReferences)
       ctx.addIssue({ code: 'custom', message: 'Task превышает лимит ссылок' });
     if(task.actions.some(isDocumentAction)&&!task.actions.every(isDocumentAction))ctx.addIssue({code:'custom',message:'Document operations and geometry creation require separate tasks'});
+    if(task.actions.some(isProcessAction)){if(!task.actions.every(isProcessAction))ctx.addIssue({code:'custom',message:'Process and other operations require separate tasks'});else try{validateProcessActions(task.actions);}catch(e){ctx.addIssue({code:'custom',message:(e as Error).message});}}
     task.actions.forEach((action, index) => {
       if(action.type==='move_entities_to_layer'&&action.target.kind==='created_layer'&&(action.target.actionIndex>=index||task.actions[action.target.actionIndex]?.type!=='create_layer'))ctx.addIssue({code:'custom',message:'Target requires an earlier create_layer action'});
       if('query'in action&&action.query.kind==='block_attribute'&&!action.query.tag&&!action.query.value)ctx.addIssue({code:'custom',message:'ATTRIB needs tag or value'});
@@ -99,6 +101,7 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
   let cursor = 0;
   const nameCharacter = /[\p{L}\p{N}_-]/u;
   for (const action of parsed.data.actions) {
+    if(isProcessAction(action)){const refs=action.type==='append_process_symbols'?[action.reference]:action.type==='insert_symbol_between'?[action.from,action.to]:[];const items=action.type==='insert_symbol_between'?[action.item]:action.items;const literals=[...refs.flatMap(r=>r.kind==='named_entity'?[r.name]:[]),...items.flatMap(i=>i.name?[i.name]:[])];if(literals.some(l=>!normalizeQuery(text).includes(normalizeQuery(l))))throw new AiProviderError('LOCAL_VALIDATION_ERROR',undefined,'Имена process объектов должны присутствовать в запросе.');continue;}
     if(isDocumentAction(action)) {
       const literals:string[]=[];
       if(action.type==='create_layer')literals.push(action.name);

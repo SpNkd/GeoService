@@ -1,3 +1,4 @@
+import { isProcessAction } from '../process/schema';
 import { isDocumentAction } from '../documentOperations/schema';
 import { resolveSpatialAction, type ArrayReady } from './spatial';
 import { resolveEntityReference, type EntityReferenceContext } from './entityReferences';
@@ -56,7 +57,7 @@ export function resolveAiTaskPlan(task: AiTaskIntent, document: GeoDocument, cho
   let projectedDocument = document;
   const boundaryOutputs = new Map<number, ResolvedBoundaryOutput>();
   for (const [index, intent] of task.actions.entries()) {
-    if(isDocumentAction(intent)){result.resolution={status:'invalid',message:'Document operations use the local document resolver'};continue;}
+    if(isDocumentAction(intent)||isProcessAction(intent)){result.resolution={status:'invalid',message:'Document operations use the local document resolver'};continue;}
     const actionId = options.actionIds?.[index] ?? `${id}-action-${index + 1}`;
     let offsetOverride = options.offsets?.get(actionId) ?? null;
     const newReferences = resolveNamedPointReferences(requestedPointNames(intent).filter(name => createdNames.has(name)), projectedDocument, choices, pointNameIndex(projectedDocument.entities), false);

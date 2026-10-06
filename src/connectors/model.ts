@@ -29,7 +29,7 @@ export function resolvePort(document:GeoDocument,endpoint:ConnectorEndpoint) {
   if(endpoint.kind!=='symbol_port')throw new Error('Конец соединения должен ссылаться на порт символа.');
   const entity=connectivityIndex(document).entities.get(endpoint.symbolEntityId);
   if(!entity||entity.type!=='symbol')throw new Error('Символ подключения не найден.');
-  const definition=requireSymbol(entity.libraryId,entity.symbolId),port=definition.ports.find(p=>p.id===endpoint.portId);
+  const definition=requireSymbol(entity.libraryId,entity.symbolId,entity.libraryVersion),port=definition.ports.find(p=>p.id===endpoint.portId);
   if(!port)throw new Error(`Порт «${endpoint.portId}» символа «${entity.name}» не найден.`);
   if(!document.layers.some(l=>l.id===entity.layerId))throw new Error('Слой символа подключения не найден.');
   const world=symbolLocalPortToWorld(entity,port,definition);

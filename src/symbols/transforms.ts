@@ -2,7 +2,7 @@ import type { SymbolEntity } from '../domain/model';
 import { bounds } from '../geometry';
 import { requireSymbol } from './registry';
 import { normalizeSymbolRotation, type SymbolDefinition, type SymbolPoint, type SymbolPort, type SymbolPrimitive } from './types';
-export function symbolLocalToWorld(instance:SymbolEntity, point:SymbolPoint, definition:SymbolDefinition=requireSymbol(instance.libraryId,instance.symbolId)):SymbolPoint {
+export function symbolLocalToWorld(instance:SymbolEntity, point:SymbolPoint, definition:SymbolDefinition=requireSymbol(instance.libraryId,instance.symbolId,instance.libraryVersion)):SymbolPoint {
   const theta=instance.rotationDeg*Math.PI/180, scale=instance.scale*definition.defaultSize;
   return {x:instance.position.x+scale*(point.x*Math.cos(theta)-point.y*Math.sin(theta)),y:instance.position.y+scale*(point.x*Math.sin(theta)+point.y*Math.cos(theta))};
 }
@@ -16,7 +16,7 @@ export function primitivePoints(primitive:Exclude<SymbolPrimitive,{type:'circle'
 }
 /** Axis-aligned MODEL bounds, including exact circle extrema; ports are passive metadata. */
 export function symbolWorldBounds(instance:SymbolEntity) {
-  const definition=requireSymbol(instance.libraryId,instance.symbolId);
+  const definition=requireSymbol(instance.libraryId,instance.symbolId,instance.libraryVersion);
   return bounds(definition.geometry.flatMap(primitive=>{
     if(primitive.type!=='circle') return primitivePoints(primitive).map(point=>symbolLocalToWorld(instance,point,definition));
     const center=symbolLocalToWorld(instance,primitive.center,definition),r=primitive.radius*definition.defaultSize*instance.scale;

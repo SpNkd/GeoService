@@ -14,7 +14,7 @@ export interface PolygonEntity extends EntityBase { type: 'polygon'; vertexIds: 
 export interface TextEntity extends EntityBase { type: 'text'; vertexId: string; content: string; fontSize: number; rotationDeg?: number; height?: number }
 export interface LabelEntity extends EntityBase { type: 'label'; targetId: string; template: string; dx: number; dy: number }
 export interface DimensionEntity extends EntityBase { type: 'dimension'; startVertexId: string; endVertexId: string; offset: number; textPosition?: number }
-export interface SymbolEntity extends EntityBase { type: 'symbol'; libraryId: string; symbolId: string; position: { x: number; y: number }; rotationDeg: number; scale: number; properties?: Record<string, string | number | boolean | null> }
+export interface SymbolEntity extends EntityBase { type: 'symbol'; libraryId: string; libraryVersion?: string; symbolId: string; position: { x: number; y: number }; rotationDeg: number; scale: number; properties?: Record<string, string | number | boolean | null> }
 export interface ArcEntity extends EntityBase { type: 'arc'; center: WorldPoint; radius: number; startAngle: number; endAngle: number }
 export interface CircleEntity extends EntityBase { type: 'circle'; center: WorldPoint; radius: number }
 export interface BlockInstanceEntity extends EntityBase, BlockTransform { type: 'block_instance'; blockDefinitionId: string; attributes?: Record<string, string>; attributePrimitives?: VectorPrimitive[]; /** Absent in older v2 files, whose attribute positions are insert-relative MODEL offsets. */ attributeCoordinateSpace?: 'block-local' }

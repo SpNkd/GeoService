@@ -1,3 +1,5 @@
+import { ProcessGhost } from '../renderer/ProcessGhost';
+import type { ProcessPlan } from '../process/plan';
 import { hitSymbolPort } from '../connectors/ports';
 import { connectorVisible, connectorRoute } from '../connectors/model';
 import { ConnectorOverlay } from '../renderer/ConnectorOverlay';
@@ -10,7 +12,7 @@ import { CanvasStratum } from '../renderer/CanvasStratum';
 import { CanvasSelectionView } from '../renderer/CanvasSelectionView';
 import { DeepSelectionView } from '../renderer/DeepSelectionView';
 import { BlockDefinitions } from '../renderer/VectorView';
-import { requireSymbol } from '../symbols/registry';
+import { getLibrary, requireSymbol } from '../symbols/registry';
 import { blockAttributeLocalPosition, blockDefinition, blockMatrix, invertMatrix, type Matrix } from '../vectors/geometry';
 import { SymbolView } from '../renderer/SymbolView';
 import { marqueeEntities, type SelectionMode } from './marquee';
@@ -36,6 +38,7 @@ import { Grid } from '../renderer/Grid';
 import type { EditorAction, EditorState } from '../store/editor';
 
 interface Props {
+  processPreview?:ProcessPlan|undefined;
   onPickPoint?: ((id: string) => void) | undefined; referencePreview?: HorizontalReference | undefined;
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; documentHighlightIds?:readonly string[]|undefined; aiReferenceIds?: readonly string[] | undefined; aiPreview?: { id: string; result: ReadyResolution }[];
@@ -43,7 +46,7 @@ interface Props {
 type Drag = {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
-export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], aiReferenceIds = [], documentHighlightIds = [], onPickPoint, referencePreview }: Props) {
+export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], processPreview, aiReferenceIds = [], documentHighlightIds = [], onPickPoint, referencePreview }: Props) {
   const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
   const hitCycle = useRef<{document: typeof state.document; point: ScreenPoint; candidates: HitCandidate[]; index: number; zoom:number; center:WorldPoint} | null>(null);
   const lastTextClick = useRef<{ entityId: string; at: number; point: ScreenPoint } | null>(null);
@@ -239,7 +242,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       if (!layer || layer.locked || !layer.visible) { dispatch({ type: 'report-error', message: 'Текущий слой скрыт или заблокирован. Выберите доступный слой.' }); return; }
       const placement = state.symbolPlacement, definition = requireSymbol(placement.libraryId, placement.symbolId);
       const position = anchorAt(point).position;
-      const entity = { type: 'symbol' as const, id: newGeometryId('symbol'), name: definition.name, layerId: layer.id, libraryId: placement.libraryId, symbolId: placement.symbolId, position: { x: position.x, y: position.y }, rotationDeg: placement.rotationDeg, scale: 1 };
+      const entity = { type: 'symbol' as const, id: newGeometryId('symbol'), name: definition.name, layerId: layer.id, libraryId: placement.libraryId, libraryVersion: getLibrary(placement.libraryId)!.version, symbolId: placement.symbolId, position: { x: position.x, y: position.y }, rotationDeg: placement.rotationDeg, scale: 1 };
       dispatch({ type: 'execute', expectedDocument: committed, command: { type: 'add-entity', entity, vertices: [] } });
       dispatch({ type: 'select', entityId: entity.id }); dispatch({ type: 'tool', tool: 'select' }); setDrawCursor(null); return;
     }
@@ -439,7 +442,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       }} onContextMenu={event => event.preventDefault()}>
       <BlockDefinitions document={document} {...(nativeRoots?{roots:nativeRoots}:{})} />
       {state.gridVisible && <Grid viewport={viewport} size={size} snapStep={state.snapOptions.gridStep ?? 1} />}
-      {scene.strata.map((stratum,index)=>stratum.kind==='canvas'?<CanvasStratum key={`canvas-${index}`} document={document} items={stratum.items} viewport={viewport} size={size}/>:<g key={`svg-${index}`}>{stratum.items.map(item => <EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
+      {scene.strata.map((stratum,index)=>stratum.kind==='canvas'?<CanvasStratum key={`canvas-${index}`} document={document} items={stratum.items} viewport={viewport} size={size}/>:<g key={`svg-${index}`}>{stratum.items.map(item => processPreview?.status==='ready'&&processPreview.removedConnectorIds.includes(item.entity.id)?null:<EntityView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}
         selected={!state.deepSelection && state.selectedEntityIds.includes(item.entity.id) || state.orderedPointIds.includes(item.entity.id)}
         dimensionRetarget={state.dimensionRetarget?.dimensionId === item.entity.id ? state.dimensionRetarget : null}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
@@ -454,6 +457,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       })}</g>}
       <DocumentQueryHighlight document={state.document} entityIds={documentHighlightIds} viewport={viewport} size={size}/>
       {aiReferenceIds.map(id=>{const entity=document.entities.find(e=>e.id===id);if(!entity)return null;const points=entityPoints(entity,document.vertices).map(p=>worldToScreen(p,viewport,size));return <g key={id} data-testid="ai-reference-highlight" pointerEvents="none" stroke="#b77922" strokeWidth={3} strokeDasharray="7 4" fill="#b7792210"><GeometryPath points={points} closed={entity.type==='polygon'}/></g>;})}
+      {processPreview&&<ProcessGhost plan={processPreview} viewport={viewport} size={size}/>}
       {aiPreview.map((action, index) => <AiPreviewView key={action.id} result={action.result} viewport={viewport} size={size} actionNumber={aiPreview.length > 1 ? index + 1 : undefined} />)}
       {!state.deepSelection&&scene.strata.filter(s=>s.kind==='canvas').flatMap(s=>s.items).filter(item=>state.selectedEntityIds.includes(item.entity.id)).map(item=><CanvasSelectionView key={item.entity.id} item={item} document={document} viewport={viewport} size={size}/>)}
       {state.deepSelection && <DeepSelectionView document={document} selection={state.deepSelection} viewport={viewport} size={size} />}

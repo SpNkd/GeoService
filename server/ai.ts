@@ -1,3 +1,6 @@
+import { PROCESS_FIXTURES } from '../src/process/fixtures';
+import { processActionSchema } from '../src/process/schema';
+import { PROCESS_VOCABULARY } from '../src/process/semantics';
 import { documentActionSchema } from '../src/documentOperations/schema';
 /** Server-only Vite development endpoint. Never imported by src/main.tsx or a browser module. */
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -33,6 +36,12 @@ Query строго одно из: {kind:"semantic_concept",concepts:["buildings"
 semantic concepts: buildings,roads,slopes,utilities,annotations,dimensions,text,blocks,hatches,symbols. «здания/сооружения» → buildings; «дороги/проезды» → roads; «откосы» → slopes. Это намерения, не классификация неизвестного документа. Никогда не угадывай исходные имена слоёв/блоков для semantic concept.
 «Выбери/выдели» → select_entities; «найди» → find_entities (preview и fit без selection); «покажи» → fit_result; «покажи только» → isolate_result. «Покажи все размеры» → fit_result query semantic_concept dimensions. «Выбери все мультивыноски» → select_entities source_type MULTILEADER. «Найди 27.95» → find_entities text_contains 27.95 sourceType:null. «Скрой дороги и откосы» → set_layer_visibility visible:false query semantic_concept concepts:[roads,slopes]. «Выбери всё с исходного DXF-слоя _ГП_ЗИС» → source_layer. Просто «на слое Здания» → geoservice_layer. Сохраняй явно написанные имена и значения, включая подчёркивания. Не переводить VOLUME в buildings.
 «Создай слой Здания и перенеси туда все здания» → РОВНО [{type:"create_layer",name:"Здания"},{type:"move_entities_to_layer",query:{kind:"semantic_concept",concepts:["buildings"]},target:{kind:"created_layer",actionIndex:0}}]. target created_layer только предыдущий create_layer; target existing_layer с name для существующего слоя. «Перенеси выбранные объекты в слой Архив» → move_entities_to_layer query current_selection target existing_layer Архив. Перенос в слой разрешён; перемещение координат существующих объектов запрещено. Нет IDs, predicates, expressions, SQL, JS, commands. Весь каталог и результаты queries неизвестны модели; local resolver выполняется после проверки.
+Технологические схемы: доступны только последовательные цепочки известных semantic kinds: ${PROCESS_VOCABULARY}. Это семантический whitelist, не документ/catalog. Никаких libraryId, entityId, portId, координат или commands. Не смешивай process actions с geometry/document operations.
+create_process_chain: items:[{ref:"step-1",symbolKind:"input",name:null},...], connections:[{from:"step-1",to:"step-2"},...]. ref уникальны в action, step-1..step-N; connections ровно последовательные соседние items. До 50 новых symbols и 80 connections за task. Порядок пользователя сохраняется. Имя/tag только явно указанный в запросе, иначе name:null. "Собери линию: вход, кран, фильтр, регулятор давления, счётчик, выход" означает input,shutoff_valve,filter,pressure_regulator,gas_meter,output. "Клапан" без уточнения типа → valve (локальный chooser), "кран" → shutoff_valve.
+append_process_symbols: reference:{kind:"named_entity",name:"Ф-1"} или {kind:"current_selection"}, items:[...]. "После выбранного фильтра поставь регулятор давления и счётчик" → current_selection, pressure_regulator затем gas_meter. "После фильтра" → named_entity name:"фильтр". Только exact написанное имя/tag либо semantic alias; никаких выдуманных tags или IDs.
+insert_symbol_between: from:{kind:"named_entity",name:"К-1"},to:{kind:"named_entity",name:"РД-1"},item:{ref:"step-1",symbolKind:"filter",name:null}. "Между клапаном К-1 и регулятором РД-1 вставь фильтр" → from К-1,to РД-1,filter. Существующее соединение проверяется и заменяется только локально после preview. До выбора ports/layout LLM не имеет доступа.
+Для append/insert отсутствие явно написанного tag не требует clarification и не означает unsupported. Используй named_entity с нормализованным кратким semantic alias из vocabulary (именительный падеж) для упомянутого существующего Symbol; явный tag имеет приоритет и сохраняется точно. Модель не проверяет существование/занятость/неоднозначность объектов: это только локальный resolver/chooser после получения task. Слова «ещё один» означают один новый item, не неопределённый count.
+Параллельные ветви, произвольные тройники/tee/junction, connector-to-connector и неизвестное оборудование → unsupported всего запроса. Подходящего semantic splitter нет. instrument только КИП, не process inline. generic_equipment только явно запрошенный общий блок оборудования, не fallback неизвестного оборудования.
 Unsupported для всего запроса: Move/Delete существующей geometry, style changes, AI labels, PDF, rotation/scale/copy, произвольные constraints, routing вокруг препятствий, нормативное проектирование сети, collision solver. Не создавай частичную геометрию для unsupported части. Если существенные параметры полны и действия поддерживаются — actions без вопросов.`;
 const ACTION_OUTPUT_SCHEMAS: Record<string, unknown>[] = Object.entries({ create_boundary_from_named_points: [3, AI_LIMITS.pointNames], create_polyline_from_named_points: [2, AI_LIMITS.pointNames],
   create_dimension_between_named_points: [2, 2], measure_between_named_points: [2, 2] }).map(([type, [minItems, maxItems]]) =>
@@ -57,6 +66,9 @@ ACTION_OUTPUT_SCHEMAS.push(strictObject({type:{type:'string',enum:['create_recta
 const { $schema: _documentSchemaVersion, ...documentOutputSchema } = z.toJSONSchema(documentActionSchema); void _documentSchemaVersion;
 const providerSchema=(value:unknown):unknown=>Array.isArray(value)?value.map(providerSchema):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>key==='const'?['enum',[item]]:[key==='oneOf'?'anyOf':key,providerSchema(item)])):value;
 ACTION_OUTPUT_SCHEMAS.push(providerSchema(documentOutputSchema) as Record<string,unknown>);
+const {$schema:_processSchemaVersion,...processOutputSchema}=z.toJSONSchema(processActionSchema);void _processSchemaVersion;
+const requireAll=(v:unknown):unknown=>Array.isArray(v)?v.map(requireAll):v&&typeof v==='object'?Object.fromEntries([...Object.entries(v).map(([k,x])=>[k,requireAll(x)]),...('properties'in v?[['required',Object.keys(v.properties as object)]]:[])]):v;
+ACTION_OUTPUT_SCHEMAS.push(providerSchema(requireAll(processOutputSchema)) as Record<string,unknown>);
 ACTION_OUTPUT_SCHEMAS.push(bulkOutputSchema);
 export const OPENAI_OUTPUT_SCHEMA = { type: 'object', properties: { intent: { anyOf: [
   { type: 'object', properties: { actions: { type: 'array', items: { anyOf: ACTION_OUTPUT_SCHEMAS }, minItems: 1, maxItems: AI_LIMITS.actions } }, required: ['actions'], additionalProperties: false },
@@ -152,6 +164,7 @@ const fixture = (type: string, ...pointNames: string[]) => ({ type, pointNames }
 /** Named fixtures only; no hidden NLP fallback. */
 export function developmentMockProvider(): MockAiIntentProvider {
   const fixtures = new Map<string, unknown>([
+    ...PROCESS_FIXTURES,
     ['Выбери все здания',{actions:[{type:'select_entities',query:{kind:'semantic_concept',concepts:['buildings']}}]}],
     ['Создай слой Здания и перенеси туда все здания',{actions:[{type:'create_layer',name:'Здания'},{type:'move_entities_to_layer',query:{kind:'semantic_concept',concepts:['buildings']},target:{kind:'created_layer',actionIndex:0}}]}],
     ['Скрой дороги и откосы',{actions:[{type:'set_layer_visibility',query:{kind:'semantic_concept',concepts:['roads','slopes']},visible:false}]}],

@@ -1,0 +1,20 @@
+import { it, expect } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { resolveProcessPlan } from '../src/process/plan';
+import { chainAction } from '../src/process/fixtures';
+import { createNewDocument } from '../src/domain/newDocument';
+import { applyCommandsAtomically } from '../src/domain/commands';
+import { connectorRoute } from '../src/connectors/model';
+import { ProcessGhost } from '../src/renderer/ProcessGhost';
+import { EntityView } from '../src/renderer/EntityView';
+import { renderItems } from '../src/renderer/selectors';
+const reports:unknown[]=[];
+const measure=(fn:()=>unknown)=>{const times:number[]=[];for(let i=0;i<35;i++){const start=performance.now();fn();if(i>=5)times.push(performance.now()-start);}times.sort((a,b)=>a-b);return {medianMs:times[15],p95Ms:times[28]};};
+for(const count of [10,30,50])it(`process chain ${count}`,()=>{
+  const d=createNewDocument(),actions=[chainAction(Array(count).fill('filter'))],options={id:'benchmark',text:'synthetic benchmark',targetLayerId:'buildings',origin:{x:0,y:0}},plan=resolveProcessPlan(actions,d,options);expect(plan.status).toBe('ready');
+  const viewport={center:{x:0,y:0},pixelsPerUnit:10},size={width:1000,height:700};
+  const resolution=measure(()=>resolveProcessPlan(actions,d,options)),ghost=measure(()=>renderToStaticMarkup(createElement('svg',null,createElement(ProcessGhost,{plan,viewport,size})))),atomicApply=measure(()=>applyCommandsAtomically(d,plan.commands)),routing=measure(()=>plan.connectors.map(c=>connectorRoute(plan.projectedDocument!,c))),render=measure(()=>renderToStaticMarkup(createElement('svg',null,renderItems(plan.projectedDocument!).map(item=>createElement(EntityView,{key:item.entity.id,item,document:plan.projectedDocument!,viewport,size,selected:false})))));
+  reports.push({count,connectors:plan.connectors.length,resolution,ghost,atomicApply,routing,render});writeFileSync('/private/tmp/geoservice-process-benchmark.json',JSON.stringify(reports,null,2)+'\n');
+});

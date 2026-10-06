@@ -1,3 +1,4 @@
+import { ProcessPreview } from './ProcessPreview';
 import type { ViewSize } from '../geometry';
 import { DocumentOperationsPreview } from './DocumentOperationsPreview';
 import { lazy, Suspense, memo, useEffect, useMemo, useState, type Dispatch, type FormEvent } from 'react';
@@ -48,7 +49,7 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
   return <section className="ai-panel" aria-label="AI Assistant">
     <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? 'OpenRouter' : 'Не подключён'}</span></div>
-    <p className="ai-caption">Создание геометрии · поиск и операции над документом</p>
+    <p className="ai-caption">Геометрия · операции над документом · технологические схемы</p>
     <form onSubmit={generate}>
       <label htmlFor="ai-request">Запрос</label>
       <textarea id="ai-request" value={text} maxLength={AI_LIMITS.requestBytes} onChange={event => setText(event.target.value)} rows={3} />
@@ -65,6 +66,8 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
         {import.meta.env.DEV && <details><summary>Подробнее</summary><p>{ai.id} · {ai.code ?? 'LOCAL_VALIDATION_ERROR'}</p></details>}
       </div>}
       {(ai.status==='document-preview'||ai.status==='document-stale')&&<DocumentOperationsPreview ai={ai} dispatch={dispatch} size={size} transactionActive={transactionActive}/>}
+      {(ai.status==='process-preview'||ai.status==='process-stale')&&<ProcessPreview ai={ai} dispatch={dispatch} transactionActive={transactionActive} size={size}/>}
+      {ai.status==='process-applied'&&<p role="status">{ai.text}</p>}
       {ai.status==='document-applied'&&<p role="status">{ai.text}</p>}
       {ai.status === 'applied' && <p className="ai-message">Изменения применены. Undo отменит их одной операцией.</p>}
       {preview && <div className="ai-preview" data-testid="ai-plan" data-status={ai.status}>

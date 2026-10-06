@@ -4,7 +4,7 @@ import { worldToScreen, type ViewSize } from '../geometry';
 import { requireSymbol } from '../symbols/registry';
 import { primitivePoints, symbolLocalToWorld, symbolLocalPortToWorld, symbolWorldBounds } from '../symbols/transforms';
 export function SymbolView({entity,viewport,size,color='#405d6b',lineWeight=1.6,selected=false,ghost=false}:{entity:SymbolEntity;viewport:Viewport;size:ViewSize;color?:string;lineWeight?:number;selected?:boolean;ghost?:boolean}) {
-  const definition=requireSymbol(entity.libraryId,entity.symbolId),b=symbolWorldBounds(entity),tl=worldToScreen({x:b.minX,y:b.maxY},viewport,size);
+  const definition=requireSymbol(entity.libraryId,entity.symbolId,entity.libraryVersion),b=symbolWorldBounds(entity),tl=worldToScreen({x:b.minX,y:b.maxY},viewport,size);
   const screen=(p:{x:number;y:number})=>worldToScreen(symbolLocalToWorld(entity,p,definition),viewport,size);
   return <g data-testid={ghost?'symbol-ghost':undefined} opacity={ghost?.55:1}>
     {!ghost&&<rect data-symbol-hit="" x={tl.x-7} y={tl.y-7} width={(b.maxX-b.minX)*viewport.pixelsPerUnit+14} height={(b.maxY-b.minY)*viewport.pixelsPerUnit+14} fill={selected?'#277ec110':'transparent'} stroke={selected?color:'none'} strokeDasharray="3 3" pointerEvents="all"/>}

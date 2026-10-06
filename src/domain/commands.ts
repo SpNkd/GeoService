@@ -63,7 +63,7 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity, index
   }
   if (entity.styleId && !(index ? index.styles.has(entity.styleId) : document.styles.some(style => style.id === entity.styleId))) throw new Error('Стиль объекта не найден');
   if (entity.type === 'symbol') {
-    const definition = requireSymbol(entity.libraryId, entity.symbolId);
+    const definition = requireSymbol(entity.libraryId, entity.symbolId, entity.libraryVersion);
     if (!layer.visible) throw new Error('Нельзя создать символ в скрытом слое');
     if (definition.allowedRotations && !definition.allowedRotations.includes(entity.rotationDeg)) throw new Error('Поворот не разрешён определением символа');
   }
@@ -290,7 +290,7 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   if (command.type !== 'update-entity') { const exhaustive: never = command; throw new Error(`Неизвестная команда: ${String(exhaustive)}`); }
   if ((command.patch.rotationDeg !== undefined || command.patch.scale !== undefined) && entity.type !== 'symbol') throw new Error('Поворот и масштаб доступны только у символа');
   const rotationDeg = command.patch.rotationDeg === undefined ? undefined : normalizeSymbolRotation(command.patch.rotationDeg);
-  if (entity.type === 'symbol' && rotationDeg !== undefined) { const allowed = requireSymbol(entity.libraryId, entity.symbolId).allowedRotations; if (allowed && !allowed.includes(rotationDeg)) throw new Error('Поворот не разрешён определением символа'); }
+  if (entity.type === 'symbol' && rotationDeg !== undefined) { const allowed = requireSymbol(entity.libraryId, entity.symbolId, entity.libraryVersion).allowedRotations; if (allowed && !allowed.includes(rotationDeg)) throw new Error('Поворот не разрешён определением символа'); }
   if (command.patch.content !== undefined && entity.type !== 'text') throw new Error('Только у текстовой аннотации есть содержание');
   if (command.patch.template !== undefined && entity.type !== 'label') throw new Error('Шаблон доступен только у связанной подписи');
   if ((command.patch.dx !== undefined || command.patch.dy !== undefined) && entity.type !== 'label') throw new Error('Смещение доступно только у связанной подписи');
