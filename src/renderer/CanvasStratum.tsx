@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
+import { entityVertexIds } from '../domain/model';
 import type { GeoDocument, Viewport } from '../domain/model';
 import type { ViewSize } from '../geometry';
 import type { RenderItem } from './selectors';
@@ -13,4 +14,4 @@ export const CanvasStratum = memo(function CanvasStratum({ document, items, view
   return <foreignObject x={0} y={0} width={size.width} height={size.height} pointerEvents="none" data-testid="canvas-stratum">
     <canvas ref={ref} data-testid="dxf-canvas" style={{ width: size.width, height: size.height, display: 'block' }} />
   </foreignObject>;
-});
+},(a,b)=>a.viewport===b.viewport&&a.size===b.size&&a.document.layers===b.document.layers&&a.document.styles===b.document.styles&&a.document.blocks===b.document.blocks&&a.items.length===b.items.length&&a.items.every((item,i)=>item.entity===b.items[i]?.entity&&item.layer===b.items[i]?.layer&&item.style===b.items[i]?.style&&entityVertexIds(item.entity).every(id=>a.document.vertices[id]===b.document.vertices[id])));

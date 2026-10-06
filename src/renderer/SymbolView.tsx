@@ -13,6 +13,6 @@ export function SymbolView({entity,viewport,size,color='#405d6b',lineWeight=1.6,
       const points=primitivePoints(primitive).map(screen),d=vectorPath(points,primitive.type==='rect'||primitive.type==='polygon');
       return <path key={i} d={d}/>;
     })}</g>
-    {selected&&<g pointerEvents="none" data-testid="passive-ports">{definition.ports.map(port=>{const p=worldToScreen(symbolLocalPortToWorld(entity,port,definition),viewport,size);return <circle key={port.id} data-port-id={port.id} cx={p.x} cy={p.y} r={3.5} fill="white" stroke="#b77922" strokeDasharray="2 2"><title>{`${port.id} · пассивный порт`}</title></circle>;})}</g>}
+    {selected&&<g pointerEvents="none" data-testid="passive-ports">{definition.ports.map(port=>{const p=worldToScreen(symbolLocalPortToWorld(entity,port,definition),viewport,size);return <circle key={port.id} data-port-id={port.id} cx={p.x} cy={p.y} r={3.5} fill="white" stroke="#b77922" strokeDasharray="2 2"><title>{`${port.label??port.id} · ${port.kind}`}</title></circle>;})}</g>}
   </g>;
 }

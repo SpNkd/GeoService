@@ -19,7 +19,9 @@ export interface ArcEntity extends EntityBase { type: 'arc'; center: WorldPoint;
 export interface CircleEntity extends EntityBase { type: 'circle'; center: WorldPoint; radius: number }
 export interface BlockInstanceEntity extends EntityBase, BlockTransform { type: 'block_instance'; blockDefinitionId: string; attributes?: Record<string, string>; attributePrimitives?: VectorPrimitive[]; /** Absent in older v2 files, whose attribute positions are insert-relative MODEL offsets. */ attributeCoordinateSpace?: 'block-local' }
 export interface ImportedGraphicEntity extends EntityBase { type: 'imported_graphic'; position: WorldPoint; primitives: VectorPrimitive[]; semanticContent?: ImportedSemanticContent }
-export type Entity = PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity | SymbolEntity | ArcEntity | CircleEntity | BlockInstanceEntity | ImportedGraphicEntity;
+export interface ConnectorEndpoint { kind: 'symbol_port'; symbolEntityId: string; portId: string }
+export interface ConnectorEntity extends EntityBase { type: 'connector'; start: ConnectorEndpoint; end: ConnectorEndpoint; routing: 'direct' | 'orthogonal'; waypoints?: {x:number;y:number}[] }
+export type Entity = ConnectorEntity | PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity | SymbolEntity | ArcEntity | CircleEntity | BlockInstanceEntity | ImportedGraphicEntity;
 export interface SurveyXY { e: number; n: number }
 export interface RigidTransform2D { rotation: number; translation: SurveyXY; scale: 1 }
 export interface HorizontalControl { pointEntityId: string; vertexId: string; modelSnapshot: { x: number; y: number }; survey: SurveyXY }
@@ -46,7 +48,7 @@ export interface GeoDocument {
 export function entityVertexIds(entity: Entity): string[] {
   switch (entity.type) {
     case 'point': case 'text': return [entity.vertexId];
-    case 'label': case 'symbol': case 'arc': case 'circle': case 'block_instance': case 'imported_graphic': return [];
+    case 'connector': case 'label': case 'symbol': case 'arc': case 'circle': case 'block_instance': case 'imported_graphic': return [];
     case 'line': case 'dimension': return [entity.startVertexId, entity.endVertexId];
     case 'polyline': case 'polygon': return entity.vertexIds;
   }

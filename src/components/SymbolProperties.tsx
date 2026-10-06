@@ -25,6 +25,6 @@ export function SymbolProperties({entity,document,locked,dispatch}:{entity:Symbo
     <p className="property-note">Масштаб {MIN_SYMBOL_SCALE}–{MAX_SYMBOL_SCALE} изменяет изображение. Поворот относительно MODEL осей.</p>
     <NumericField label="MODEL X" value={entity.position.x} disabled={locked} onCommit={v=>position('x',v)}/><NumericField label="MODEL Y" value={entity.position.y} disabled={locked} onCommit={v=>position('y',v)}/>
     {survey&&<dl className="property-facts"><dt>SURVEY E</dt><dd>{formatCoordinate(survey.e)}</dd><dt>SURVEY N</dt><dd>{formatCoordinate(survey.n)}</dd></dl>}
-    <p className="property-note">Порты пассивные · {definition.ports.length}. Соединения пока не создаются.</p>
+    <p className="property-note">Порты · {definition.ports.length}. Инструмент «Соединение» подключает символы; связи следуют за ними.</p>
   </div>;
 }

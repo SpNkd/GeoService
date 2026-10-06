@@ -1,3 +1,4 @@
+import { connectorRoute } from '../connectors/model';
 import type { Entity, GeoDocument, WorldPoint } from '../domain/model';
 import type { SourceProvenance, VectorPrimitive } from '../vectors/types';
 import { VECTOR_LIMITS } from '../vectors/types';
@@ -157,7 +158,7 @@ export function resolveDeepSelection(document:GeoDocument,selection:DeepSelectio
 }
 /** Native geometry plus camera-scaled annotation bounds; never a browser event target. */
 export function nativeHit(document:GeoDocument,entity:Entity,world:WorldPoint,tolerance:number,pixelsPerUnit=document.viewport.pixelsPerUnit) {
-  const points=entityPoints(entity,document.vertices);
+  const points=entity.type==='connector'?connectorRoute(document,entity):entityPoints(entity,document.vertices);
   if(entity.type==='text') {
     const inv=inverse(blockMatrix({position:points[0]!,rotationDeg:entity.rotationDeg??0,scaleX:1,scaleY:1},{x:0,y:0}));if(!inv)return false;
     const p=transformPoint(world,inv),h=entity.height??entity.fontSize/pixelsPerUnit,lines=entity.content.split('\n');
@@ -170,7 +171,7 @@ export function nativeHit(document:GeoDocument,entity:Entity,world:WorldPoint,to
     if(segmentDistance(world,d.start,d.end)<=tolerance)return true;
     return ([[a,d.start],[b,d.end]] as const).some(([a,b])=>{const length=Math.hypot(b.x-a.x,b.y-a.y),t=length?Math.min(1,14/pixelsPerUnit/length):1;return t<1&&segmentDistance(world,{x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t},b)<=tolerance;});
   }
-  if(entity.type==='line'||entity.type==='polyline'||entity.type==='polygon') {
+  if(entity.type==='connector'||entity.type==='line'||entity.type==='polyline'||entity.type==='polygon') {
     for(let i=0;i<points.length-(entity.type==='polygon'?0:1);i++)if(segmentDistance(world,points[i]!,points[(i+1)%points.length]!)<=tolerance)return true;
     return entity.type==='polygon'&&inside(world,points);
   }

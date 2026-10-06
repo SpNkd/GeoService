@@ -4,7 +4,7 @@ const line=(x:number,y:number,X:number,Y:number):SymbolPrimitive=>({type:'line',
 const polygon=(points:number[][]):SymbolPrimitive=>({type:'polygon',points:points.map(([x,y])=>p(x!,y!))});
 const circle=(x=0,y=0,r=.35):SymbolPrimitive=>({type:'circle',center:p(x,y),radius:r});
 const rect=(x=-.35,y=-.3,width=.7,height=.6):SymbolPrimitive=>({type:'rect',position:p(x,y),width,height});
-const ports:SymbolPort[]=[{id:'in',kind:'process',position:p(-.5,0),directionDeg:180},{id:'out',kind:'process',position:p(.5,0),directionDeg:0}];
+const ports:SymbolPort[]=[{id:'in',label:'Левый порт / in',kind:'process',position:p(-.5,0),directionDeg:180},{id:'out',label:'Правый порт / out',kind:'process',position:p(.5,0),directionDeg:0}];
 const valve=[polygon([[-.5,-.25],[-.5,.25],[.5,-.25],[.5,.25]])];
 const equipment=[line(-.5,0,-.35,0),rect(),line(.35,0,.5,0)];
 const categories=['Арматура','Оборудование','КИП','Трубопровод / вспомогательные'];
@@ -31,6 +31,6 @@ const seeds: [string,string,number,SymbolPrimitive[],string[]][]=[
 export const gasProcessDemo:SymbolLibrary={id:'gas-process-demo',name:'Газоснабжение / технологическая схема',version:'1.0.0',
   description:'Demo / базовая библиотека газовой технологической схемы. Нормативное соответствие ГОСТ/СПДС не подтверждено.',categories,
   symbols:seeds.map(([id,name,category,geometry,aliases])=>({id,name,category:categories[category]!,geometry,aliases,defaultSize:2,
-    ports: ['pressure-gauge','instrument-point','temperature-gauge'].includes(id) ? [{id:'sense',kind:'instrument',position:p(0,-.5),directionDeg:270}] : id==='tee' ? [...ports,{id:'branch',kind:'process',position:p(0,.5),directionDeg:90}] : id==='vent' ? [{id:'in',kind:'process',position:p(0,-.5),directionDeg:270}] : id==='cap' ? [ports[0]!] : ports,
+    ports: ['pressure-gauge','instrument-point','temperature-gauge'].includes(id) ? [{id:'sense',kind:'instrument',position:p(0,-.5),directionDeg:270}] : id==='tee' ? [...ports,{id:'branch',kind:'process',position:p(0,.5),directionDeg:90}] : id==='vent' ? [{id:'in',label:'Левый порт / in',kind:'process',position:p(0,-.5),directionDeg:270}] : id==='cap' ? [ports[0]!] : ports,
   })),
 };

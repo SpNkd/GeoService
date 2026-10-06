@@ -31,7 +31,7 @@ export function resolveSelectionMove(document: GeoDocument, entityIds: readonly 
     // A selected label follows a fully translated target even if that target moves through shared topology.
     if (selected.has(entity.id) && !selected.has(entity.targetId) && !(target.type === 'symbol' ? selected.has(target.id) : entityVertexIds(target).length > 0 && entityVertexIds(target).every(id => vertices.has(id)))) labelOffsetIds.push(entity.id);
   }
-  if (!vertices.size && !labelOffsetIds.length && !independentEntityIds.length) throw new Error('Размер не перемещает исходную геометрию. Выберите геометрию или подпись.');
+  if (!vertices.size && !labelOffsetIds.length && !independentEntityIds.length) throw new Error(selectedEntities.some(e=>e.type==='connector')?'Соединение не перемещает символы. Выберите геометрию или подпись.':'Размер не перемещает исходную геометрию. Выберите геометрию или подпись.');
   const indirectlyLocked = document.entities.find(entity => affected.has(entity.id) && !unlockedLayers.has(entity.layerId));
   if (indirectlyLocked) throw new Error(`Перемещение затронет связанный объект на заблокированном слое «${document.layers.find(layer => layer.id === indirectlyLocked.layerId)?.name ?? indirectlyLocked.layerId}».`);
   return { entityIds: selectedEntities.map(entity => entity.id), vertexIds: [...vertices], labelOffsetIds, independentEntityIds,

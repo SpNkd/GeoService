@@ -19,6 +19,6 @@ export const symbolLibrarySchema=z.strictObject({
   categories:z.array(title).min(1).max(100),
   symbols:z.array(z.strictObject({id:symbolIdSchema,name:title,aliases:z.array(title).max(100).optional(),category:title,description:z.string().max(10000).optional(),
     geometry:z.array(primitive).min(1).max(1000),defaultSize:number.positive().max(1000),allowedRotations:z.array(number.min(0).lt(360)).min(1).max(360).refine(v => new Set(v).size === v.length, 'Повторяющиеся повороты').optional(),
-    ports:z.array(z.strictObject({id:symbolIdSchema,kind:z.enum(['process','instrument']),position:local,directionDeg:number})).max(100),metadata:symbolPropertiesSchema.optional(),
+    ports:z.array(z.strictObject({id:symbolIdSchema,kind:z.enum(['process','instrument']),position:local,directionDeg:number,label:title.optional(),maxConnections:number.int().positive().max(1000).optional()})).max(100),metadata:symbolPropertiesSchema.optional(),
   })).min(1).max(1000),
 });

@@ -112,7 +112,7 @@ export default function App() {
   }, [dirty, dispatch, size]);
   const runShortcut = useCallback((id: string) => {
     switch (id) {
-      case 'select': case 'line': case 'point': case 'polyline': case 'polygon': case 'text': case 'dimension': case 'measure':
+      case 'connector': case 'select': case 'line': case 'point': case 'polyline': case 'polygon': case 'text': case 'dimension': case 'measure':
         dispatch({ type: 'tool', tool: id }); break;
       case 'rotate-symbol': dispatch({ type: 'rotate-symbol' }); break;
       case 'move': dispatch({ type: 'open-move-input' }); break;
@@ -127,7 +127,7 @@ export default function App() {
         if(state.deepSelection){dispatch({type:'report-error',message:'Элемент является частью блока. Для перемещения выберите экземпляр блока.'});break;}
         const ids = state.selectedEntityIds.length ? state.selectedEntityIds : state.selectionId ? [state.selectionId] : [];
         const selected = new Set(ids);
-        const deletions = state.document.entities.filter(entity => selected.has(entity.id) && !(entity.type === 'label' && selected.has(entity.targetId))).map(entity => ({ type: 'delete-entity' as const, entityId: entity.id }));
+        const deletions = state.document.entities.filter(entity => selected.has(entity.id) && !(entity.type === 'label' && selected.has(entity.targetId))).sort((a,b)=>Number(b.type==='connector')-Number(a.type==='connector')).map(entity => ({ type: 'delete-entity' as const, entityId: entity.id }));
         if (deletions.length) { dispatch({ type: 'execute-batch', commands: deletions }); dispatch({ type: 'select', entityId: null }); }
         break;
       }
@@ -212,7 +212,7 @@ export default function App() {
         <button className="tool-button compact import-button" aria-label="Импорт координат" onClick={() => { dispatch({ type: 'tool', tool: 'select' }); setImportOpen(true); }}>Import</button>
       </div><div className="toolbar-divider" />
       <div className="tool-group">
-        {([['select', 'cursor', 'Выбор'], ['point', 'point', 'Точка'], ['line', 'line', 'Линия'], ['polyline', 'line', 'Полилиния'], ['polygon', 'polygon', 'Полигон'], ['text', 'text', 'Текст'], ['dimension', 'dimension', 'Размер'], ['measure', 'measure', 'Измерение'], ['pan', 'hand', 'Панорама']] as const).map(([tool, icon, label]) => {
+        {([['select', 'cursor', 'Выбор'], ['point', 'point', 'Точка'], ['line', 'line', 'Линия'], ['connector', 'line', 'Соединение'], ['polyline', 'line', 'Полилиния'], ['polygon', 'polygon', 'Полигон'], ['text', 'text', 'Текст'], ['dimension', 'dimension', 'Размер'], ['measure', 'measure', 'Измерение'], ['pan', 'hand', 'Панорама']] as const).map(([tool, icon, label]) => {
           const shortcutId = tool;
           const shortcut = shortcutRegistry.find(entry => entry.id === shortcutId)?.label;
           return <button key={tool} className={`tool-button compact ${state.tool === tool ? 'active' : ''}`} aria-label={`Инструмент: ${label}`} aria-pressed={state.tool === tool} title={`${label}${shortcut ? ` · ${shortcut}` : ''}`} onClick={() => dispatch({ type: 'tool', tool })}><Icon name={icon} size={16} />{label}</button>;

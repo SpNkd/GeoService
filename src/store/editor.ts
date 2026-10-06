@@ -1,3 +1,5 @@
+import { connectorVisible, portTargetError } from '../connectors/model';
+import type { ConnectorEndpoint } from '../domain/model';
 import { NESTED_MOVE_MESSAGE, resolveDeepSelection, type DeepSelection } from '../editor/deepSelection';
 import { requireSymbol } from '../symbols/registry';
 import { nextSymbolRotation } from '../symbols/types';
@@ -14,9 +16,11 @@ import { DEFAULT_SNAP_OPTIONS, type SnapOptions } from '../snapping';
 
 import { resolveSelectionMove, projectSelectionMove, type ResolvedSelectionMove, type Translation } from '../domain/selectionMove';
 
-export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure' | 'symbol';
+export type EditorTool = 'select' | 'pan' | 'point' | 'line' | 'polyline' | 'polygon' | 'text' | 'dimension' | 'measure' | 'symbol' | 'connector';
 export type PointLabelMode = 'name' | 'name-z' | 'z';
+export type ConnectorInteraction = {kind:'create';start:ConnectorEndpoint;target:ConnectorEndpoint|null} | {kind:'retarget';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint|null};
 export interface EditorState {
+  connectorInteraction:ConnectorInteraction|null;
   isolation: {entityIds:readonly string[];label:string} | null;
   deepSelection: DeepSelection | null;
   hitStackStatus: {index:number;count:number} | null;
@@ -34,6 +38,11 @@ export interface EditorState {
   orderedPointIds: string[]; snapOptions: SnapOptions; pointLabelMode: PointLabelMode; showLineLengths: boolean; ortho: boolean;
 }
 export type EditorAction =
+  | {type:'pick-connector-port';target:ConnectorEndpoint}
+  | {type:'begin-connector-retarget';entityId:string;endpoint:'start'|'end'}
+  | {type:'preview-connector-port';target:ConnectorEndpoint|null}
+  | {type:'finish-connector-retarget';target:ConnectorEndpoint|null}
+  | {type:'cancel-connector'}
   | {type:'select-entities';entityIds:readonly string[]}
   | {type:'fit-entities';entityIds:readonly string[];size:ViewSize}
   | {type:'isolate-entities';entityIds:readonly string[];label:string}
@@ -88,6 +97,7 @@ function reconcileSelection(document: GeoDocument, selectionId: string | null): 
   if (!selectionId) return null;
   const entity = document.entities.find(item => item.id === selectionId);
   if (!entity || entity.visible===false || !document.layers.find(layer => layer.id === entity.layerId)?.visible) return null;
+  if(entity.type==='connector'&&!connectorVisible(document,entity))return null;
   if (entity.type === 'label') {
     const target = document.entities.find(item => item.id === entity.targetId);
     if (!target || !document.layers.find(layer => layer.id === target.layerId)?.visible) return null;
@@ -103,7 +113,7 @@ function reconcileLayers(document: GeoDocument, state: EditorState) {
 
 export function initialEditorState(document: GeoDocument): EditorState {
   const currentLayerId = document.layers.find(layer => layer.id === 'boundary' && !layer.locked)?.id ?? document.layers.find(layer => !layer.locked)?.id ?? document.layers[0]!.id;
-  return { isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
+  return { connectorInteraction:null,isolation:null, deepSelection: null, hitStackStatus: null, symbolPlacement: null, marqueeActive: false, moveInputFocusEpoch: 0, moveInputOpen: false, selectionMove: null, coordinateDisplay: 'model', dimensionRetarget: null, dimensionPick: null, document, viewport: { ...document.viewport, center: { ...document.viewport.center } }, selectionId: null, selectedEntityIds: [], selectedLayerId: null, currentLayerId, tool: 'select', gridVisible: true,
     past: [], future: [], transactionBefore: null, error: null, savedFingerprint: documentFingerprint(document), documentEpoch: 0,
     orderedPointIds: [], snapOptions: { ...DEFAULT_SNAP_OPTIONS }, pointLabelMode: 'name-z', showLineLengths: false, ortho: false };
 }
@@ -111,6 +121,33 @@ export const isDocumentDirty = (state: Pick<EditorState, 'document' | 'savedFing
   Boolean(state.transactionBefore && state.document !== state.transactionBefore) || documentFingerprint(state.document) !== state.savedFingerprint;
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case 'cancel-connector':return state.connectorInteraction?{...state,connectorInteraction:null,transactionBefore:null,error:null}:state;
+    case 'preview-connector-port':return state.connectorInteraction?{...state,connectorInteraction:{...state.connectorInteraction,target:action.target}}:state;
+    case 'begin-connector-retarget':{
+      const e=state.document.entities.find(e=>e.id===action.entityId);
+      if(!e||e.type!=='connector'||state.transactionBefore||isLayerLocked(state.document,e))return state;
+      return {...state,tool:'select',deepSelection:null,dimensionPick:null,selectionId:e.id,selectedEntityIds:[e.id],connectorInteraction:{kind:'retarget',entityId:e.id,endpoint:action.endpoint,target:null},transactionBefore:state.document,error:null};
+    }
+    case 'finish-connector-retarget':{
+      const interaction=state.connectorInteraction;if(interaction?.kind!=='retarget')return state;
+      const base={...state,connectorInteraction:null,transactionBefore:null};
+      if(!action.target)return {...base,error:'Выберите совместимый свободный порт.'};
+      return editorReducer(base,{type:'execute',expectedDocument:state.transactionBefore??state.document,command:{type:'retarget-connector',entityId:interaction.entityId,endpoint:interaction.endpoint,target:action.target}});
+    }
+    case 'pick-connector-port':{
+      const interaction=state.connectorInteraction;
+      if(interaction?.kind==='retarget')return editorReducer(state,{type:'finish-connector-retarget',target:action.target});
+      if(state.tool!=='connector'||state.transactionBefore&&!interaction)return state;
+      const layer=state.document.layers.find(l=>l.id===state.currentLayerId);
+      if(!layer||layer.locked||!layer.visible)return {...state,error:'Текущий слой скрыт или заблокирован. Выберите доступный слой.'};
+      const error=portTargetError(state.document,action.target,interaction?.start);
+      if(error)return {...state,error};
+      if(!interaction)return {...state,connectorInteraction:{kind:'create',start:{...action.target},target:null},transactionBefore:state.document,error:null};
+      const entity={id:newGeometryId('connector'),name:'Соединение',type:'connector' as const,layerId:layer.id,start:interaction.start,end:action.target,routing:'orthogonal' as const};
+      const next=editorReducer({...state,connectorInteraction:null,transactionBefore:null},{type:'execute',expectedDocument:state.transactionBefore??state.document,command:{type:'add-entity',entity,vertices:[]}});
+      return next.error?next:{...next,tool:'select',selectionId:entity.id,selectedEntityIds:[entity.id]};
+    }
+
     case 'select-entities': {
       if(state.transactionBefore)return state;
       const requested=new Set(action.entityIds),ids=state.document.entities.filter(e=>requested.has(e.id)).map(e=>e.id);
@@ -273,7 +310,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       }
     }
     case 'transient': {
-      if (state.selectionMove) return state;
+      if (state.selectionMove || state.connectorInteraction) return state;
       if (!state.transactionBefore) return state;
       try {
         if (action.command.type !== 'update-vertex' && action.command.type !== 'move-vertex' && action.command.type !== 'move-text'
@@ -285,14 +322,16 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'begin-transaction': if(state.deepSelection&&!state.deepSelection.attribute)return {...state,error:NESTED_MOVE_MESSAGE}; return state.transactionBefore ? state : { ...state, transactionBefore: state.document };
     case 'commit-transaction': {
+      if(state.connectorInteraction)return editorReducer(state,{type:'cancel-connector'});
       if (state.selectionMove) return editorReducer(state, { type: 'finish-selection-move' });
       if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };
       const before = state.transactionBefore;
       return !before ? state : { ...state, past: state.document === before ? state.past : pushHistory(state.past, before),
         future: state.document === before ? state.future : [], transactionBefore: null };
     }
-    case 'cancel-transaction': return state.transactionBefore ? { ...state, document: state.transactionBefore, transactionBefore: null, dimensionRetarget: null, selectionMove: null, error: null } : state;
+    case 'cancel-transaction': return state.transactionBefore ? { ...state, document: state.transactionBefore, transactionBefore: null, dimensionRetarget: null, connectorInteraction:null,selectionMove: null, error: null } : state;
     case 'undo': {
+      if(state.connectorInteraction)return editorReducer(state,{type:'cancel-connector'});
       state={...state,deepSelection:null,hitStackStatus:null};
       if (state.selectionMove) return { ...state, selectionMove: null, transactionBefore: null, error: null };
       if (state.dimensionRetarget) return { ...state, transactionBefore: null, dimensionRetarget: null };
@@ -307,6 +346,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selectionId: reconcileSelection(document, state.selectionId), selectedEntityIds: state.selectedEntityIds.filter(id => reconcileSelection(document, id) !== null), orderedPointIds: reconcileOrdered(document, state.orderedPointIds), error: null };
     }
     case 'redo': {
+      if(state.connectorInteraction)return editorReducer(state,{type:'cancel-connector'});
       state={...state,deepSelection:null,hitStackStatus:null};
       if (state.selectionMove) return { ...state, selectionMove: null, transactionBefore: null, error: null };
       if (state.dimensionRetarget || state.dimensionPick) return { ...state, transactionBefore: null, dimensionRetarget: null, dimensionPick: null };
@@ -340,7 +380,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'viewport': return { ...state, viewport: action.viewport };
     case 'pan': return { ...state, viewport: panViewport(state.viewport, action.delta) };
     case 'zoom': return { ...state, viewport: zoomAt(state.viewport, action.size, action.anchor, action.factor) };
-    case 'tool': return { ...state,deepSelection:null,hitStackStatus:null, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
+    case 'tool': state=editorReducer(state,{type:'cancel-connector'}); return { ...state,deepSelection:null,hitStackStatus:null, tool: action.tool, symbolPlacement: action.tool === 'symbol' ? state.symbolPlacement : null };
     case 'toggle-grid': return { ...state, gridVisible: !state.gridVisible };
   }
 }
@@ -350,6 +390,6 @@ const isolatedViews=new WeakMap<GeoDocument,WeakMap<object,GeoDocument>>();
 export function editorViewDocument(state:Pick<EditorState,'document'|'isolation'>,document:GeoDocument=state.document):GeoDocument {
   if(!state.isolation)return document;
   let cache=isolatedViews.get(document);if(!cache){cache=new WeakMap();isolatedViews.set(document,cache);}const cached=cache.get(state.isolation);if(cached)return cached;
-  const ids=new Set(state.isolation.entityIds),targets=new Set(document.entities.flatMap(e=>ids.has(e.id)&&e.type==='label'?[e.targetId]:[]));
+  const ids=new Set(state.isolation.entityIds),targets=new Set(document.entities.flatMap(e=>!ids.has(e.id)?[]:e.type==='label'?[e.targetId]:e.type==='connector'?[e.start.symbolEntityId,e.end.symbolEntityId]:[]));
   const view={...document,entities:document.entities.filter(e=>ids.has(e.id)||targets.has(e.id)).map(e=>ids.has(e.id)?e.visible===false?{...e,visible:true}:e:{...e,visible:false}),layers:document.layers.map(l=>l.visible?l:{...l,visible:true})};cache.set(state.isolation,view);return view;
 }

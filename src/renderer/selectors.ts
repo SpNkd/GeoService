@@ -1,3 +1,4 @@
+import { connectorVisible, connectorRoute } from '../connectors/model';
 import { symbolBoundsPoints } from '../symbols/transforms';
 import { entityBoundsPoints, modelSelectionBounds } from '../geometry/entityBounds';
 import { entityPoints, getVertex, type Entity, type EntityStyle, type GeoDocument, type Layer, type Vertex } from '../domain/model';
@@ -13,6 +14,7 @@ export function renderItems(document: GeoDocument): RenderItem[] {
   const visible = new Set(document.layers.filter(layer => layer.visible).map(layer => layer.id));
   const groups = new Map<string, Entity[]>(), entities = new Map(document.entities.map(e => [e.id, e]));
   for (const entity of document.entities) {
+    if (entity.type==='connector'&&!connectorVisible(document,entity))continue;
     if (!visible.has(entity.layerId) || entity.visible === false || entity.type === 'label' && !visible.has(entities.get(entity.targetId)?.layerId ?? '')) continue;
     const group = groups.get(entity.layerId) ?? []; group.push(entity); groups.set(entity.layerId, group);
   }
@@ -23,6 +25,7 @@ export function renderItems(document: GeoDocument): RenderItem[] {
 export function visibleBounds(document: GeoDocument) {
   return bounds(renderItems(document).flatMap(({ entity }) => {
     if (['arc','circle','block_instance','imported_graphic'].includes(entity.type) || entity.type === 'text' && entity.height) return entityBoundsPoints(document,entity);
+    if(entity.type==='connector')return connectorRoute(document,entity);
     if (entity.type === 'symbol') return symbolBoundsPoints(entity);
     if (entity.type === 'label') { const anchor = resolvedLabelPosition(document, entity); return anchor ? [anchor] : []; }
     const points = entityPoints(entity, document.vertices);

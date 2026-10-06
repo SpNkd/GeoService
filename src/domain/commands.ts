@@ -1,3 +1,5 @@
+import { connectorRoute, connectivityIndex, validateConnector } from '../connectors/model';
+import type { ConnectorEndpoint } from './model';
 import { entityVertexIds, getVertex, vertexPoint, worldVertex, type Entity, type GeoDocument, type Layer, type PointEntity, type Vertex, type WorldPoint, type SurveyXY, type VerticalReference } from './model';
 import { validateDocument } from '../persistence/documentSchema';
 import { encodeDocument } from '../persistence/serialization';
@@ -12,6 +14,8 @@ import { blockAttributeLocalPosition } from '../vectors/geometry';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
+  | {type:'retarget-connector';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint}
+  | {type:'set-connector-routing';entityId:string;routing:'direct'|'orthogonal'}
   | { type: 'set-entities-layer'; entityIds: string[]; layerId: string }
   | { type: 'move-entities'; entityIds: string[]; delta: Translation }
   | { type: 'set-model-frame'; frame: 'local' | 'projected' }
@@ -36,6 +40,7 @@ export type DocumentCommand =
 
 const finitePoint = (point: WorldPoint) => Number.isFinite(point.x) && Number.isFinite(point.y) && (point.z === undefined || Number.isFinite(point.z));
 function cloneEntity(entity: Entity): Entity {
+  if (entity.type === 'connector') return {...entity,start:{...entity.start},end:{...entity.end},...(entity.waypoints?{waypoints:entity.waypoints.map(p=>({...p}))}:{})};
   if (entity.type === 'symbol') return { ...entity, position: { ...entity.position }, ...(entity.properties ? { properties: { ...entity.properties } } : {}) };
   return 'vertexIds' in entity ? { ...entity, vertexIds: [...entity.vertexIds] } as Entity : { ...entity };
 }
@@ -62,8 +67,9 @@ function assertUniqueDocumentEntity(document: GeoDocument, entity: Entity, index
     if (!layer.visible) throw new Error('Нельзя создать символ в скрытом слое');
     if (definition.allowedRotations && !definition.allowedRotations.includes(entity.rotationDeg)) throw new Error('Поворот не разрешён определением символа');
   }
+  if(entity.type==='connector'){if(!layer.visible)throw new Error('Нельзя создать соединение в скрытом слое');validateConnector(document,entity);}
   const ids = entityVertexIds(entity);
-  const minimum = ['label','symbol','arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 0 : entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
+  const minimum = ['connector','label','symbol','arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 0 : entity.type === 'polygon' ? 3 : entity.type === 'polyline' || entity.type === 'line' || entity.type === 'dimension' ? 2 : 1;
   if (ids.length < minimum) throw new Error(`Для объекта типа «${entity.type}» требуется не менее ${minimum} вершин`);
   for (const id of ids) if (!Object.hasOwn(document.vertices, id)) throw new Error(`Вершина ${id} не найдена`);
   if (entity.type === 'dimension' && (!Number.isFinite(entity.offset) || distance(getVertex(document.vertices, ids[0]!), getVertex(document.vertices, ids[1]!)) === 0)) throw new Error('Размер требует две разные позиции XY и конечный offset');
@@ -103,6 +109,15 @@ function applyEntityAdditions(document: GeoDocument, commands: readonly Extract<
 
 export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   const command = parseCommand(raw);
+  if(command.type==='retarget-connector'||command.type==='set-connector-routing'){
+    const entity=document.entities.find(e=>e.id===command.entityId);
+    if(!entity||entity.type!=='connector')throw new Error('Соединение не найдено.');
+    if(isLayerLocked(document,entity))throw new Error('Нельзя изменять соединение на заблокированном слое.');
+    const updated=command.type==='retarget-connector'?{...entity,[command.endpoint]:{...command.target}}:{...entity,routing:command.routing};
+    validateConnector(document,updated);
+    if(command.type==='set-connector-routing'?entity.routing===command.routing:entity[command.endpoint].symbolEntityId===command.target.symbolEntityId&&entity[command.endpoint].portId===command.target.portId)return document;
+    return {...document,entities:document.entities.map(e=>e.id===entity.id?updated:e)};
+  }
   if (command.type === 'move-entities') return projectSelectionMove(document, resolveSelectionMove(document, command.entityIds), command.delta);
   if (command.type === 'update-dimension-reference') {
     const entity = document.entities.find(item => item.id === command.dimensionId);
@@ -192,6 +207,7 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   if (command.type === 'delete-entity') {
     const entity = document.entities.find(item => item.id === command.entityId);
     if (!entity) throw new Error('Объект не найден');
+    if(entity.type==='symbol'){const connections=connectivityIndex(document).bySymbol.get(entity.id)?.length??0;if(connections)throw new Error(`Символ имеет ${connections} подключения. Сначала удалите или переподключите их.`);}
     if (document.horizontalReference?.controls.some(control => control.pointEntityId === entity.id)) throw new Error(`Точка ${entity.name} используется для привязки координат. Сначала измените или удалите привязку.`);
     const layer = document.layers.find(item => item.id === entity.layerId);
     if (!layer || layer.locked) throw new Error('Нельзя удалить объект на заблокированном слое');
@@ -310,6 +326,7 @@ export function canEditVertex(document: GeoDocument, vertexId: string): boolean 
     .every(entity => !isLayerLocked(document, entity));
 }
 export function entityPosition(document: GeoDocument, entity: Entity): WorldPoint {
+  if(entity.type==='connector')return connectorRoute(document,entity)[0]!;
   if ('position' in entity) return { ...entity.position };
   if ('center' in entity) return { ...entity.center };
   const id = entityVertexIds(entity)[0]!;

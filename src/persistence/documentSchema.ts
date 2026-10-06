@@ -1,3 +1,5 @@
+import { validateConnectivity } from '../connectors/model';
+import { connectorEndpointSchema } from '../connectors/schema';
 import { semanticContentSchema, sourceSchema, sourceDocumentSchema, blockDefinitionSchema, primitivesSchema, blockTransformSchema, attributesSchema } from './vectorSchema';
 import { validateVectorDocument } from '../vectors/geometry';
 import { z } from 'zod';
@@ -22,6 +24,7 @@ export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000), rotationDeg: finiteNumber.optional(), height: finiteNumber.positive().optional() }),
   z.object({ ...base, type: z.literal('label'), targetId: id, template: z.string().max(10000), dx: finiteNumber, dy: finiteNumber }),
   symbolEntitySchema,
+  z.object({ ...base, type:z.literal('connector'), start:connectorEndpointSchema, end:connectorEndpointSchema, routing:z.enum(['direct','orthogonal']), waypoints:z.array(symbolPositionSchema).max(100).optional() }),
   z.object({ ...base, type: z.literal('arc'), center: worldPointSchema, radius: finiteNumber.positive(), startAngle: finiteNumber, endAngle: finiteNumber }),
   z.object({ ...base, type: z.literal('circle'), center: worldPointSchema, radius: finiteNumber.positive() }),
   z.object({ ...base, type: z.literal('block_instance'), blockDefinitionId: id, ...blockTransformSchema, attributes: attributesSchema.optional(), attributePrimitives: primitivesSchema.optional(), attributeCoordinateSpace: z.literal('block-local').optional() }),
@@ -88,6 +91,7 @@ export function validateDocumentSemantics(document: GeoDocument): void {
       if (!target || !['point', 'line', 'polyline', 'polygon', 'symbol'].includes(target.type)) throw new Error(`Label ${entity.id} references missing or unsupported target ${entity.targetId}`);
     }
   }
+  validateConnectivity(document);
   validateVectorDocument(document);
   const reference = document.horizontalReference;
   if (reference) {

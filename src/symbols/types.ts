@@ -4,7 +4,7 @@ export type SymbolPrimitive =
   | { type: 'polyline' | 'polygon'; points: SymbolPoint[] }
   | { type: 'circle'; center: SymbolPoint; radius: number }
   | { type: 'rect'; position: SymbolPoint; width: number; height: number };
-export interface SymbolPort { id: string; kind: 'process' | 'instrument'; position: SymbolPoint; directionDeg: number }
+export interface SymbolPort { id: string; kind: 'process' | 'instrument'; position: SymbolPoint; directionDeg: number; label?: string; maxConnections?: number }
 export interface SymbolDefinition {
   id: string; name: string; aliases?: string[]; category: string; description?: string;
   geometry: SymbolPrimitive[];

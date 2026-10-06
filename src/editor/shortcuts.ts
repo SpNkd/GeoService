@@ -1,6 +1,7 @@
 export type ShortcutGroup = 'Tools' | 'Navigation' | 'File' | 'Edit';
 export interface ShortcutEntry { id: string; sequence: string[]; label: string; description: string; group: ShortcutGroup; modifier?: 'primary' }
 export const shortcutRegistry: ShortcutEntry[] = [
+  {id:'connector',sequence:['C','O'],label:'CO',description:'Соединение портов',group:'Tools'},
   { id: 'rotate-symbol', sequence: ['R'], label: 'R', description: 'Symbol only: rotate +90°', group: 'Edit' },
   { id: 'move', sequence: ['M'], label: 'M', description: 'Move selection · numeric ΔX/ΔY or MODEL X/Y', group: 'Edit' },
   { id: 'ortho', sequence: ['F8'], label: 'F8', description: 'Ortho on/off', group: 'Tools' },

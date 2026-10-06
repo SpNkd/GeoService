@@ -1,3 +1,4 @@
+import { ConnectorView } from './ConnectorView';
 import { VectorView } from './VectorView';
 import { SymbolView } from './SymbolView';
 import { memo } from 'react';
@@ -27,6 +28,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   let shape: React.ReactNode;
   switch (entity.type) {
     case 'arc': case 'circle': case 'block_instance': case 'imported_graphic': { shape=<VectorView entity={entity} document={document} viewport={viewport} size={size} color={stroke} selected={selected} lineWeight={style.lineWeight} />; break; }
+    case 'connector': {shape=<ConnectorView entity={entity} document={document} viewport={viewport} size={size} stroke={stroke} lineWeight={selected?2.2:style.lineWeight} dash={style.dash} editable={editable}/>;break;}
     case 'symbol': { shape = <SymbolView entity={entity} viewport={viewport} size={size} color={stroke} lineWeight={style.lineWeight} selected={selected} />; break; }
     case 'point': {
       const p = screen[0]!;
@@ -109,6 +111,7 @@ export const EntityView = memo(function EntityView({ item: { entity, layer, styl
   if (next.selected && ['line','polyline','polygon'].includes(next.item.entity.type) && previous.document.entities !== next.document.entities) return false;
   if (['block_instance','imported_graphic'].includes(next.item.entity.type) && previous.document.blocks !== next.document.blocks) return false;
   if (!entityVertexIds(next.item.entity).every(id => previous.document.vertices[id] === next.document.vertices[id])) return false;
+  if(next.item.entity.type==='connector'){const e=next.item.entity;return [e.start.symbolEntityId,e.end.symbolEntityId].every(id=>previous.document.entities.find(e=>e.id===id)===next.document.entities.find(e=>e.id===id));}
   if (next.item.entity.type === 'label') {
     if (previous.document.verticalReference !== next.document.verticalReference) return false;
     const targetId = next.item.entity.targetId;
