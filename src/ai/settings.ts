@@ -12,3 +12,6 @@ export function aiSettingsHeaders(): Record<string, string> {
   if (!session.enabled) throw new Error('AI отключён');
   return { 'X-AI-Provider': session.provider, 'X-AI-Primary-Model': session.primaryModel, 'X-AI-Fallback-Model': session.fallbackModel, ...(session.apiKey ? { 'X-AI-API-Key': session.apiKey } : {}) };
 }
+
+/** Snapshot for direct browser transport; never saved in a document or diagnostic. */
+export const browserAiSettings=()=>session?{...session}:null;

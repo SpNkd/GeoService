@@ -1,4 +1,4 @@
-import { aiRuntime, aiSettingsHeaders } from './settings';
+import { aiRuntime, aiSettingsHeaders, browserAiSettings } from './settings';
 import { z } from 'zod';
 import { AI_LIMITS, aiRequestSchema, readBoundedJson, validateParserResult, type ParserResult } from './intent';
 import { AiProviderError, aiErrorCodeSchema, createDiagnostic, diagnosticSchema, httpErrorCode, newTraceId, redact, safeDiagnostic, type AiDiagnostic, type AiErrorCode } from './reliability';
@@ -40,6 +40,21 @@ export class HttpAiIntentProvider implements AiIntentProvider {
     return raw && typeof raw === 'object' && 'result' in raw ? raw.result : raw;
   }
 }
+
+/** Production static hosting uses the visitor's key; development keeps the local API. */
+export const browserAiTransport = Boolean(import.meta.env?.PROD);
+export class BrowserAiIntentProvider implements AiIntentProvider {
+  constructor(private readonly transport: typeof fetch = (...args) => fetch(...args)) {}
+  async parseIntent(request: AiIntentRequest): Promise<unknown> {
+    const settings=browserAiSettings();
+    if(!settings?.enabled)throw new AiProviderError('AUTH_ERROR',undefined,'Введите свой OpenRouter API key в Настройках → AI. Чертёж не изменён.');
+    if(settings.provider!=='openrouter')throw new AiProviderError('BAD_REQUEST',undefined,'На статическом сайте выберите OpenRouter. OpenAI и mock доступны через локальный dev-server.');
+    if(!settings.apiKey)throw new AiProviderError('AUTH_ERROR',undefined,'Введите свой OpenRouter API key в Настройках → AI. Чертёж не изменён.');
+    const {OpenRouterIntentProvider}=await import('./openrouter');
+    return new OpenRouterIntentProvider(settings.apiKey,settings.primaryModel,this.transport,settings.fallbackModel?[settings.fallbackModel]:[],aiRuntime().timeoutMs).parseIntent(request);
+  }
+}
+export const createAiIntentProvider=():AiIntentProvider=>browserAiTransport?new BrowserAiIntentProvider():new HttpAiIntentProvider();
 
 /** Explicit test/development provider. Programmable fixtures, never a real-provider fallback. */
 export class MockAiIntentProvider implements AiIntentProvider {

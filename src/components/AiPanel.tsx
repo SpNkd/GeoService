@@ -4,7 +4,7 @@ import { ProcessPreview } from './ProcessPreview';
 import type { ViewSize } from '../geometry';
 import { DocumentOperationsPreview } from './DocumentOperationsPreview';
 import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent } from 'react';
-import { AiRequestRunner, HttpAiIntentProvider, providerModeSchema, type AiIntentProvider, type ProviderMode } from '../ai/provider';
+import { AiRequestRunner, createAiIntentProvider, browserAiTransport, providerModeSchema, type AiIntentProvider, type ProviderMode } from '../ai/provider';
 import { AI_LIMITS, readBoundedJson, utf8Bytes } from '../ai/intent';
 import type { AiState, ApplicationAction } from '../ai/workflow';
 import type { ResolvedReference } from '../ai/resolver';
@@ -16,20 +16,22 @@ import { spatialFrame } from '../geometry/spatialLayout';
 import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
 const operationLabels = {'spatial-point':'точка по пространственному условию',route:'эскизный маршрут', array:'массив прямоугольников', 'edge-line':'линия вдоль стороны', points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
-const defaultProvider = new HttpAiIntentProvider();
+const defaultProvider = createAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
 interface Props { size:ViewSize; ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider;onSettings?:()=>void }
 export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionActive, documentEpoch, provider = defaultProvider,onSettings }: Props) {
   const [text, setText] = useState('Создай границу по точкам P1, P2, P3 и P4');
   const [clarificationAnswer, setClarificationAnswer] = useState('');
-  const [mode, setMode] = useState<ProviderMode>('disabled');
+  const [mode, setMode] = useState<ProviderMode>(browserAiTransport?'openrouter':'disabled');
   const preferences=usePreferences(),settingsStatus=preferences.aiCustomized?{enabled:preferences.ai.enabled,label:preferences.ai.enabled?`${preferences.ai.primaryModel.split('/').at(-1)} · ${preferences.ai.provider}`:'AI отключён'}:null;
+  const browserNeedsKey=browserAiTransport&&!getApiKey();
   const runner = useMemo(() => new AiRequestRunner(provider), [provider]);
   const previousConfiguration=useRef({ai:JSON.stringify(preferences.ai),key:getApiKey()});
   useEffect(()=>{const previous=previousConfiguration.current,key=getApiKey();const aiConfiguration=JSON.stringify(preferences.ai);previousConfiguration.current={ai:aiConfiguration,key};if(preferences.aiCustomized&&(previous.ai!==aiConfiguration||previous.key!==key)){runner.cancel();dispatch({type:'ai-cancel'});}},[preferences,runner,dispatch]);
   useEffect(() => () => runner.cancel(), [runner]);
   useEffect(() => { runner.cancel(); }, [runner, documentEpoch]);
   useEffect(() => {
+    if(browserAiTransport)return;
     const controller = new AbortController();
     void fetch('/api/ai/config', { signal: controller.signal }).then(async response => {
       if (!response.ok) return;
@@ -52,14 +54,15 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
   const resolution = preview?.plan.resolution;
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
   return <section className="ai-panel" aria-label="AI Assistant">
-    <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{settingsStatus?.label ?? (mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? 'AI: Qwen · готов' : 'AI отключён')}</span></div>
-    <button className="secondary-action" aria-label="Настройки AI" onClick={onSettings}>⚙ Настройки AI</button>
+    <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{browserNeedsKey?'AI не настроен':settingsStatus?.label ?? (mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? browserAiTransport?'OpenRouter · свой ключ':'AI: Qwen · готов' : 'AI отключён')}</span></div>
+    <button className="secondary-action" aria-label="Настройки AI" onClick={onSettings}>{browserNeedsKey?'Настроить':'⚙ Настройки AI'}</button>
+    {browserNeedsKey&&<p className="ai-caption">Редактор работает без AI. Для текстовых команд введите свой OpenRouter ключ в настройках.</p>}
     <p className="ai-caption">Геометрия · операции над документом · технологические схемы</p>
     <form onSubmit={generate}>
       <label htmlFor="ai-request">Запрос</label>
       <textarea id="ai-request" value={text} maxLength={AI_LIMITS.requestBytes} onChange={event => setText(event.target.value)} rows={3} />
       {ai.status === 'needs_clarification' && <div className="ai-clarification" data-testid="ai-clarification"><strong>Нужно уточнение</strong><ul>{ai.questions.map((question, index) => <li key={index}>{question}</li>)}</ul><label>Ответ на уточнение<textarea aria-label="Ответ на уточнение" value={clarificationAnswer} onChange={event => setClarificationAnswer(event.target.value)} rows={2} /></label></div>}
-      <div className="ai-actions"><button className="primary-button" type="submit" disabled={(settingsStatus ? !settingsStatus.enabled : mode === 'disabled') || !(ai.status === 'needs_clarification' ? clarificationAnswer.trim() : text.trim()) || utf8Bytes(text) > AI_LIMITS.requestBytes}>Generate plan</button>
+      <div className="ai-actions"><button className="primary-button" type="submit" disabled={browserNeedsKey || (settingsStatus ? !settingsStatus.enabled : mode === 'disabled') || !(ai.status === 'needs_clarification' ? clarificationAnswer.trim() : text.trim()) || utf8Bytes(text) > AI_LIMITS.requestBytes}>Generate plan</button>
         <button type="button" className="tool-button compact" onClick={cancel}>Cancel</button></div>
     </form>
     <p className="ai-privacy">{mode === 'mock' ? 'Демо: фиксированные ответы, без LLM. ' : ''}Отправляется только текст запроса. Точки и объекты разрешаются локально; слои и выделение не отправляются.</p>

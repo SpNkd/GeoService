@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 2,
+  "metadata": {
+    "id": "topology-process",
+    "title": "Новая схема",
+    "description": ""
+  },
+  "coordinateSystem": {
+    "kind": "local",
+    "xAxis": "east",
+    "yAxis": "north",
+    "zAxis": "up"
+  },
+  "units": {
+    "length": "m",
+    "area": "m2"
+  },
+  "vertices": {
+    "path0-v0": {
+      "id": "path0-v0",
+      "x": 1,
+      "y": 0
+    },
+    "path0-v1": {
+      "id": "path0-v1",
+      "x": 5,
+      "y": 0
+    },
+    "path1-v0": {
+      "id": "path1-v0",
+      "x": 7,
+      "y": 0
+    },
+    "path1-v1": {
+      "id": "path1-v1",
+      "x": 11,
+      "y": 0
+    },
+    "path2-v0": {
+      "id": "path2-v0",
+      "x": 13,
+      "y": 0
+    },
+    "path2-v1": {
+      "id": "path2-v1",
+      "x": 17,
+      "y": 0
+    },
+    "path3-v0": {
+      "id": "path3-v0",
+      "x": 19,
+      "y": 0
+    },
+    "path3-v1": {
+      "id": "path3-v1",
+      "x": 23,
+      "y": 0
+    }
+  },
+  "layers": [
+    {
+      "id": "boundary",
+      "name": "Граница участка",
+      "visible": true,
+      "locked": false,
+      "order": 0,
+      "styleId": "boundary"
+    },
+    {
+      "id": "buildings",
+      "name": "Здания",
+      "visible": true,
+      "locked": false,
+      "order": 1,
+      "styleId": "building"
+    },
+    {
+      "id": "survey-points",
+      "name": "Геодезические точки",
+      "visible": true,
+      "locked": false,
+      "order": 2,
+      "styleId": "survey"
+    },
+    {
+      "id": "annotations",
+      "name": "Аннотации",
+      "visible": true,
+      "locked": false,
+      "order": 3,
+      "styleId": "annotation"
+    },
+    {
+      "id": "dimensions",
+      "name": "Размеры",
+      "visible": true,
+      "locked": false,
+      "order": 4,
+      "styleId": "annotation"
+    }
+  ],
+  "entities": [
+    {
+      "id": "s0",
+      "name": "Input",
+      "type": "symbol",
+      "layerId": "buildings",
+      "libraryId": "gas-process-demo",
+      "symbolId": "equipment-block",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "rotationDeg": 0,
+      "scale": 1
+    },
+    {
+      "id": "s1",
+      "name": "Valve",
+      "type": "symbol",
+      "layerId": "buildings",
+      "libraryId": "gas-process-demo",
+      "symbolId": "valve",
+      "position": {
+        "x": 6,
+        "y": 0
+      },
+      "rotationDeg": 0,
+      "scale": 1
+    },
+    {
+      "id": "s2",
+      "name": "Filter",
+      "type": "symbol",
+      "layerId": "buildings",
+      "libraryId": "gas-process-demo",
+      "symbolId": "filter",
+      "position": {
+        "x": 12,
+        "y": 0
+      },
+      "rotationDeg": 0,
+      "scale": 1
+    },
+    {
+      "id": "s3",
+      "name": "Regulator",
+      "type": "symbol",
+      "layerId": "buildings",
+      "libraryId": "gas-process-demo",
+      "symbolId": "pressure-regulator",
+      "position": {
+        "x": 18,
+        "y": 0
+      },
+      "rotationDeg": 0,
+      "scale": 1
+    },
+    {
+      "id": "s4",
+      "name": "Output",
+      "type": "symbol",
+      "layerId": "buildings",
+      "libraryId": "gas-process-demo",
+      "symbolId": "equipment-block",
+      "position": {
+        "x": 24,
+        "y": 0
+      },
+      "rotationDeg": 0,
+      "scale": 1
+    },
+    {
+      "id": "path0",
+      "name": "path0",
+      "type": "line",
+      "layerId": "buildings",
+      "startVertexId": "path0-v0",
+      "endVertexId": "path0-v1"
+    },
+    {
+      "id": "path1",
+      "name": "path1",
+      "type": "line",
+      "layerId": "buildings",
+      "startVertexId": "path1-v0",
+      "endVertexId": "path1-v1"
+    },
+    {
+      "id": "path2",
+      "name": "path2",
+      "type": "line",
+      "layerId": "buildings",
+      "startVertexId": "path2-v0",
+      "endVertexId": "path2-v1"
+    },
+    {
+      "id": "path3",
+      "name": "path3",
+      "type": "line",
+      "layerId": "buildings",
+      "startVertexId": "path3-v0",
+      "endVertexId": "path3-v1"
+    }
+  ],
+  "styles": [
+    {
+      "id": "boundary",
+      "stroke": "#21836e",
+      "fill": "#21836e08",
+      "lineWeight": 1.8
+    },
+    {
+      "id": "building",
+      "stroke": "#425c73",
+      "fill": "#e4ebf1",
+      "lineWeight": 1.8
+    },
+    {
+      "id": "survey",
+      "stroke": "#ba7240",
+      "fill": "#ffffff",
+      "lineWeight": 1.5
+    },
+    {
+      "id": "annotation",
+      "stroke": "#546675",
+      "fill": "none",
+      "lineWeight": 1
+    },
+    {
+      "id": "auxiliary",
+      "stroke": "#93a5b0",
+      "fill": "none",
+      "lineWeight": 1,
+      "dash": "5 5"
+    }
+  ],
+  "viewport": {
+    "center": {
+      "x": 0,
+      "y": 0
+    },
+    "pixelsPerUnit": 10
+  },
+  "modelFrame": "local"
+}

@@ -17,6 +17,7 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
-  { files: ['*.js'], languageOptions: { globals: globals.node } },
+  { files: ['*.js'], languageOptions: { globals: {...globals.node,...globals.browser} } },
+  { files: ['scripts/*.mjs'], languageOptions: { globals: {...globals.node,...globals.browser} } },
   { files: ['benchmarks/*.mjs'], languageOptions: { globals: { ...globals.node, ...globals.browser } } },
 );

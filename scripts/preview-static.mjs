@@ -1,0 +1,6 @@
+import {createServer} from 'node:http';
+import {readFile,stat} from 'node:fs/promises';
+import {resolve,extname,sep} from 'node:path';
+const root=resolve('dist'),port=Number(process.env.STATIC_PORT??5180),prefix='/GeoService/';
+const types={'.html':'text/html; charset=utf-8','.js':'application/javascript','.mjs':'application/javascript','.css':'text/css','.wasm':'application/wasm','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.gz':'application/gzip'};
+createServer(async(req,res)=>{try{const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);if(pathname==='/GeoService'){res.writeHead(302,{Location:prefix});res.end();return;}if(!pathname.startsWith(prefix)){res.writeHead(404);res.end();return;}const file=resolve(root,pathname.slice(prefix.length)||'index.html');if(!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}const info=await stat(file);if(!info.isFile())throw Error('Not a file');res.writeHead(200,{'Content-Type':types[extname(file)]??'application/octet-stream','Cache-Control':'no-store'});res.end(req.method==='HEAD'?undefined:await readFile(file));}catch{res.writeHead(404);res.end();}}).listen(port,'127.0.0.1',()=>console.log(`Static Pages preview: http://127.0.0.1:${port}${prefix} (no API)`));

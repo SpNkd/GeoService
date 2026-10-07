@@ -5,7 +5,7 @@ export interface RecognitionResult{candidates:Candidate[];warnings:string[];cach
 export interface LocalImageRecognizer{readonly mode:'local';recognize(request:RecognitionRequest,signal:AbortSignal,stage:(label:string)=>void):Promise<RecognitionResult>}
 export async function recognizeImage(request:RecognitionRequest,signal:AbortSignal,stage:(label:string)=>void):Promise<RecognitionResult>{if(import.meta.env.PROD&&'serviceWorker'in navigator){
  let timer:ReturnType<typeof setTimeout>|undefined;
- try{await Promise.race([navigator.serviceWorker.register(new URL(import.meta.env.BASE_URL+'ocr-offline.js',location.origin),{scope:import.meta.env.BASE_URL}).then(()=>navigator.serviceWorker.ready),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('Offline cache unavailable')),5000);})]);}
+ try{await Promise.race([navigator.serviceWorker.register(new URL(import.meta.env.BASE_URL+'ocr-offline.js',location.href),{scope:import.meta.env.BASE_URL}).then(()=>navigator.serviceWorker.ready),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('Offline cache unavailable')),5000);})]);}
  catch{/* Local OCR remains usable when optional offline storage is unavailable. */}
  finally{clearTimeout(timer);}
 }

@@ -1,3 +1,4 @@
+import { thirdPartyNotices } from './server/thirdPartyNotices';
 import { localPdfAssets } from './server/localPdfAssets';
 import { localOcrAssets } from './server/localOcrAssets';
 import { defineConfig } from 'vitest/config';
@@ -6,7 +7,8 @@ import { loadEnv } from 'vite';
 import { aiDevelopmentEndpoint } from './server/ai';
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), localPdfAssets(), localOcrAssets(), aiDevelopmentEndpoint(loadEnv(mode, process.cwd(), ''))],
+  plugins: [react(), thirdPartyNotices(), localPdfAssets(), localOcrAssets(), aiDevelopmentEndpoint(loadEnv(mode, process.cwd(), ''))],
+  base: './',
   worker: { format: 'es' },
   optimizeDeps: { include: ['tesseract.js','pdfjs-dist'] },
   server: { host: '127.0.0.1' },

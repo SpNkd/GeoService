@@ -1,0 +1,23 @@
+# CAD visual styles
+
+GeoService keeps the existing `styles`/`styleId` palette as a backward-compatible appearance baseline. Sparse `Layer.style` records **intentional user defaults**. Sparse `Entity.style` stores per-property overrides; `null` is an explicit ByLayer choice. Missing properties retain imported source appearance or the native legacy layer/palette baseline. No resolved cache is serialized.
+
+Supported properties: strokeColor, lineType, lineWidth, opacity, fillColor/fillOpacity, textColor/textSize. New colors are normalized #RRGGBB; opacity is separate. `fillColor: none` disables polygon fill. Unknown keys, external paint URLs, arbitrary dash strings, invalid values and unsafe color formats are rejected at the command/schema boundary.
+
+Precedence is explicit entity override → intentional GeoService layer override → imported DXF effective/source appearance → existing safe defaults. An explicit null property requests the current canonical layer value even where the source used an explicit color. A default/unset black value never acts as an override. Reset Source removes only GeoService entity intent; Reset Layer removes only intentional layer defaults. DXF source provenance, original primitives, BYLAYER/BYBLOCK paint and original lineweight/linetype remain available and survive Save/Open.
+
+`styleIntent` centralizes intent precedence; `resolveEntityStyle` resolves native/owner style with stable weak caches. The primitive resolver combines the same intent with the DXF source baseline, respecting BYBLOCK/layer-0 inheritance and frozen presentation layers. Canvas, SVG, Axon and Paper Space use these same decisions. Layer changes keep canonical entity and block definition identities; owner styling changes no unrelated definitions. Styled SVG fallback uses the shared visible primitive walker, retaining compound HATCH holes.
+
+The safe catalog has stable IDs: continuous, dashed, dash_dot, dotted, center. Their screen dash patterns are shared by Canvas/SVG. Width choices are 0.25, 0.5, 1, 1.5, 2, 3 and 4 **CSS px**. They are display widths, not plot millimetres. Text style size is CSS px; imported model text height stays the baseline when unset. This does not implement named TextStyle/DimStyle or CTB/STB.
+
+Single/multi inspectors expose supported properties. Imported unset properties display «Источник DXF» separately from «По слою»; Reset Source removes intentional entity overrides. Multi values are common or «Смешанный». Changing a property applies to compatible selected entities atomically in one history action; incompatible types are explicitly reported. Locked selections block the edit. Polygon fill, text/label appearance, Dimension lines/text and Connector strokes use the shared system. Connector style never changes endpoints, connectivity or routing. Symbols conservatively expose width/opacity; layer color/line-type intent does not recolor non-themeable definitions. Their legacy monochrome paint remains the baseline. RasterUnderlay retains dedicated opacity and has no vector stroke/fill controls.
+
+Current Drawing Style is one editor view preference shared between compatible tools. Default is ByLayer. Ordinary manual, ordered-point and AI add-entity commands inherit the current compatible preset at the normal editor command boundary; already styled/imported entities retain their supplied source style. Tool changes preserve the preset. The preset and clipboard are editor state, not serialized document data.
+
+Copy Style/MA captures semantic per-property intent and compatible legacy explicit palette differences; Apply Copied Style applies compatible visual fields to current selection as one batch/Undo. ByLayer remains ByLayer, not a sampled color. Geometry, layer, name, provenance, definitions and connector endpoints are not copied. Unsupported targets are reported. Color presets/recent choices commit directly; native color-picker changes commit on blur, avoiding movement history spam.
+
+Selection is still a theme-accent overlay, independent from canonical style and source paint. Global layer visibility, per-viewport VP Freeze and isolation remain visibility decisions, independent of style.
+
+Heterogeneous nested block source paint is preserved; Match Properties copies supported owner intent, not every nested primitive's source color. No source geometry is flattened to capture style.
+
+Explicit ByLayer preserves the source layer's custom DXF dash pattern even when it has no equivalent in the safe UI catalog. Match Properties only captures catalog-compatible legacy line types; heterogeneous/custom source paint remains an import baseline, not an arbitrary UI dash string.

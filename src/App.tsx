@@ -254,7 +254,7 @@ export default function App() {
   const selected = state.document.entities.find(entity => entity.id === state.selectionId);
   if(!hydrationDone)return <main className="persistence-startup" role="status">Восстановление документа…</main>;
   return <div className="app-shell">
-    <header className="app-header"><a className="brand" href="/" aria-label="GeoService — начало"><span className="brand-mark"><Icon name="crosshair" size={24} /></span>Geo<span>Service</span></a>
+    <header className="app-header"><a className="brand" href="./" aria-label="GeoService — начало"><span className="brand-mark"><Icon name="crosshair" size={24} /></span>Geo<span>Service</span></a>
       <div className="header-divider" /><div className="document-title"><strong>{state.document.metadata.title}{dirty && <span className="dirty-mark" aria-label="Есть несохранённые изменения"> *</span>}</strong><span>MODEL X / Y / Z · Survey E / N · абсолютная H</span></div>
       <span className="header-version">Редактор · 0.3</span>
     </header>
