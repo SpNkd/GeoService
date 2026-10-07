@@ -5,7 +5,7 @@
 собирайте схемы из символов и восстанавливайте проверенные связи между ними.
 AI переводит текстовый запрос в план; геометрия вычисляется и применяется в браузере после вашего подтверждения.
 
-**[GitHub Pages](https://spnkd.github.io/GeoService/)** · **[GitVerse Pages](https://spnkd.gitverse.site/GeoService/)** ·
+**[GitHub Pages](https://spnkd.github.io/GeoService/)** · **[GitVerse Pages](https://spnkd.gitverse.site/geoservice/)** ·
 [GitHub](https://github.com/SpNkd/GeoService) · [GitVerse](https://gitverse.ru/spnkd/GeoService) · [MIT](LICENSE)
 
 ![Редактор GeoService: участок, здание, точки и свойства](docs/screenshots/editor.png)

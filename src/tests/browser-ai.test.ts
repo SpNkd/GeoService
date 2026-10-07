@@ -10,7 +10,7 @@ it('static browser sends only public contract and user text directly to OpenRout
  expect(result).toMatchObject({actions:[{type:'create_boundary_from_named_points'}]});expect(calls).toHaveLength(1);expect(calls[0]!.url).toBe('https://openrouter.ai/api/v1/chat/completions');
  expect(new Headers(calls[0]!.init.headers).get('Authorization')).toBe(`Bearer ${key}`);
  expect([...new Headers(calls[0]!.init.headers).keys()].sort()).toEqual(['authorization','content-type']);
- const body=JSON.parse(String(calls[0]!.init.body));expect(body.messages[1].content).toBe('Создай границу P1 P2 P3');expect(body.response_format.type).toBe('json_schema');expect(body.provider.data_collection).toBe('deny');expect(Object.keys(body).sort()).toEqual(['max_tokens','messages','model','provider','reasoning','response_format','temperature']);expect(String(calls[0]!.init.body)).not.toContain(key);
+ const body=JSON.parse(String(calls[0]!.init.body));expect(body.messages[1].content).toBe('Создай границу P1 P2 P3');expect(body.response_format.type).toBe('json_schema');expect(body.provider.data_collection).toBe('deny');expect(body.provider.ignore).toEqual(['siliconflow','atlas-cloud','alibaba']);expect(Object.keys(body).sort()).toEqual(['max_tokens','messages','model','provider','reasoning','response_format','temperature']);expect(String(calls[0]!.init.body)).not.toContain(key);
 });
 it('missing key or unsupported static provider never calls a local API or external endpoint',async()=>{
  let calls=0;const provider=new BrowserAiIntentProvider(async()=>{calls++;throw Error('should not be called');}),request={text:'Тест',signal:new AbortController().signal};

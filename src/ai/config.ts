@@ -2,6 +2,8 @@
 export const DEFAULT_PRIMARY_MODEL = 'qwen/qwen3.5-27b';
 export const DEFAULT_FALLBACK_MODELS = ['qwen/qwen3-30b-a3b-instruct-2507'];
 export const OPENROUTER_ROUTING = { allow_fallbacks: true, require_parameters: true, data_collection: 'deny' } as const;
+// Compatibility exclusions from the verified local OpenRouter profile; public metadata, no credentials.
+export const BROWSER_OPENROUTER_ROUTING={...OPENROUTER_ROUTING,ignore:['siliconflow','atlas-cloud','alibaba']} as const;
 export interface AiServerConfig { AI_PROVIDER?: string; OPENAI_API_KEY?: string; OPENROUTER_API_KEY?: string; AI_MODEL?: string; AI_PRIMARY_MODEL?: string; AI_FALLBACK_MODELS?: string; AI_IGNORED_PROVIDERS?: string }
 export function modelConfig(config: AiServerConfig) {
   return { primaryModel: config.AI_PRIMARY_MODEL?.trim() || config.AI_MODEL?.trim() || DEFAULT_PRIMARY_MODEL,

@@ -1,3 +1,4 @@
+import { BROWSER_OPENROUTER_ROUTING } from './config';
 import { aiRuntime, aiSettingsHeaders, browserAiSettings } from './settings';
 import { z } from 'zod';
 import { AI_LIMITS, aiRequestSchema, readBoundedJson, validateParserResult, type ParserResult } from './intent';
@@ -53,7 +54,7 @@ export class BrowserAiIntentProvider implements AiIntentProvider {
     const {OpenRouterIntentProvider}=await import('./openrouter');
     // OpenRouter CORS allows Authorization/Content-Type, not our local trace header.
     const browserTransport:typeof fetch=(url,init)=>{const headers=new Headers(init?.headers);headers.delete('X-AI-Trace-ID');return this.transport(url,{...init,headers});};
-    return new OpenRouterIntentProvider(settings.apiKey,settings.primaryModel,browserTransport,settings.fallbackModel?[settings.fallbackModel]:[],aiRuntime().timeoutMs).parseIntent(request);
+    return new OpenRouterIntentProvider(settings.apiKey,settings.primaryModel,browserTransport,settings.fallbackModel?[settings.fallbackModel]:[],aiRuntime().timeoutMs,BROWSER_OPENROUTER_ROUTING).parseIntent(request);
   }
 }
 export const createAiIntentProvider=():AiIntentProvider=>browserAiTransport?new BrowserAiIntentProvider():new HttpAiIntentProvider();

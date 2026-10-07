@@ -5,7 +5,7 @@ GitVerse SSH: `ssh://git@gitverse.ru/spnkd/GeoService.git` (existing credential;
 Source: `main` одинаков на GitHub и GitVerse. Статика: `gh-pages`, корень `/`.
 
 - GitHub: https://github.com/SpNkd/GeoService — https://spnkd.github.io/GeoService/
-- GitVerse: https://gitverse.ru/spnkd/GeoService — https://spnkd.gitverse.site/GeoService/
+- GitVerse: https://gitverse.ru/spnkd/GeoService — https://spnkd.gitverse.site/geoservice/
 
 ## Обновление
 
@@ -34,6 +34,8 @@ npm run deploy:pages -- origin gitverse
 Backend/proxy/serverless отсутствуют. Vite `base: './'`, Worker imports и ленивые PDF/OCR URLs разрешаются относительно страницы. Смена подпапки не требует ключа или backend. Единственный app route — корень сайта; прямое открытие и reload поддерживаются.
 
 PDF.js Worker, fonts/CMaps/WASM, image/topology Workers и Tesseract RU/EN входят в dist. PDF/OCR загружаются по действию пользователя. Service Worker кэширует allow-list статических assets; не API, исходные документы или изображения. Production sourcemaps не создаются. Известное предупреждение build: основной JS chunk превышает 500 kB.
+
+Browser transport сохраняет provider compatibility exclusions действующего проверенного профиля (`siliconflow`, `atlas-cloud`, `alibaba`) и не посылает неразрешённый CORS trace header. Prompt/schema совпадают с локальным server adapter.
 
 OpenRouter — единственный ожидаемый внешний app request при явно запущенной AI-команде. Без ключа CAD работает; ввод ключа находится в Settings → AI, Remember OFF по умолчанию. REAL smoke только opt-in `PAGES_REAL_AI=1` из локального `.env.local`; в public CI ключи не используются. Report/screenshot не содержат credential.
 
