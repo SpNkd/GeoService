@@ -1,3 +1,4 @@
+import { boundaryPlacementSchema, spatialPointSchema, routeSchema, rectangleOrientationSchema, extraConstraintsSchema, constraintReferences } from './constraintSchema';
 import { isProcessAction, processActionSchema, validateProcessActions } from '../process/schema';
 import { z } from 'zod';
 import { documentActionSchema, isDocumentAction } from '../documentOperations/schema';
@@ -8,7 +9,8 @@ import { AiProviderError } from './reliability';
 export const AI_LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 96 * 1024, upstreamBytes: 256 * 1024,
   actions: 8, pointsPerAction: 500, clarificationQuestions: 3, clarificationQuestionLength: 240, totalReferences: 1000, generatedCommands: 128, bulkDimensions: 100, pointNames: 500, nameLength: 128, timeoutMs: 30000 });
 export const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
-export const aiRequestSchema = z.strictObject({ text: z.string().trim().min(1).max(AI_LIMITS.requestBytes)
+export const clarificationAnswerSchema=z.strictObject({questionId:z.string().min(1).max(128),answer:z.string().trim().min(1).max(2048)});
+export const aiRequestSchema = z.strictObject({ clarificationAnswers:z.array(clarificationAnswerSchema).min(1).max(3).optional(), text: z.string().trim().min(1).max(AI_LIMITS.requestBytes)
   .refine(text => utf8Bytes(text) <= AI_LIMITS.requestBytes, 'Запрос превышает лимит 8 КБ') });
 const names = z.string().trim().min(1).max(AI_LIMITS.nameLength);
 export const createBoundaryIntentSchema = z.strictObject({ type: z.literal('create_boundary_from_named_points'),
@@ -30,7 +32,7 @@ export const entityReferenceSchema = z.discriminatedUnion('kind', [
 ]);
 export type EntityReference = z.infer<typeof entityReferenceSchema>;
 const gapSchema = z.number().finite().nonnegative().nullish();
-export const rectanglePlacementSchema = z.discriminatedUnion('type', [
+export const rectanglePlacementSchema = z.discriminatedUnion('type', [boundaryPlacementSchema,
   z.strictObject({type:z.literal('relative_to_entity'),reference:entityReferenceSchema,direction:spatialAnchorSchema,gapMeters:gapSchema}),
   z.strictObject({type:z.literal('inside_entity'),reference:entityReferenceSchema,anchor:z.enum(['center',...SPATIAL_ANCHORS])}),
   z.strictObject({ type: z.literal('lower_left'), x: z.number().finite(), y: z.number().finite() }),
@@ -39,14 +41,14 @@ export const rectanglePlacementSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('centered_in_action_result'), polygonActionIndex: z.number().int().min(0).max(AI_LIMITS.actions - 1) }),
   z.strictObject({ type: z.literal('anchored_in_action_result'), polygonActionIndex: z.number().int().min(0).max(AI_LIMITS.actions - 1), anchor: spatialAnchorSchema }),
 ]);
-export const createRectangleIntentSchema = z.strictObject({ type: z.literal('create_rectangle'), name: names, width: z.number().finite().positive(), height: z.number().finite().positive(), sizeSource: z.string().trim().min(1).max(240).optional(), placement: rectanglePlacementSchema });
+export const createRectangleIntentSchema = z.strictObject({ type: z.literal('create_rectangle'), name: names, width: z.number().finite().positive(), height: z.number().finite().positive(), sizeSource: z.string().trim().min(1).max(240).optional(), orientation:rectangleOrientationSchema.optional(), constraints:extraConstraintsSchema, placement: rectanglePlacementSchema });
 export const alongEdgeIntentSchema = z.strictObject({type:z.literal('create_line_along_polygon_edge'),name:names,reference:entityReferenceSchema,side:z.enum(['north','south','east','west']),offsetMeters:z.number().finite().nonnegative(),offsetSide:z.enum(['inside','outside'])});
 export const rectangleArrayIntentSchema = z.strictObject({type:z.literal('create_rectangle_array'),nameBase:names,count:z.number().int().min(1).max(50),width:z.number().finite().positive(),height:z.number().finite().positive(),sizeSource:z.string().trim().min(1).max(240).nullish(),reference:entityReferenceSchema,direction:z.enum(['north','south','east','west']),gapFromReference:gapSchema,itemGap:z.number().finite().nonnegative()});
-export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, createRectangleIntentSchema,alongEdgeIntentSchema,rectangleArrayIntentSchema,...documentActionSchema.options,...processActionSchema.options]);
+export const aiActionSchema = z.discriminatedUnion('type', [...aiIntentSchema.options, bulkDimensionsIntentSchema, createPointsIntentSchema, spatialPointSchema, routeSchema, createRectangleIntentSchema,alongEdgeIntentSchema,rectangleArrayIntentSchema,...documentActionSchema.options,...processActionSchema.options]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 export const requestedPointNames = (action: AiAction): readonly string[] => 'pointNames' in action ? action.pointNames : [];
 export const clarificationSchema = z.strictObject({ status: z.literal('needs_clarification'), questions: z.array(z.string().trim().min(1).max(AI_LIMITS.clarificationQuestionLength)).min(1).max(AI_LIMITS.clarificationQuestions) });
-export const unsupportedSchema = z.strictObject({ status: z.literal('unsupported') });
+export const unsupportedSchema = z.strictObject({ status: z.literal('unsupported'),reason:z.string().trim().min(1).max(500).optional(),alternatives:z.array(z.string().trim().min(1).max(240)).max(3).optional() });
 export const aiTaskSchema = z.strictObject({ actions: z.array(aiActionSchema).min(1).max(AI_LIMITS.actions) })
   .superRefine((task, ctx) => {
     if (task.actions.reduce((sum, action) => sum + ('points' in action ? action.points.length : requestedPointNames(action).length), 0) > AI_LIMITS.totalReferences)
@@ -54,9 +56,18 @@ export const aiTaskSchema = z.strictObject({ actions: z.array(aiActionSchema).mi
     if(task.actions.some(isDocumentAction)&&!task.actions.every(isDocumentAction))ctx.addIssue({code:'custom',message:'Document operations and geometry creation require separate tasks'});
     if(task.actions.some(isProcessAction)){if(!task.actions.every(isProcessAction))ctx.addIssue({code:'custom',message:'Process and other operations require separate tasks'});else try{validateProcessActions(task.actions);}catch(e){ctx.addIssue({code:'custom',message:(e as Error).message});}}
     task.actions.forEach((action, index) => {
+      if('placement'in action&&action.placement.type==='inside_boundary'&&action.placement.reference.kind==='action'&&action.placement.reference.result!=='boundary')ctx.addIssue({code:'custom',message:'Inside placement requires a boundary result'});
+      if(action.type==='create_spatial_point'&&action.placement.type==='between'&&[action.placement.from,action.placement.to].some(r=>r.kind==='action'&&r.result!=='point'))ctx.addIssue({code:'custom',message:'Between placement requires point results'});
+      if(action.type==='create_route'&&action.boundary?.kind==='action'&&action.boundary.result!=='boundary')ctx.addIssue({code:'custom',message:'Route boundary requires boundary result'});
+      for(const ref of constraintReferences(action)) if(ref.kind==='action') {
+        const producer=task.actions[ref.actionIndex];
+        const compatible=ref.result==='point'?producer?.type==='create_spatial_point'||producer?.type==='create_points'&&producer.points.length===1:ref.result==='boundary'?['create_rectangle','create_boundary_from_named_points'].includes(producer?.type??''):['create_rectangle','create_boundary_from_named_points','create_spatial_point'].includes(producer?.type??'')||producer?.type==='create_points'&&producer.points.length===1;
+        if(ref.actionIndex>=index||!compatible)ctx.addIssue({code:'custom',message:'Constraint reference requires a compatible earlier result'});
+      }
+
       if(action.type==='move_entities_to_layer'&&action.target.kind==='created_layer'&&(action.target.actionIndex>=index||task.actions[action.target.actionIndex]?.type!=='create_layer'))ctx.addIssue({code:'custom',message:'Target requires an earlier create_layer action'});
       if('query'in action&&action.query.kind==='block_attribute'&&!action.query.tag&&!action.query.value)ctx.addIssue({code:'custom',message:'ATTRIB needs tag or value'});
-      const ref = 'reference' in action ? action.reference : action.type==='create_rectangle' && 'reference' in action.placement ? action.placement.reference : null;
+      const ref = 'reference' in action ? action.reference : action.type==='create_rectangle' && action.placement.type!=='inside_boundary' && 'reference' in action.placement ? action.placement.reference : null;
       if(ref?.kind==='prior_action_result' && (ref.actionIndex>=index || !['create_rectangle','create_boundary_from_named_points'].includes(task.actions[ref.actionIndex]?.type??''))) ctx.addIssue({code:'custom',message:'Spatial reference требует предыдущий polygon output'});
       if (action.type === 'create_rectangle') {
         const placement = action.placement;
@@ -81,14 +92,14 @@ export function unwrapProviderEnvelope(raw: unknown): unknown {
   const { intent, unsupported } = parsed.data;
   const isUnsupported = intent === null || unsupportedSchema.safeParse(intent).success;
   if (unsupported !== undefined && unsupported !== isUnsupported) throw new AiProviderError('INVALID_STRUCTURED_OUTPUT');
-  return isUnsupported ? { status: 'unsupported' } : intent;
+  return isUnsupported ? (intent===null?{status:'unsupported'}:unsupportedSchema.parse(intent)) : intent;
 }
 
 /** Literal provenance/order check only; this does not interpret natural language or replace a provider. */
 export function validateParserResult(raw: unknown, text: string): ParserResult {
   if (utf8Bytes(JSON.stringify(raw) ?? '') > AI_LIMITS.responseBytes) throw new AiProviderError('INVALID_STRUCTURED_OUTPUT', undefined, 'Ответ AI превышает лимит');
   if (raw && typeof raw === 'object' && ('intent' in raw || 'unsupported' in raw)) raw = unwrapProviderEnvelope(raw);
-  if (unsupportedSchema.safeParse(raw).success) return { status: 'unsupported' };
+  const unsupported=unsupportedSchema.safeParse(raw);if(unsupported.success)return unsupported.data;
   const clarification = clarificationSchema.safeParse(raw); if (clarification.success) return clarification.data;
   // Structured output uses null for absent Z; do not strip unknown fields.
   if (raw && typeof raw === 'object' && 'actions' in raw && Array.isArray(raw.actions)) raw = { ...raw, actions: raw.actions.map(action => action && typeof action === 'object' && action.type === 'create_points' && Array.isArray(action.points)
@@ -100,7 +111,13 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
   const created = new Set<string>();
   let cursor = 0;
   const nameCharacter = /[\p{L}\p{N}_-]/u;
+  const literals=new Set([...text.matchAll(/[+-]?(?:\d+(?:[.,]\d+)?)/g)].map(m=>Number(m[0].replace(',','.'))));
   for (const action of parsed.data.actions) {
+    const placement='placement'in action?action.placement:null;
+    const distances=placement?.type==='inside_boundary'?[...Object.values(placement.inset),placement.minimumClearance,placement.offsetAlongSide??0]:placement?.type==='relative_to'?[placement.distance]:action.type==='create_route'?[action.boundaryOffset]:[];
+    if('constraints'in action)distances.push(...(action.constraints??[]).flatMap(c=>c.type==='fixed_side_distance'?[c.distance]:[]));
+    if(distances.some(d=>d!==0&&!literals.has(d)))throw new AiProviderError('LOCAL_VALIDATION_ERROR',undefined,'Отступы и расстояния должны быть явно заданы в запросе.');
+
     if(isProcessAction(action)){const refs=action.type==='append_process_symbols'?[action.reference]:action.type==='insert_symbol_between'?[action.from,action.to]:[];const items=action.type==='insert_symbol_between'?[action.item]:action.items;const literals=[...refs.flatMap(r=>r.kind==='named_entity'?[r.name]:[]),...items.flatMap(i=>i.name?[i.name]:[])];if(literals.some(l=>!normalizeQuery(text).includes(normalizeQuery(l))))throw new AiProviderError('LOCAL_VALIDATION_ERROR',undefined,'Имена process объектов должны присутствовать в запросе.');continue;}
     if(isDocumentAction(action)) {
       const literals:string[]=[];
@@ -121,6 +138,11 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
         if (!literal || literal.x !== point.x || literal.y !== point.y || literal.z !== point.z) throw new AiProviderError('LOCAL_VALIDATION_ERROR', undefined, `Координаты «${point.name}» должны быть явно заданы в запросе.`);
         created.add(point.name);
       }
+      continue;
+    }
+    if(action.type==='create_spatial_point'||action.type==='create_route') {
+      if(!literalObjectName(text,action.name))throw new AiProviderError('LOCAL_VALIDATION_ERROR',undefined,'Имя нового объекта должно присутствовать в запросе.');
+      if(action.type==='create_spatial_point')created.add(action.name);
       continue;
     }
     if (action.type === 'create_rectangle') {
@@ -157,6 +179,15 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
   return parsed.data;
 }
 
+/** Canonical Russian noun endings only; never translate identifiers or invent a name. */
+export function literalObjectName(text:string,name:string):boolean {
+  const normalized=normalizeQuery(name),source=normalizeQuery(text);
+  if(source.includes(normalized))return true;
+  const words=normalized.split(/\s+/),last=words.at(-1)!;
+  if(!/^[а-яё]+[ая]$/u.test(last)||last.length<4)return false;
+  const stem=[...words.slice(0,-1),last.slice(0,-1)].join(' ');
+  return new RegExp(`(?:^|[^а-яё])${escapeLiteral(stem)}(?:а|у|ы|е|ой|ою|я|ю|и|ей|ею)(?:$|[^а-яё])`,'u').test(source);
+}
 // Literal extraction is a provenance check, not a replacement natural-language provider.
 const numericLiteral = '[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][+-]?\\d+)?';
 const escapeLiteral = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

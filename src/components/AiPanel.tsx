@@ -1,3 +1,4 @@
+import {routeLabels} from '../ai/constraintSchema';
 import { adoptServerAiDefaults, getApiKey, usePreferences } from '../preferences/store';
 import { ProcessPreview } from './ProcessPreview';
 import type { ViewSize } from '../geometry';
@@ -14,7 +15,7 @@ import { anchorLabels, formatAssumption } from '../ai/assumptions';
 import { spatialFrame } from '../geometry/spatialLayout';
 import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
-const operationLabels = { array:'массив прямоугольников', 'edge-line':'линия вдоль стороны', points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
+const operationLabels = {'spatial-point':'точка по пространственному условию',route:'эскизный маршрут', array:'массив прямоугольников', 'edge-line':'линия вдоль стороны', points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
 const defaultProvider = new HttpAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
 interface Props { size:ViewSize; ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider;onSettings?:()=>void }
@@ -38,14 +39,15 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
     }).catch(() => {});
     return () => controller.abort();
   }, []);
-  const run = (requestText: string) => { void runner.run(requestText, event => {
+  const run = (requestText: string,answers?:{questionId:string;answer:string}[]) => { void runner.run(requestText, event => {
     if (import.meta.env.DEV && event.diagnostics) publishAiDiagnostic(event.diagnostics);
     dispatch({ type: 'ai-event', event });
-  }); };
+  },answers); };
   const generate = (event: FormEvent) => { event.preventDefault();
-    const requestText = ai.status === 'needs_clarification' ? `${ai.originalText}\nУточнение пользователя: ${clarificationAnswer}` : text;
+    const requestText = ai.status === 'needs_clarification' ? ai.originalText : text;
+    const answers=ai.status==='needs_clarification'?[{questionId:'provider-clarification',answer:clarificationAnswer}]:undefined;
     setClarificationAnswer('');
-    run(requestText); };
+    run(requestText,answers); };
   const preview = ai.status === 'preview' || ai.status === 'stale' ? ai : ai.status === 'applied' && ai.results ? { plan: ai.results, notice: null } : null;
   const resolution = preview?.plan.resolution;
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
@@ -64,9 +66,9 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
     {mode === 'disabled' && <p className="ai-message">AI не подключён. Запустите mock demo или настройте серверный провайдер по README.</p>}
     <div aria-live="polite" aria-atomic="false">
       {ai.status === 'parsing' && <p className="ai-message">Разбираем запрос… Можно отправить новый или отменить.</p>}
-      {ai.status === 'error' && <div className="ai-error-state"><p className="ai-error" role="alert">{ai.message}</p>
+      {ai.status === 'error' && <div className="ai-error-state"><p className="ai-error" role="alert">{ai.code==='LOCAL_VALIDATION_ERROR'&&ai.message.startsWith('Ответ AI не прошёл')?'AI предложил данные, которых нет в запросе. Уточните размеры, отступы или явно заданные координаты. Чертёж не изменён.':ai.message}</p>
         {ai.code !== 'UNSUPPORTED' && <button type="button" className="tool-button compact" onClick={() => run(ai.originalText ?? text)}>Повторить запрос</button>}
-        {import.meta.env.DEV && <details><summary>Подробнее</summary><p>{ai.id} · {ai.code ?? 'LOCAL_VALIDATION_ERROR'}</p></details>}
+        {import.meta.env.DEV && <details><summary>Подробнее</summary><p>{ai.id} · {ai.code ?? 'LOCAL_VALIDATION_ERROR'}</p><p>{ai.message}</p></details>}
       </div>}
       {(ai.status==='document-preview'||ai.status==='document-stale')&&<DocumentOperationsPreview ai={ai} dispatch={dispatch} size={size} transactionActive={transactionActive}/>}
       {(ai.status==='process-preview'||ai.status==='process-stale')&&<ProcessPreview ai={ai} dispatch={dispatch} transactionActive={transactionActive} size={size}/>}
@@ -80,7 +82,7 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
         <p>Changes: {preview.plan.generatedCommandCount} · Measurements: {preview.plan.readOnlyCount}</p>
         {preview.plan.assumptions.length > 0 && <div className="ai-assumptions" data-testid="ai-assumptions"><strong>Предположения</strong><ul>{preview.plan.assumptions.map((assumption, index) => <li key={index}>{formatAssumption(assumption)}</li>)}</ul></div>}
         {preview.notice && <p className="ai-message" role="status">{preview.notice}</p>}
-        {resolution?.status === 'invalid' && <p className="ai-error">{resolution.message}</p>}
+        {(resolution?.status === 'invalid'||resolution?.status==='unsupported') && <p className="ai-error">{resolution.message}</p>}
         {resolution?.status === 'unresolved' && resolution.issues.map(issue => <div key={issue.name} className="ai-issue">
           {issue.kind === 'missing' ? <p className="ai-error">{issue.displayName??issue.name} — {issue.scope==='entity'?'объект':'точка'} не найден{issue.scope==='entity'?'':'а'}.</p> : <>
             <p>{issue.displayName??issue.name} найдено в {issue.candidates.length} экземплярах</p>
@@ -90,16 +92,20 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
             </select></label>
           </>}
         </div>)}
+        {preview.plan.clarifications.length>0&&<div data-testid="ai-local-clarification" className="ai-clarification"><strong>Нужно уточнение · план сохранён</strong>{preview.plan.clarifications.map(q=><label key={q.questionId}>{q.prompt}<select disabled={ai.status!=='preview'||transactionActive} aria-label={q.prompt} value="" onChange={e=>dispatch({type:'ai-answer',questionId:q.questionId,value:e.target.value})}><option value="" disabled>Выберите вариант</option>{q.options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select><small>{q.context}</small></label>)}</div>}
         {preview.plan.actions.map((action, index) => {
           const result = action.resolution;
           return <div key={action.id} className="ai-action" data-testid="ai-action" data-action-id={action.id}>
             <strong>{index + 1}. Интерпретация: {operationLabels[action.kind]}</strong>
-            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.kind === 'points' ? `${action.intent.points.length} точек с явно заданными координатами` : action.kind === 'rectangle' ? `${action.intent.name}: ${action.intent.width} × ${action.intent.height} м · ${action.intent.placement.type === 'centered_in_action_result' ? 'По центру Action ' + (action.intent.placement.polygonActionIndex + 1) : action.intent.placement.type === 'anchored_in_action_result' ? `${anchorLabels[action.intent.placement.anchor]} часть Action ${action.intent.placement.polygonActionIndex + 1}` : action.intent.placement.type}` : action.kind==='array'?`${action.intent.nameBase}: ${action.intent.count} × ${action.intent.width}×${action.intent.height} м`:action.kind==='edge-line'?`${action.intent.name}: ${action.intent.side}, ${action.intent.offsetMeters} м ${action.intent.offsetSide}`:action.intent.pointNames.join(' → ')}</p>
-            {(result.status === 'invalid' || result.status === 'blocked') && <p className="ai-error">{result.message}</p>}
+            <p>{action.kind === 'bulk-dimensions' ? `Граница: результат Action ${action.intent.boundaryActionIndex + 1}` : action.kind === 'points' ? `${action.intent.points.length} точек с явно заданными координатами` : action.kind === 'rectangle' ? `${action.intent.name}: ${action.intent.width} × ${action.intent.height} м · ${action.intent.placement.type === 'centered_in_action_result' ? 'По центру Action ' + (action.intent.placement.polygonActionIndex + 1) : action.intent.placement.type === 'anchored_in_action_result' ? `${anchorLabels[action.intent.placement.anchor]} часть Action ${action.intent.placement.polygonActionIndex + 1}` : action.intent.placement.type==='inside_boundary'?`В ${anchorLabels[action.intent.placement.anchor]} части границы; минимальный отступ ${action.intent.placement.minimumClearance} м`:action.intent.placement.type}` : action.kind==='array'?`${action.intent.nameBase}: ${action.intent.count} × ${action.intent.width}×${action.intent.height} м`:action.kind==='edge-line'?`${action.intent.name}: ${action.intent.side}, ${action.intent.offsetMeters} м ${action.intent.offsetSide}`:action.kind==='spatial-point'?`${action.intent.name}: ${action.intent.placement.type==='inside_boundary'?`В ${anchorLabels[action.intent.placement.anchor]} части границы`:action.intent.placement.type==='between'?'Между точками':'Относительно объекта'}`:action.kind==='route'?`${action.intent.name}: ${routeLabels[(preview.plan.answers.get(`${action.id}:route`)??action.intent.mode) as keyof typeof routeLabels]}`:action.intent.pointNames.join(' → ')}</p>
+            {(result.status === 'invalid' || result.status === 'blocked'||result.status==='unsupported') && <p className="ai-error">{result.message}</p>}
+            {action.kind==='rectangle'&&(action.intent.placement.type==='inside_boundary'||action.intent.orientation)&&<label>Ориентация<select disabled={ai.status!=='preview'||transactionActive} aria-label={`Ориентация ${action.intent.name}`} value={preview.plan.answers.get(`${action.id}:orientation`)??action.intent.orientation??'MODEL'} onChange={e=>dispatch({type:'ai-answer',questionId:`${action.id}:orientation`,value:e.target.value})}><option value="ASK" disabled>Уточните</option><option value="MODEL">Ширина по X, высота по Y</option><option value="SWAPPED">Повернуть на 90°</option></select></label>}
+            {action.kind==='route'&&<label>Маршрут<select disabled={ai.status!=='preview'||transactionActive} aria-label={`Маршрут ${action.intent.name}`} value={preview.plan.answers.get(`${action.id}:route`)??action.intent.mode} onChange={e=>dispatch({type:'ai-answer',questionId:`${action.id}:route`,value:e.target.value})}><option value="ASK" disabled>Уточните</option><option value="DIRECT">Прямо</option><option value="FOLLOW_BOUNDARY">По границе</option><option value="ORTHOGONAL">Под прямым углом</option><option value="SHORTEST_INSIDE">Кратчайший внутри</option></select></label>}
             {result.status === 'ready' && <>
+              {'explanation'in result&&result.explanation&&<p className="ai-message">{result.explanation}</p>}
               {result.kind==='array'? <ol>{result.rectangles.map((r,i)=><li key={i}>{r.command.type==='add-entity'?r.command.entity.name:''}: {r.width}×{r.height} м</li>)}</ol> : result.kind === 'bulk-dimensions' ? <ol className="ai-points" data-testid="ai-edge-list">{result.dimensions.map((edge, index) =>
                 <li key={index}>{edge.references[0]!.name} → {edge.references[1]!.name}: {formatDistance(edge.metrics.horizontal)}</li>)}</ol>
-                : <ol className="ai-points">{result.references.map((point, index) => <li key={`${point.entityId}:${point.vertexId}:${index}`}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol>}
+                : <details open={action.kind!=='spatial-point'&&action.kind!=='route'&&!(action.kind==='rectangle'&&action.intent.placement.type==='inside_boundary')}><summary>Координаты и ссылки</summary><ol className="ai-points">{result.references.map((point, index) => <li key={`${point.entityId}:${point.vertexId}:${index}`}><b>{result.kind === 'dimension' || result.kind === 'measure' ? `${index === 0 ? 'From' : 'To'}: ` : ''}{point.name}</b><small>{coordinates(point)}</small><small>{point.layer} · {point.entityId}</small></li>)}</ol></details>}
               <dl className="ai-metrics"><AiPlanMetrics result={result} /></dl>
               {result.warnings.map(warning => <p key={warning} className="ai-message">{warning}</p>)}
             </>}

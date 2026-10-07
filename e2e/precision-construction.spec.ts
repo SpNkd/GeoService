@@ -2,6 +2,7 @@ import { editorCommand, openRightTab } from './helpers/editorCommands';
 import { test, expect, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import type { GeoDocument, DimensionEntity, PolygonEntity } from '../src/domain/model';
+import { aiRequestSchema } from '../src/ai/intent';
 import { developmentMockProvider } from '../server/ai';
 const doc = (page: Page): Promise<GeoDocument> => readAutosaveDocument(page);
 async function at(page: Page, x: number, y: number) {
@@ -14,7 +15,7 @@ async function tool(page: Page, name: string) { await editorCommand(page,`Инс
 async function setup(page: Page) {
   await page.route('**/api/ai/config', route => route.fulfill({json:{mode:'mock'}}));
   const provider = developmentMockProvider();
-  await page.route('**/api/ai/intent', async route => { const request = route.request().postDataJSON(); expect(Object.keys(request)).toEqual(['text']); await route.fulfill({json:await provider.parseIntent({text:request.text,signal:new AbortController().signal})}); });
+  await page.route('**/api/ai/intent', async route => { const request = aiRequestSchema.parse(route.request().postDataJSON()); expect(Object.keys(request).sort()).toEqual(request.clarificationAnswers?['clarificationAnswers','text']:['text']); await route.fulfill({json:await provider.parseIntent({...request,signal:new AbortController().signal})}); });
   await page.goto('/'); await editorCommand(page, 'Новый документ');
 }
 async function generate(page: Page, text: string) { await openRightTab(page,'ai');await page.getByRole('textbox',{name:'Запрос',exact:true}).fill(text); await page.getByRole('button',{name:'Generate plan',exact:true}).click(); }
@@ -103,7 +104,7 @@ test('AI site/house/dimensions preview equals execution; editable shared house c
   await roundTrip(page); expect(await doc(page)).toEqual(saved); expect(errors).toEqual([]);
 });
 
-test('AI clarification and user follow-up send only text, and vague engineering request has no side effects', async ({page}) => {
+test('AI clarification sends original text and structured user answers, and vague engineering request has no side effects', async ({page}) => {
   const before=await doc(page); await generate(page,'Создай точки P1 и P2'); await expect(page.getByTestId('ai-clarification')).toBeVisible(); expect(await doc(page)).toEqual(before);
   await page.getByRole('textbox',{name:'Ответ на уточнение',exact:true}).fill('P1 (0,0), P2 (30,0)'); await page.getByRole('button',{name:'Generate plan',exact:true}).click();
   await expect(page.getByTestId('ai-ghost')).toHaveCount(1); await page.getByRole('button',{name:'Apply',exact:true}).click(); await expect(page.locator('[data-entity-type="point"]')).toHaveCount(2);

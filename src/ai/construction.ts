@@ -1,3 +1,4 @@
+import { insetPlacement,additionalPlacement } from './constraintGeometry';
 import { entityPoints } from '../domain/model';
 import { spatialFrame, spatialRectangle } from '../geometry/spatialLayout';
 import { resolveEntityReference, type EntityReferenceContext } from './entityReferences';
@@ -43,6 +44,14 @@ export function resolveCreateRectangle(intent: Extract<AiAction, { type: 'create
   if (placement.type === 'lower_left') origin = { x: placement.x, y: placement.y };
   else if (placement.type === 'local_origin') { origin = { x: 0, y: 0 }; assumptions.push({ type: 'local_origin', objectName: intent.name }); }
   else if (placement.type === 'center') origin = { x: placement.x - intent.width / 2, y: placement.y - intent.height / 2 };
+  else if(placement.type==='inside_boundary') {
+    if(!options.context)return {status:'invalid',message:'Нет локального контекста границы'};
+    const reference=placement.reference.kind==='action'?{kind:'prior_action_result' as const,actionIndex:placement.reference.actionIndex}:placement.reference;
+    const ref=resolveEntityReference(reference,options.context,true);if(ref.status!=='resolved')return ref;
+    parentGeometry=entityPoints(ref.entity,ref.document.vertices);
+    const solved=insetPlacement(placement,parentGeometry,intent.width,intent.height);if('message'in solved)return solved.unsupported?{status:'unsupported',message:solved.message,alternatives:['Используйте прямоугольную границу в осях MODEL.']}:{status:'invalid',message:solved.message};
+    origin=solved.origin;assumptions.push({type:'spatial',message:`${intent.name}: ${solved.explanation}`});
+  }
   else if (placement.type === 'relative_to_entity' || placement.type === 'inside_entity') {
     if (!options.context) return {status:'invalid',message:'Нет локального контекста ссылки'};
     const ref=resolveEntityReference(placement.reference,options.context,placement.type==='inside_entity');
@@ -78,6 +87,10 @@ export function resolveCreateRectangle(intent: Extract<AiAction, { type: 'create
       if (anchor !== 'center') assumptions.push({ type: 'auto_layout_inset', objectName: intent.name, anchor, nominal: layout.nominalInset, x: layout.insetX, y: layout.insetY }, { type: 'sketch_layout' });
     }
   }
+  if(placement.type==='relative_to_entity'&&intent.constraints?.some(c=>c.type==='containment'&&c.value==='inside'))return {status:'invalid',message:'Внешнее относительное размещение противоречит условию внутри объекта.'};
+  const constrained=additionalPlacement(origin,parentGeometry,intent.width,intent.height,'anchor'in placement?placement.anchor:undefined,intent.constraints??[]);
+  if('message'in constrained)return {status:'invalid',message:constrained.message};origin=constrained.origin;
+  if(placement.type==='inside_boundary'&&parentGeometry){const check=insetPlacement({...placement,anchor:'south_west',offsetAlongSide:null},parentGeometry,intent.width,intent.height);if('message'in check)return {status:'invalid',message:check.message};const b=bounds(parentGeometry)!;if(origin.x<b.minX+Math.max(placement.inset.west,placement.minimumClearance)-1e-8||origin.x+intent.width>b.maxX-Math.max(placement.inset.east,placement.minimumClearance)+1e-8||origin.y<b.minY+Math.max(placement.inset.south,placement.minimumClearance)-1e-8||origin.y+intent.height>b.maxY-Math.max(placement.inset.north,placement.minimumClearance)+1e-8)return {status:'invalid',message:'Фиксированные расстояния противоречат минимальным отступам от границы.'};}
   const geometry = [origin, { x: origin.x + intent.width, y: origin.y }, { x: origin.x + intent.width, y: origin.y + intent.height }, { x: origin.x, y: origin.y + intent.height }];
   if (parentGeometry && !rectangleInsidePolygon(geometry, parentGeometry)) return { status: 'invalid', message: 'Эскизное размещение не помещается внутри контура участка. Измените размеры или положение.' };
   if (!geometry.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)) || geometry[1]!.x === origin.x || geometry[3]!.y === origin.y) return { status: 'invalid', message: 'Размеры прямоугольника вне точности/диапазона координат' };
@@ -89,6 +102,7 @@ export function resolveCreateRectangle(intent: Extract<AiAction, { type: 'create
   const area = polygonArea(geometry), perimeter = pathLength(geometry, true);
   if (!Number.isFinite(area) || !Number.isFinite(perimeter) || area <= 0) return { status: 'invalid', message: 'Неконечные метрики прямоугольника' };
   return { status: 'ready', kind: 'rectangle', width: intent.width, height: intent.height, area, perimeter, geometry, references, warnings: [], assumptions,
+    explanation:assumptions.filter(a=>a.type==='spatial').map(a=>a.message).join(' ') + (intent.constraints?.length?` Дополнительные условия: ${intent.constraints.map(c=>c.type==='fixed_side_distance'?`${c.side}: ровно ${c.distance} м`:c.type==='alignment'?c.relation:c.value).join('; ')}.`:''),
     targetLayer: target.layer.id, output: { kind: 'created_polygon', entityId: entity.id, vertexIds: entity.vertexIds, references },
     command: { type: 'add-entity', entity, vertices, ...(target.addition ? { layer: target.addition } : {}) } };
 }

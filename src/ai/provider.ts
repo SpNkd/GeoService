@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { AI_LIMITS, aiRequestSchema, readBoundedJson, validateParserResult, type ParserResult } from './intent';
 import { AiProviderError, aiErrorCodeSchema, createDiagnostic, diagnosticSchema, httpErrorCode, newTraceId, redact, safeDiagnostic, type AiDiagnostic, type AiErrorCode } from './reliability';
 
-export interface AiIntentRequest { text: string; signal: AbortSignal; traceId?: string; onDiagnostic?: (record: AiDiagnostic) => void }
+export interface AiIntentRequest { clarificationAnswers?:{questionId:string;answer:string}[]|undefined; text: string; signal: AbortSignal; traceId?: string; onDiagnostic?: (record: AiDiagnostic) => void }
+export function semanticRequestText(request:Pick<AiIntentRequest,'text'|'clarificationAnswers'>):string {return request.clarificationAnswers?.length?`${request.text}\nУточнение пользователя: ${request.clarificationAnswers.map(a=>a.answer).join('\n')}`:request.text;}
 export interface AiIntentProvider { parseIntent(request: AiIntentRequest): Promise<unknown> }
 export const providerModeSchema = z.enum(['mock', 'openai', 'openrouter', 'disabled']);
 export type ProviderMode = z.infer<typeof providerModeSchema>;
@@ -16,8 +17,8 @@ export function validateReliableResult(raw: unknown, text: string): ParserResult
 }
 export class HttpAiIntentProvider implements AiIntentProvider {
   constructor(private readonly transport: typeof fetch = (...args) => fetch(...args)) {}
-  async parseIntent({ text, signal, traceId = newTraceId(), onDiagnostic }: AiIntentRequest): Promise<unknown> {
-    const request = aiRequestSchema.parse({ text });
+  async parseIntent({ text, clarificationAnswers, signal, traceId = newTraceId(), onDiagnostic }: AiIntentRequest): Promise<unknown> {
+    const request = aiRequestSchema.parse({ text,...(clarificationAnswers?{clarificationAnswers}:{}) });
     let response: Response;
     let attempt=0;
     while(true){try { response = await this.transport('/api/ai/intent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AI-Trace-ID': traceId, ...aiSettingsHeaders() },
@@ -52,7 +53,7 @@ export class AiRequestRunner {
   private active: { id: string; controller: AbortController } | null = null;
   constructor(private readonly provider: AiIntentProvider, private readonly timeoutMs: number = AI_LIMITS.timeoutMs) {}
   cancel() { this.active?.controller.abort(); this.active = null; }
-  async run(text: string, emit: (event: RequestEvent) => void): Promise<void> {
+  async run(text: string, emit: (event: RequestEvent) => void,clarificationAnswers?:AiIntentRequest['clarificationAnswers']): Promise<void> {
     this.cancel();
     const id = newTraceId(), controller = new AbortController(), start = performance.now();
     let diagnostics = createDiagnostic(id, text, this.provider instanceof MockAiIntentProvider ? 'mock' : 'http');
@@ -60,14 +61,14 @@ export class AiRequestRunner {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let abort: (() => void) | undefined;
     try {
-      const request = aiRequestSchema.safeParse({ text });
+      const request = aiRequestSchema.safeParse({ text,...(clarificationAnswers?{clarificationAnswers}:{}) });
       if (!request.success) throw new AiProviderError('BAD_REQUEST');
       const cancelled = new Promise<never>((_, reject) => { abort = () => reject(new AiProviderError('TIMEOUT')); controller.signal.addEventListener('abort', abort, { once: true }); });
       const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { reject(new AiProviderError('TIMEOUT')); controller.abort(); }, this.timeoutMs===AI_LIMITS.timeoutMs?aiRuntime().timeoutMs:this.timeoutMs); });
-      const raw = await Promise.race([this.provider.parseIntent({ text: request.data.text, signal: controller.signal, traceId: id, onDiagnostic: record => { diagnostics = record; } }), timeout, cancelled]);
+      const raw = await Promise.race([this.provider.parseIntent({ text: request.data.text,...(clarificationAnswers?{clarificationAnswers}:{}), signal: controller.signal, traceId: id, onDiagnostic: record => { diagnostics = record; } }), timeout, cancelled]);
       diagnostics.parsedResult = raw;
       if (diagnostics.rawResponse === undefined) diagnostics.rawResponse = JSON.stringify(raw);
-      const result = validateReliableResult(raw, request.data.text);
+      const result = validateReliableResult(raw, semanticRequestText({text:request.data.text,...(clarificationAnswers?{clarificationAnswers}:{})}));
       diagnostics.schemaStatus = 'valid'; diagnostics.localValidationStatus = 'valid'; diagnostics.parsedResult = result; diagnostics.latencyMs = Math.round(performance.now() - start);
       diagnostics.actionCount = 'actions' in result ? result.actions.length : 0;
       if ('status' in result && result.status === 'unsupported') diagnostics.errorCode = 'UNSUPPORTED';
@@ -76,7 +77,7 @@ export class AiRequestRunner {
       const typed = error instanceof AiProviderError ? error : new AiProviderError('NETWORK_ERROR');
       diagnostics.errorCode = typed.code; diagnostics.latencyMs = Math.round(performance.now() - start);
       if (typed.code === 'INVALID_STRUCTURED_OUTPUT') diagnostics.schemaStatus = 'invalid';
-      if (typed.code === 'LOCAL_VALIDATION_ERROR') { diagnostics.schemaStatus = 'valid'; diagnostics.localValidationStatus = 'invalid'; diagnostics.validationDetail = typed.message; }
+      if (typed.code === 'LOCAL_VALIDATION_ERROR') { diagnostics.schemaStatus = 'valid'; diagnostics.localValidationStatus = 'invalid'; diagnostics.validationDetail = typed.diagnostics?.validationDetail??typed.message;if(diagnostics.validationDetail.includes('Координаты'))diagnostics.coordinateProvenance='LLM_INVENTED'; }
       if (this.active?.id === id) emit({ type: 'failure', id, message: typed.message + (typed.message.includes('Чертёж не изменён') ? '' : ' Чертёж не изменён.'), code: typed.code, diagnostics: safeDiagnostic(diagnostics) });
     } finally { clearTimeout(timer); if (abort) controller.signal.removeEventListener('abort', abort); if (this.active?.id === id) this.active = null; }
   }

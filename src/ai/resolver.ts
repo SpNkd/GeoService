@@ -1,3 +1,4 @@
+import type { LocalQuestion, CoordinateProof } from './constraintSchema';
 import type { PointsReady, RectangleReady } from './construction';
 import type { DocumentCommand } from '../domain/commands';
 import { parseCommand } from '../domain/commandSchema';
@@ -30,8 +31,8 @@ function idsFor(entities: GeoDocument['entities']) {
 }
 export interface ResolvedReference { name: string; entityId: string; vertexId: string; position: WorldPoint; layer: string; entityType?: string; bounds?: import('../geometry').Bounds }
 export type ResolutionIssue = ({ kind: 'missing'; name: string } | { kind: 'ambiguous'; name: string; candidates: ResolvedReference[] }) & { scope?: 'entity'; displayName?: string };
-export type ResolutionFailure = { status: 'blocked'; dependencyIndex: number; message: string } | { status: 'unresolved'; issues: ResolutionIssue[] } | { status: 'invalid'; message: string };
-export interface References { references: ResolvedReference[]; geometry: WorldPoint[]; warnings: string[] }
+export type ResolutionFailure = {status:'unsupported';message:string;alternatives:string[]} | {status:'needs_clarification';questions:LocalQuestion[]} | { status: 'blocked'; dependencyIndex: number; message: string } | { status: 'unresolved'; issues: ResolutionIssue[] } | { status: 'invalid'; message: string };
+export interface References { derivations?:CoordinateProof[]; explanation?:string; references: ResolvedReference[]; geometry: WorldPoint[]; warnings: string[] }
 export type ReferenceResolution = ResolutionFailure | ({ status: 'resolved' } & References);
 export interface ResolvedPolygonOutput { readonly kind: 'created_polygon'; readonly entityId: string;
   readonly vertexIds: readonly string[]; readonly references: readonly ResolvedReference[] }

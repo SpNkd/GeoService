@@ -407,3 +407,8 @@ h2, h3, p { margin: 0; }
 .orientation-panel{max-width:calc(100vw - 24px);gap:12px!important;padding:14px!important}.orientation-panel strong{font-size:13px}.orientation-panel small{color:#647c8c}.orientation-panel hr{width:100%;border:0;border-top:1px solid #d7e1e8;margin:0}.orientation-presets,.orientation-align{display:flex;gap:6px}.orientation-presets button,.orientation-align button{flex:1;border:1px solid #bdcbd6;border-radius:6px;padding:7px;background:#f7fafc;white-space:nowrap;color:#294f6a}.number-field{display:flex;flex-direction:column;gap:5px}.number-field>span{display:flex;align-items:center;border:1px solid #bdcbd6;border-radius:6px;background:#fff;overflow:hidden}.number-field input{border:0!important;min-width:0;width:100%}.number-field>span>span{padding:0 10px;color:#6b8090}.dock-tab-ai .ai-panel{overflow:auto;min-height:0;flex:1}.right-column .right-panel:has(.inspector-empty){min-height:0}
 
 .empty-inspector{padding:16px;text-align:left;min-height:0;gap:8px}.empty-inspector h3,.empty-inspector p{margin:0}
+/* AI explanations expand naturally; only verbose diagnostics scroll. */
+.ai-error,.ai-error-state,.ai-clarification {min-width:0;overflow-wrap:anywhere;white-space:normal;height:auto;max-height:none}
+.ai-error-state details[open] {max-height:240px;overflow:auto}
+.ai-clarification label,.ai-action label {display:grid;gap:6px;margin:8px 0}
+.ai-clarification select,.ai-action select {width:100%;min-width:0}

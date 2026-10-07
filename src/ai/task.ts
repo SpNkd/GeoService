@@ -1,10 +1,12 @@
+import { dependencyIndices, type LocalAnswers, type LocalQuestion, type CoordinateProof } from './constraintSchema';
+import { resolveConstraintAction, orientationQuestion,resolveConstraintReference } from './constraintResolution';
 import { isProcessAction } from '../process/schema';
 import { isDocumentAction } from '../documentOperations/schema';
 import { resolveSpatialAction, type ArrayReady } from './spatial';
 import { resolveEntityReference, type EntityReferenceContext } from './entityReferences';
 import { resolveCreatePoints, resolveCreateRectangle, type PointsReady, type RectangleReady } from './construction';
 import { applyCommandsAtomically, type DocumentCommand } from '../domain/commands';
-import type { GeoDocument } from '../domain/model';
+import { entityPoints as importEntityPoints, type GeoDocument } from '../domain/model';
 import { AI_LIMITS, aiTaskSchema, requestedPointNames, type AiAction, type AiIntent, type AiTaskIntent } from './intent';
 import { pointNameIndex, resolveNamedPointReferences, resolveReferencedIntent, type BoundaryReady, type PolylineReady,
   type DimensionReady, type MeasureReady, type ResolutionFailure, type ExplicitResolutions, type PointNameIndex, type ResolvedBoundaryOutput, type ReadyResolution } from './resolver';
@@ -12,6 +14,8 @@ import { resolveBoundaryEdgeDimensions, type BulkDimensionsReady, type ResolveCo
 import type { LayoutAssumption } from './assumptions';
 interface PlanBase { id: string; text: string; basedOnDocument: GeoDocument; choices: ExplicitResolutions }
 export type AiPlan =
+  | (PlanBase & {kind:'spatial-point';intent:Extract<AiAction,{type:'create_spatial_point'}>;requiresConfirmation:true;resolution:ResolutionFailure|PointsReady})
+  | (PlanBase & {kind:'route';intent:Extract<AiAction,{type:'create_route'}>;requiresConfirmation:true;resolution:ResolutionFailure|PolylineReady})
   | (PlanBase & { kind: 'array'; intent: Extract<AiAction, { type: 'create_rectangle_array' }>; requiresConfirmation: true; resolution: ResolutionFailure | ArrayReady })
   | (PlanBase & { kind: 'edge-line'; intent: Extract<AiAction, { type: 'create_line_along_polygon_edge' }>; requiresConfirmation: true; resolution: ResolutionFailure | PolylineReady })
   | (PlanBase & { kind: 'points'; intent: Extract<AiAction, { type: 'create_points' }>; requiresConfirmation: true; resolution: ResolutionFailure | PointsReady })
@@ -24,6 +28,7 @@ export type AiPlan =
 export type MutationPlan = Extract<AiPlan, { requiresConfirmation: true }>;
 
 export interface ResolvedAiTaskPlan extends PlanBase {
+  answers:LocalAnswers; clarifications:LocalQuestion[]; proofs:CoordinateProof[]; dependencyGraph:number[][]; timings:{dependencyMs:number;solveMs:number;routeMs:number;totalMs:number}; resolutionStatus:'RESOLVED'|'NEEDS_CLARIFICATION'|'UNSUPPORTED'|'INVALID';
   referenceEntityIds: string[];
   targetLayerId: string;
   selectionEntityIds: readonly string[];
@@ -38,24 +43,27 @@ export interface ResolvedAiTaskPlan extends PlanBase {
   requiresConfirmation: boolean;
 }
 export function resolveAiTaskPlan(task: AiTaskIntent, document: GeoDocument, choices: ExplicitResolutions = new Map(),
-  options: { targetLayerId?: string; selectionEntityIds?: readonly string[]; id?: string; text?: string; offsets?: ReadonlyMap<string, number>; index?: PointNameIndex; actionIds?: readonly string[]; offsetBindings?: ReadonlyMap<string, readonly string[]> } = {}): ResolvedAiTaskPlan {
+  options: { answers?:LocalAnswers; targetLayerId?: string; selectionEntityIds?: readonly string[]; id?: string; text?: string; offsets?: ReadonlyMap<string, number>; index?: PointNameIndex; actionIds?: readonly string[]; offsetBindings?: ReadonlyMap<string, readonly string[]> } = {}): ResolvedAiTaskPlan {
+  const started=performance.now(), answers=options.answers??new Map<string,string>();
   const id = options.id ?? 'task', text = options.text ?? '';
   const targetLayerId=options.targetLayerId ?? document.layers.find(l=>l.id==='boundary')?.id ?? document.layers[0]!.id;
   const selectionEntityIds=options.selectionEntityIds ?? [];
   const base = { id, text, basedOnDocument: document, choices };
   const mutationCount = task.actions.filter(action => action.type !== 'measure_between_named_points').length;
-  const result: ResolvedAiTaskPlan = { ...base, referenceEntityIds: [], targetLayerId, selectionEntityIds, task, assumptions: [], actions: [], resolution: { status: 'ready' }, mutationCount,
+  const result: ResolvedAiTaskPlan = { ...base, answers,clarifications:[],proofs:[],dependencyGraph:task.actions.map(dependencyIndices),timings:{dependencyMs:0,solveMs:0,routeMs:0,totalMs:0},resolutionStatus:'RESOLVED',referenceEntityIds: [], targetLayerId, selectionEntityIds, task, assumptions: [], actions: [], resolution: { status: 'ready' }, mutationCount,
     generatedCommandCount: 0, projectedDocument: null, readOnlyCount: task.actions.length - mutationCount, requiresConfirmation: mutationCount > 0 };
   const parsed = aiTaskSchema.safeParse(task);
-  if (!parsed.success) return { ...result, resolution: { status: 'invalid', message: 'Неверный semantic task или превышен budget' } };
+  if (!parsed.success) return { ...result,resolutionStatus:'INVALID', resolution: { status: 'invalid', message: 'Неверный semantic task или превышен budget' } };
   task = parsed.data; result.task = task;
-  const createdNames = new Set(task.actions.flatMap(action => action.type === 'create_points' ? action.points.map(point => point.name) : []));
+  const createdNames = new Set(task.actions.flatMap(action => action.type === 'create_points' ? action.points.map(point => point.name) : action.type==='create_spatial_point'?[action.name]:[]));
   const names = [...new Set(task.actions.flatMap(requestedPointNames))].filter(name => !createdNames.has(name));
   const shared = resolveNamedPointReferences(names, document, choices, options.index ?? pointNameIndex(document.entities), false);
   const byName = shared.status === 'resolved' ? new Map(shared.references.map(ref => [ref.name, ref])) : null;
   // References remain anchored in the base document. Mutation outputs are projected privately in semantic order.
   let projectedDocument = document;
   const boundaryOutputs = new Map<number, ResolvedBoundaryOutput>();
+  const results=new Map<number,{entity:import('../domain/model').Entity;document:GeoDocument}>();
+  result.timings.dependencyMs=performance.now()-started;
   for (const [index, intent] of task.actions.entries()) {
     if(isDocumentAction(intent)||isProcessAction(intent)){result.resolution={status:'invalid',message:'Document operations use the local document resolver'};continue;}
     const actionId = options.actionIds?.[index] ?? `${id}-action-${index + 1}`;
@@ -69,15 +77,38 @@ export function resolveAiTaskPlan(task: AiTaskIntent, document: GeoDocument, cho
     const offsetEndpoints = offsetOverride === null ? null : previousEndpoints ?? (byName ? references.map(ref => ref.vertexId) : null);
     const context: ResolveContext = { targetLayerId, baseDocument: document, projectedDocument, boundaryOutputs, referenceResolutions: byName ?? new Map() };
     const entityContext:EntityReferenceContext={baseDocument:document,projectedDocument,outputs:boundaryOutputs,choices,selectionEntityIds};
-    const spatialReference='reference'in intent?intent.reference:intent.type==='create_rectangle'&&'reference'in intent.placement?intent.placement.reference:null;
+    const spatialReference='reference'in intent?intent.reference:intent.type==='create_rectangle'&&intent.placement.type!=='inside_boundary'&&'reference'in intent.placement?intent.placement.reference:null;
     if(spatialReference){const ref=resolveEntityReference(spatialReference,entityContext);if(ref.status==='resolved'&&!result.referenceEntityIds.includes(ref.entity.id)) result.referenceEntityIds.push(ref.entity.id);}
-    let resolution = intent.type==='create_rectangle_array'||intent.type==='create_line_along_polygon_edge'?resolveSpatialAction(intent,projectedDocument,entityContext,actionId,targetLayerId)
+    const actionStarted=performance.now();
+    let orientation=intent.type==='create_rectangle'?(answers.get(`${actionId}:orientation`)??(intent.orientation==='ASK'?undefined:intent.orientation??'MODEL')):'MODEL';
+    let alignmentFailure:ResolutionFailure|null=null,alignmentOrientation:string|null=null;
+    if(intent.type==='create_rectangle')for(const c of intent.constraints??[])if(c.type==='alignment'){
+      const ref=resolveConstraintReference(c.reference,{...entityContext,results,answers});
+      if(ref.status!=='resolved'){alignmentFailure=ref;break;}
+      const geometry=importEntityPoints(ref.entity,ref.document.vertices),a=geometry[0],b=geometry[1];
+      if(!a||!b||Math.abs(a.x-b.x)>1e-8&&Math.abs(a.y-b.y)>1e-8){alignmentFailure={status:'unsupported',message:'Параллельное/перпендикулярное размещение пока поддерживает только осевые контуры MODEL.',alternatives:['Укажите ориентацию MODEL или поворот 90°.']};break;}
+      const derived=(Math.abs(a.x-b.x)<1e-8)===(c.relation==='parallel')?'SWAPPED':'MODEL';
+      const explicitOrientation=answers.get(`${actionId}:orientation`)??intent.orientation;
+      if(alignmentOrientation&&alignmentOrientation!==derived){alignmentFailure={status:'invalid',message:'Несовместимые условия параллельности и перпендикулярности требуют разных ориентаций.'};break;}
+      alignmentOrientation=derived;
+      if(explicitOrientation&&explicitOrientation!=='ASK'&&explicitOrientation!==derived){alignmentFailure={status:'invalid',message:'Явная ориентация противоречит условию параллельности или перпендикулярности.'};break;}
+      orientation=derived;
+    }
+    if(intent.type==='create_rectangle'&&!orientation&&!alignmentFailure){
+      const checks=[intent,{...intent,width:intent.height,height:intent.width}].map(r=>resolveCreateRectangle(r,projectedDocument,boundaryOutputs,actionId,{targetLayerId,context:entityContext}));
+      if(checks.every(r=>r.status!=='ready'))alignmentFailure=checks[0] as ResolutionFailure;
+    }
+    const rectangle=intent.type==='create_rectangle'&&orientation==='SWAPPED'?{...intent,width:intent.height,height:intent.width}:intent;
+    let resolution = alignmentFailure??(intent.type==='create_rectangle'&&!orientation?{status:'needs_clarification' as const,questions:[orientationQuestion(actionId,intent.name,intent.width,intent.height)]}
+      : intent.type==='create_spatial_point'||intent.type==='create_route'?resolveConstraintAction(intent,projectedDocument,{...entityContext,results,answers},actionId,targetLayerId)
+      : intent.type==='create_rectangle_array'||intent.type==='create_line_along_polygon_edge'?resolveSpatialAction(intent,projectedDocument,entityContext,actionId,targetLayerId)
       : intent.type === 'create_points' ? resolveCreatePoints(intent, projectedDocument, actionId, targetLayerId)
-      : intent.type === 'create_rectangle' ? resolveCreateRectangle(intent, projectedDocument, boundaryOutputs, actionId, {targetLayerId,context:entityContext})
+      : intent.type === 'create_rectangle' ? resolveCreateRectangle(rectangle as Extract<AiAction,{type:'create_rectangle'}>, projectedDocument, boundaryOutputs, actionId, {targetLayerId,context:entityContext})
       : intent.type === 'create_dimensions_for_boundary_edges' ? resolveBoundaryEdgeDimensions(intent, context, actionId)
       : shared.status !== 'resolved' ? shared : newReferences.status !== 'resolved' ? newReferences : resolveReferencedIntent(intent,
         { references, geometry: references.map(ref => ref.position), warnings: shared.warnings }, projectedDocument,
-        { targetLayerId, entityId: task.actions.length === 1 ? `geometry-${id}` : `geometry-${actionId}`, ...(offsetOverride === null ? {} : { offset: offsetOverride }) });
+        { targetLayerId, entityId: task.actions.length === 1 ? `geometry-${id}` : `geometry-${actionId}`, ...(offsetOverride === null ? {} : { offset: offsetOverride }) }));
+    const elapsed=performance.now()-actionStarted;if(intent.type==='create_route')result.timings.routeMs+=elapsed;else result.timings.solveMs+=elapsed;
     if(resolution.status==='ready' && intent.type!=='measure_between_named_points' && !document.layers.some(l=>l.id===targetLayerId&&l.visible&&!l.locked)) resolution={status:'invalid',message:'Выберите видимый незаблокированный слой новых объектов.'};
     if (resolution.status === 'ready') {
       const commands = commandsForResolution(resolution);
@@ -89,10 +120,24 @@ export function resolveAiTaskPlan(task: AiTaskIntent, document: GeoDocument, cho
         catch (error) { resolution = { status: 'invalid', message: error instanceof Error ? error.message : 'Не удалось построить projected document' }; }
       }
     }
+    if(resolution.status==='ready') {
+      if((intent.type==='create_rectangle'||intent.type==='create_spatial_point'||intent.type==='create_route'||intent.type==='create_points')&&'geometry'in resolution){
+        const proof:CoordinateProof={provenance:intent.type==='create_points'?'USER_EXPLICIT':'RESOLVER_DERIVED',actionIndex:index,constraint:resolution.explanation??(intent.type==='create_rectangle'?JSON.stringify(intent.placement):'Explicit user coordinates'),coordinates:resolution.geometry.map(p=>({x:p.x,y:p.y})),dependencies:result.dependencyGraph[index]!};
+        resolution={...resolution,derivations:[proof]};result.proofs.push(proof);
+      }
+      const command=commandsForResolution(resolution)[0];
+      const entity=command?.type==='add-entity'?command.entity:command?.type==='import-points'&&command.points.length===1?command.points[0]!.entity:null;
+      if(entity)results.set(index,{entity,document:projectedDocument});
+      if(intent.type==='create_rectangle'&&(intent.placement.type==='inside_boundary'||intent.orientation))result.assumptions.push({type:'spatial',message:`${intent.name}: ${orientation==='SWAPPED'?intent.height:intent.width} м по X и ${orientation==='SWAPPED'?intent.width:intent.height} м по Y; ${intent.orientation===undefined?'эскизная ориентация MODEL по порядку размеров':'выбранная ориентация'}.`});
+      if(intent.type==='create_route')result.assumptions.push({type:'spatial',message:'Труба — обычная эскизная полилиния внутри границы. Отступ сооружений относится к дому и точке, а не к трубе вдоль границы. Конец — ближайшая точка контура цели.'});
+    }
+    if(resolution.status==='needs_clarification')result.clarifications.push(...resolution.questions);
     if (resolution.status === 'ready' && (resolution.kind === 'rectangle'||resolution.kind==='array')) result.assumptions.push(...resolution.assumptions);
     if (resolution.status === 'ready' && (resolution.kind === 'boundary' || resolution.kind === 'rectangle')) boundaryOutputs.set(index, resolution.output);
     const actionBase = { ...base, id: actionId, intent };
     switch (intent.type) {
+      case 'create_spatial_point':if(resolution.status!=='ready'||resolution.kind==='points')result.actions.push({...actionBase,intent,kind:'spatial-point',requiresConfirmation:true,resolution});break;
+      case 'create_route':if(resolution.status!=='ready'||resolution.kind==='polyline')result.actions.push({...actionBase,intent,kind:'route',requiresConfirmation:true,resolution});break;
       case 'create_rectangle_array': if(resolution.status!=='ready'||resolution.kind==='array') result.actions.push({...actionBase,intent,kind:'array',requiresConfirmation:true,resolution}); break;
       case 'create_line_along_polygon_edge': if(resolution.status!=='ready'||resolution.kind==='polyline') result.actions.push({...actionBase,intent,kind:'edge-line',requiresConfirmation:true,resolution}); break;
       case 'create_points': if (resolution.status !== 'ready' || resolution.kind === 'points') result.actions.push({ ...actionBase, intent, kind: 'points', requiresConfirmation: true, resolution }); break;
@@ -116,6 +161,11 @@ export function resolveAiTaskPlan(task: AiTaskIntent, document: GeoDocument, cho
     if (resolution.status !== 'ready' && result.resolution.status === 'ready') result.resolution = resolution;
   }
   if (result.actions.length !== task.actions.length) result.resolution = { status: 'invalid', message: 'Resolver/action mismatch' };
+  if(result.resolution.status==='unresolved')for(const issue of result.resolution.issues)if(issue.kind==='ambiguous')result.clarifications.push({questionId:issue.name,kind:'entity_choice',prompt:`Выберите ${issue.displayName??issue.name}`,context:'Объекты разрешаются локально; их данные не отправляются AI.',options:issue.candidates.map(c=>({value:c.entityId,label:`${c.name} · ${c.layer} · ${c.entityId}`}))});
+  const fatal=result.actions.find(a=>a.resolution.status==='invalid'||a.resolution.status==='unsupported');
+  if(fatal&&fatal.resolution.status!=='ready'){result.resolution=fatal.resolution;result.clarifications=[];}
+  result.resolutionStatus=result.resolution.status==='ready'?'RESOLVED':result.resolution.status==='unsupported'?'UNSUPPORTED':result.resolution.status==='invalid'?'INVALID':result.clarifications.length?'NEEDS_CLARIFICATION':'INVALID';
+  result.timings.totalMs=performance.now()-started;
   if (result.resolution.status === 'ready') result.projectedDocument = projectedDocument;
   return result;
 }
@@ -130,7 +180,7 @@ export function refreshTask(plan: ResolvedAiTaskPlan, document: GeoDocument): Re
     offsets.set(action.id, action.offsetOverride);
     if (action.offsetEndpoints) offsetBindings.set(action.id, action.offsetEndpoints);
   }
-  return resolveAiTaskPlan(plan.task, document, plan.choices, { targetLayerId:plan.targetLayerId, selectionEntityIds:plan.selectionEntityIds, id: plan.id, text: plan.text, offsets, offsetBindings,
+  return resolveAiTaskPlan(plan.task, document, plan.choices, { answers:plan.answers,targetLayerId:plan.targetLayerId, selectionEntityIds:plan.selectionEntityIds, id: plan.id, text: plan.text, offsets, offsetBindings,
     actionIds: plan.actions.map(action => action.id) });
 }
 
@@ -145,3 +195,6 @@ export function taskPreviews(plan: ResolvedAiTaskPlan): { id: string; result: Re
   }
   return previews;
 }
+
+/** Local-only developer evidence; never added to an AI provider payload or saved document. */
+export function constraintDiagnostics(plan:ResolvedAiTaskPlan) {return {resolutionStatus:plan.resolutionStatus,semanticValidation:'valid',constraintResolution:plan.resolution.status,clarificationCount:plan.clarifications.length,derivedConstraintCount:plan.proofs.filter(p=>p.provenance==='RESOLVER_DERIVED').length,dependencyGraph:plan.dependencyGraph,answers:[...plan.answers],proofs:plan.proofs,timings:plan.timings};}

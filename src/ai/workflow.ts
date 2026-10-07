@@ -1,3 +1,4 @@
+import {constraintReferences} from './constraintSchema';
 import { projectedSceneBounds } from '../view/geometry';
 import { bounds, fitToBounds } from '../geometry';
 import { symbolBoundsPoints } from '../symbols/transforms';
@@ -21,7 +22,7 @@ export type AiState = {status:'process-preview'|'process-stale';plan:ProcessPlan
   | { status: 'applied'; id: string; results: ResolvedAiTaskPlan | null } | { status: 'error'; message: string; code?: AiErrorCode; id?: string; originalText?: string };
 export interface ApplicationState { editor: EditorState; ai: AiState }
 export type ApplicationAction = EditorAction | {type:'process-apply'} | {type:'process-fit-preview';size:ViewSize} | {type:'process-refresh'} | {type:'document-apply';size:ViewSize} | {type:'document-refresh'} | {type:'document-fit-preview';size:ViewSize} | {type:'document-group';actionIndex:number;groupId:string;included:boolean} | { type: 'ai-event'; event: RequestEvent }
-  | { type: 'ai-cancel' } | { type: 'ai-choose'; name: string; entityId: string }
+  | {type:'ai-answer';questionId:string;value:string} | { type: 'ai-cancel' } | { type: 'ai-choose'; name: string; entityId: string }
   | {type:'ai-target-layer';layerId:string} | { type: 'ai-apply' } | { type: 'ai-refresh' } | { type: 'ai-offset'; actionId?: string; offset: number };
 export type ExecutionGateResult = { status: 'blocked'; message: string } | { status: 'refreshed'; plan: ResolvedAiTaskPlan }
   | { status: 'execute'; commands: ReturnType<typeof parseCommand>[]; expectedDocument: GeoDocument };
@@ -88,7 +89,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       if (state.ai.status !== 'parsing' || state.ai.id !== event.id) return state;
       if (event.type === 'failure') return { ...state, ai: { status: 'error', message: event.message, ...(event.code ? { code: event.code } : {}), id: event.id, originalText: state.ai.text } };
       if ('status' in event.result && event.result.status === 'needs_clarification') return { ...state, ai: { status: 'needs_clarification', originalText: state.ai.text, questions: event.result.questions } };
-      if ('status' in event.result) return { ...state, ai: { status: 'error', message: 'Эта команда пока не поддерживается.', code: 'UNSUPPORTED', id: event.id, originalText: state.ai.text } };
+      if ('status' in event.result) return { ...state, ai: { status: 'error', message: event.result.reason??'Эта команда пока не поддерживается. Можно создать эскизные точки, прямоугольники, маршруты и размеры; уточните запрос в этих пределах.', code: 'UNSUPPORTED', id: event.id, originalText: state.ai.text } };
       if(event.result.actions.every(isProcessAction))return {...state,ai:{status:'process-preview',notice:null,plan:resolveProcessPlan(event.result.actions,state.editor.transactionBefore??state.editor.document,{id:event.id,text:state.ai.text,targetLayerId:state.ai.targetLayerId,selectionIds:state.ai.selectionEntityIds,origin:state.editor.viewMode==='plan'?state.editor.viewport.center:(state.editor.planViewport?.center??state.editor.projection.origin)})}};
       if(event.result.actions.every(isDocumentAction))return {...state,ai:{status:'document-preview',notice:null,plan:resolveDocumentPlan(event.result.actions,state.editor.transactionBefore??state.editor.document,state.ai.selectionEntityIds,event.id,state.ai.text,undefined,state.editor)}};
       return { ...state, ai: { status: 'preview', notice: null, plan: resolveAiTaskPlan(event.result,
@@ -99,6 +100,16 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       if(state.ai.status!=='preview'||state.editor.transactionBefore) return state;
       if(!state.editor.document.layers.some(l=>l.id===action.layerId&&l.visible&&!l.locked)) return state;
       return {...state,ai:{...state.ai,plan:refreshTask({...state.ai.plan,targetLayerId:action.layerId},state.editor.document)}};
+    }
+    case 'ai-answer': {
+      if(state.ai.status!=='preview'||state.editor.transactionBefore)return state;
+      const plan=state.ai.plan,question=plan.clarifications.find(q=>q.questionId===action.questionId);
+      const localAction=plan.actions.find(a=>action.questionId===`${a.id}:orientation`||action.questionId===`${a.id}:route`);
+      if(!question&&(!localAction||(action.questionId.endsWith(':orientation')?(localAction.kind!=='rectangle'||!['MODEL','SWAPPED'].includes(action.value)):(localAction.kind!=='route'||!['DIRECT','FOLLOW_BOUNDARY','ORTHOGONAL','SHORTEST_INSIDE'].includes(action.value)))))return state;
+      if(question&&!question.options.some(o=>o.value===action.value))return state;
+      const answers=new Map(plan.answers),choices=new Map(plan.choices);
+      if(question?.kind==='entity_choice')choices.set(question.questionId,action.value);else answers.set(action.questionId,action.value);
+      return {...state,ai:{...state.ai,plan:refreshTask({...plan,answers,choices},state.editor.document)}};
     }
     case 'ai-choose': {
       if(state.ai.status==='process-preview'&&!state.editor.transactionBefore){const plan=state.ai.plan,choices=new Map(plan.choices);choices.set(action.name,action.entityId);return {...state,ai:{...state.ai,plan:refreshProcessPlan({...plan,choices},state.editor.document)}};}
@@ -120,7 +131,7 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
       offsets.set(selected.id, action.offset);
       const offsetBindings = new Map(plan.actions.flatMap(item => item.kind === 'dimension' && item.offsetEndpoints ? [[item.id, item.offsetEndpoints] as const] : []));
       if (selected.resolution.status === 'ready') offsetBindings.set(selected.id, selected.resolution.references.map(ref => ref.vertexId));
-      return { ...state, ai: { ...state.ai, plan: resolveAiTaskPlan(plan.task, state.editor.document, plan.choices, { targetLayerId:plan.targetLayerId,selectionEntityIds:plan.selectionEntityIds,id: plan.id, text: plan.text, offsets, offsetBindings }) } };
+      return { ...state, ai: { ...state.ai, plan: resolveAiTaskPlan(plan.task, state.editor.document, plan.choices, { answers:plan.answers,targetLayerId:plan.targetLayerId,selectionEntityIds:plan.selectionEntityIds,id: plan.id, text: plan.text, offsets, offsetBindings }) } };
     }
     case 'ai-apply': {
       if ((state.ai.status !== 'preview' && state.ai.status !== 'stale') || !state.ai.plan.requiresConfirmation) return state;
@@ -156,4 +167,4 @@ export function applicationReducer(state: ApplicationState, action: ApplicationA
   }
 }
 
-export function usesSelection(plan:ResolvedAiTaskPlan):boolean {return plan.task.actions.some(a=>('reference'in a&&a.reference.kind==='current_selection')||(a.type==='create_rectangle'&&'reference'in a.placement&&a.placement.reference.kind==='current_selection'));}
+export function usesSelection(plan:ResolvedAiTaskPlan):boolean {return plan.task.actions.some(a=>constraintReferences(a).some(r=>r.kind==='current_selection')||('reference'in a&&a.reference.kind==='current_selection')||(a.type==='create_rectangle'&&'reference'in a.placement&&a.placement.reference.kind==='current_selection'));}

@@ -15,7 +15,7 @@ export const errorMessages: Record<AiErrorCode, string> = {
 };
 export interface AiAttempt { attempt: number; requestedModel: string; actualModel?: string | undefined; provider?: string | undefined; httpStatus?: number | undefined; latencyMs: number; responseBytes?: number | undefined; errorCode?: AiErrorCode | undefined; safeErrorBody?: string | undefined }
 export interface AiDiagnostic {
-  traceId: string; timestamp: string; userText: string; provider: string;
+  coordinateProvenance?:'LLM_INVENTED'|undefined;localResolution?:unknown;traceId: string; timestamp: string; userText: string; provider: string;
   primaryModel: string; fallbackModels: string[]; routing?: Record<string, unknown> | undefined;
   attempts: AiAttempt[]; latencyMs: number; httpStatus?: number | undefined; responseBytes?: number | undefined;
   actualModel?: string | undefined; actualProvider?: string | undefined; rawResponse?: string | undefined; safeErrorBody?: string | undefined;
@@ -53,5 +53,5 @@ export function diagnosticRing(records: readonly AiDiagnostic[], record: AiDiagn
   return [...records.filter(item => item.traceId !== record.traceId), safeDiagnostic(record)].slice(-20);
 }
 const attemptSchema = z.object({ attempt: z.number().int().min(1).max(2), requestedModel: z.string(), actualModel: z.string().optional(), provider: z.string().optional(), httpStatus: z.number().optional(), latencyMs: z.number(), responseBytes: z.number().optional(), errorCode: aiErrorCodeSchema.optional(), safeErrorBody: z.string().optional() });
-export const diagnosticSchema = z.object({ traceId: traceIdSchema, timestamp: z.string(), userText: z.string(), provider: z.string(), primaryModel: z.string(), fallbackModels: z.array(z.string()), routing: z.record(z.string(), z.unknown()).optional(),
+export const diagnosticSchema = z.object({ coordinateProvenance:z.literal('LLM_INVENTED').optional(),localResolution:z.unknown().optional(),traceId: traceIdSchema, timestamp: z.string(), userText: z.string(), provider: z.string(), primaryModel: z.string(), fallbackModels: z.array(z.string()), routing: z.record(z.string(), z.unknown()).optional(),
   attempts: z.array(attemptSchema).max(2), latencyMs: z.number(), httpStatus: z.number().optional(), responseBytes: z.number().optional(), actualModel: z.string().optional(), actualProvider: z.string().optional(), rawResponse: z.string().optional(), safeErrorBody: z.string().optional(), parsedResult: z.unknown().optional(), schemaStatus: z.enum(['pending', 'valid', 'invalid']), localValidationStatus: z.enum(['pending', 'valid', 'invalid']).optional(), resolverStatus: z.string(), actionCount: z.number().int(), errorCode: aiErrorCodeSchema.optional(), validationDetail: z.string().optional() });
