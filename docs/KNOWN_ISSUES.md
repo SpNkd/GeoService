@@ -1,0 +1,16 @@
+# Current known issues — release candidate
+
+This register describes reproduced behavior at the hardening branch. It is not a feature roadmap. No open P0/P1 was identified by this pass; see the exact coverage and limitations in [acceptance](REAL_WORLD_ACCEPTANCE.md).
+
+| Severity / title | Reproduction | Impact / workaround | Status |
+|---|---|---|---|
+| P2 — OCR engineering glyphs and degraded scans | Generate the safe OCR fixtures, run real local RU+EN recognition. Ø57 becomes O57/(057; Cyrillic ТК and Latin H can mix scripts. Rotated adjacent labels can merge; uneven lighting with global threshold loses labels. | Confidence is an engine estimate, not correctness. Use adaptive lighting/deskew, inspect each region and edit before confirmation. Corrected text is canonical and survives Search/Undo/reload. | Reproduced; no automatic substitution that could silently invent engineering text. |
+| P2 — large initial entry | `npm run build`: main JS remains above Vite's 500 kB warning. | Affects cold download/parse. PDF parser/Worker, OCR runtime/languages, image and topology workflows load on use. No measured startup regression justified a renderer/bundle rewrite. | Measured; sizes and startup observations in acceptance reports. |
+| P2 — occasional >50 ms Properties/Search work on dense reference drawing | Run the opt-in three-context interaction benchmark and click dense overlaps in Model/rotated/active viewport. Some Properties stages report 2–4 median long tasks per stage; six debounced queries report 12, with driver Search p95 583ms including a fixed wait; driver feedback p95 is roughly 0.1–0.2 s. | Pan/zoom and hover remain within documented generous budgets. Cycle candidates or inspect a smaller scope; no claim of constant 60 FPS. | Reproduced in local DEV traces; approximate sampled stacks remain private/local. |
+| Future — branched/multi-bend routes cannot become current Connector | Safe topology T/connected-X and complex-route fixtures. Confirm a branch or a route the current Connector cannot represent. | Conversion is refused; ordinary Line/Polyline remains untouched. Inspect/keep geometry. A waypoint or junction subsystem is outside this feature freeze. | Reproduced and guarded by topology tests. |
+
+GitVerse `ERR_BLOCKED_BY_CLIENT` in the normal user profile is an external environment observation, not an application P1. Isolated Chrome startup and full Pages smoke are the regression targets. Browser/profile security settings were not changed.
+
+Fixed defects (pagehide autosave completion/failure, Russian cardinal numeric provenance, selected overlapping ATTRIB cycle, missing tab/panel association) are recorded in acceptance, not left as open issues.
+
+P2 — native geometry at the 50,000-owner capacity limit: `node benchmarks/release-persistence.mjs` generates 50k safe native points (~10.83 MB JSON). Open-to-saved 5.22s, Save wall 2.01s, reload-to-saved 3.84s. Observed main tasks reach 1.910s; Worker preparation itself is 271ms, IndexedDB write 59ms. Rendering/materializing many native SVG owners and synchronous explicit JSON paths remain expensive; this is not an autosave Worker failure or data loss. Workaround: smaller documents/visible scopes. A native renderer/persistence refactor is not included in this freeze. Status: measured, retained as a capacity/performance limitation.

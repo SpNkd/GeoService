@@ -103,7 +103,7 @@ User text → AiIntentProvider → strict AiIntent → deterministic local resol
 
 AI union поддерживает boundary, polyline, dimension и read-only measure по явно указанным именам точек. Все mutation tasks используют один execution gate и general execute-batch → applyCommandsAtomically → один history snapshot; measure не создаёт command. Общие имена разрешаются один раз на task, ошибка любой action блокирует весь пакет. LLM не получает GeoDocument, coordinates, IDs или store; возвращает strict task с 1–8 независимыми actions, а локальный resolver разрешает имена, ambiguity, topology и метрики. Никакого отдельного AI mutation command нет. Snapshot guard повторно проверяется при execute/execute-batch; missing/ambiguous/invalid/stale plans не применяются молча.
 
-Application wrapper держит transient AI state отдельно от EditorState/GeoDocument; committed-document autosave остаётся прежним. Mock mode выбирается явно; OpenAI/OpenRouter работают через server-only Vite dev endpoint. Полный контракт: [AI_ARCHITECTURE](AI_ARCHITECTURE.md).
+Application wrapper держит transient AI state отдельно от EditorState/GeoDocument; committed-document autosave остаётся прежним. Mock mode выбирается явно; DEV OpenAI/OpenRouter используют локальный Vite API adapter. Статическая production-сборка обращается прямо к OpenRouter с ключом посетителя через общий semantic parser; backend не требуется. Полный контракт: [AI_ARCHITECTURE](AI_ARCHITECTURE.md).
 
 CSV/TXT/TSV importer и JSON serializer используют canonical vertices и references, не читают SVG DOM. Exporter остаётся следующим отдельным направлением.
 

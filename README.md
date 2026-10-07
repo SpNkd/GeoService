@@ -176,3 +176,7 @@ E2E использует установленный Chrome. Для отдель�
 
 Исходный код GeoService — **MIT**, см. [LICENSE](LICENSE).
 Зависимости и включённые OCR/PDF assets сохраняют свои лицензии: [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).
+
+## Проверки релиз-кандидата
+
+Локальный hardening-проход: [матрица acceptance](docs/REAL_WORLD_ACCEPTANCE.md), [текущие ограничения](docs/KNOWN_ISSUES.md), [повторяемый release checklist](docs/RELEASE_CHECKLIST.md). Отчёты различают текущую локальную ветку и неизменённые публичные Pages; наличие отчёта не означает публикацию новых исправлений.

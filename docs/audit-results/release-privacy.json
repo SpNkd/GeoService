@@ -1,0 +1,26 @@
+{
+  "scope": "Local sanitized hardening branch history, tracked/source files and final production dist; no publication",
+  "checks": {
+    "exactConfiguredKeyMatchCount": 0,
+    "auditedPrivateReferenceMarkerMatchCount": 0,
+    "envLocalIgnored": true,
+    "envLocalTracked": false,
+    "customPublicationWorkflowAdded": false,
+    "privateSourceScreenshotCommitted": false
+  },
+  "method": "Configured key compared in memory; source filename/content/coordinate markers reviewed against the private local audit without retaining their values. Current history and dist scanned before documentation commit; final HEAD independently rescanned after commit. All new source-derived artifacts reviewed for neutral counts/booleans/timings only.",
+  "networkEvidence": [
+    "release-github-pages.json",
+    "release-gitverse-pages.json",
+    "release-local-static.json"
+  ],
+  "observedAiPayloadCategories": [
+    "typed user text",
+    "optional user structured clarification answers",
+    "fixed parser instructions/schema",
+    "model/token/routing/reasoning parameters"
+  ],
+  "automaticallyUploadedDocumentContext": false,
+  "keyTransport": "Authorization or DEV custom request headers; values not recorded",
+  "limitations": "Finite exact key/private marker scans and instrumented executed workflows; not a universal arbitrary-secret detector. Explicit coordinates typed by the user are transmitted as prompt text."
+}

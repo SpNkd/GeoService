@@ -2,7 +2,7 @@
 
 GeoService keeps this pipeline: text → provider → structured semantic task → strict runtime validation → local deterministic resolver → preview → explicit Apply → existing commands. The model cannot execute commands or mutate a document. Tool calling/agent loops are deliberately excluded: interpretation is the only remote responsibility; geometry, references and authorization remain local.
 
-## Launch
+## DEV launch
 
 Create or update ignored `.env.local` without replacing an existing key:
 
@@ -20,7 +20,7 @@ npm run dev -- --port 5173 --strictPort
 npm run dev:mock -- --port 5173 --strictPort
 ```
 
-Restart after changing environment configuration. Never use a `VITE_` prefix for secrets. Models are configured centrally in `server/aiConfig.ts`; `AI_PRIMARY_MODEL` takes precedence over the legacy `AI_MODEL`. Fallbacks are comma-separated; an explicitly empty `AI_FALLBACK_MODELS` disables model fallback. There is no unknown-model or implicit mock fallback. Optional legacy OpenAI Responses adapter uses `AI_PROVIDER=openai`, `AI_MODEL` and `OPENAI_API_KEY`.
+Restart after changing environment configuration. Never use a `VITE_` prefix for secrets. Model defaults are shared in `src/ai/config.ts` (the DEV adapter reads the environment); `AI_PRIMARY_MODEL` takes precedence over the legacy `AI_MODEL`. Fallbacks are comma-separated; an explicitly empty `AI_FALLBACK_MODELS` disables model fallback. There is no unknown-model or implicit mock fallback. Optional legacy OpenAI Responses adapter uses `AI_PROVIDER=openai`, `AI_MODEL` and `OPENAI_API_KEY`.
 
 ## OpenRouter routing
 
@@ -39,9 +39,9 @@ A single 30-second deadline bounds all upstream attempts, backoff and response s
 
 ## Trace and diagnostics
 
-A local `ai-…` ID starts in the UI and passes in `X-AI-Trace-ID` to the local endpoint and upstream HTTP request. It follows schema validation, resolver and plan IDs. The response echoes this header and diagnostic ID. Only text is in the request JSON; the trace is metadata, not a document ID.
+A local `ai-…` ID starts in the UI and passes in `X-AI-Trace-ID` to the local endpoint and upstream HTTP request. It follows schema validation, resolver and plan IDs. The response echoes this header and diagnostic ID. Request JSON contains text and optional bounded structured clarification answers; the trace is metadata, not a document ID.
 
-In development, expand **AI Diagnostics** in the AI panel. It retains the last 20 requests in memory, including pending requests, and updates by trace ID. Fields include timestamp, redacted text, configured models, routing preferences, HTTP attempt details, requested/returned model, returned provider when available, latency, HTTP status, byte count, raw response/error preview, parsed result, separate schema and literal-provenance validation statuses, resolver status and action count. Mock is explicitly labelled `provider: mock`; zero upstream HTTP attempts is expected.
+In development, open **Settings → Диагностика** for AI Diagnostics. It retains the last 20 requests in memory, including pending requests, and updates by trace ID. Fields include timestamp, redacted text, configured models, routing preferences, HTTP attempt details, requested/returned model, returned provider when available, latency, HTTP status, byte count, raw response/error preview, parsed result, separate schema and literal-provenance validation statuses, resolver status and action count. Mock is explicitly labelled `provider: mock`; zero upstream HTTP attempts is expected.
 
 **Copy diagnostics** copies redacted JSON. **Подробнее** on a failed request shows its trace and category. Raw content remains development-only and ephemeral; it is not written to the drawing, history, autosave or localStorage. The UI component is lazy-loaded under `import.meta.env.DEV` and absent from a production bundle. The endpoint is a Vite development plugin, not a production AI deployment.
 
@@ -123,4 +123,6 @@ Final deterministic checks: `npm run typecheck`, `npm run check` (444 unit, 84 E
 
 [AI Document Operations](AI_DOCUMENT_OPERATIONS.md) adds strict intent/query variants beside Spatial AI. Natural requests always create preview first; exact owner IDs are resolved locally. Current configuration/key and bounded primary/fallback routing are reused. `AI_DOCUMENT_REAL_SMOKE=1 npx vitest run src/tests/document-operations-real.test.ts` is an explicit paid opt-in (A–H × 5), outside CI. Manual search has no provider dependency. Whole-layer visibility mutations obey full-coverage checks and the manual visibility policy; partial results use temporary isolation. Neither model input nor output contains document/catalog/selection IDs.
 
-## AI process schemes — 2026-10-06
+## Static production
+
+Production has no Vite API or server credential. Settings → AI accepts a visitor OpenRouter key; the browser transport shares the same strict parser/schema/routing/local resolution. Without a key CAD works and AI offers configuration. Remember is OFF by default; explicit ON stores a separate browser-local key record. See [Pages deployment](PAGES_DEPLOYMENT.md) and [Settings](SETTINGS_PREFERENCES.md). Release REAL opt-in corpus and measured failures are in [acceptance](REAL_WORLD_ACCEPTANCE.md).
