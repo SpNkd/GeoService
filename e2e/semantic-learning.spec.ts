@@ -4,7 +4,7 @@ import { operationsFixture } from '../src/tests/fixtures/documentOperations';
 import type { GeoDocument } from '../src/domain/model';
 import { editorCommand } from './helpers/editorCommands';
 import { readAutosaveDocument } from './helpers/autosave';
-const modal=(page:Page)=>page.getByRole('dialog',{name:'Научить GeoService',exact:true});
+const modal=(page:Page)=>page.getByRole('dialog',{name:/^(Научить GeoService|Смысл \/ категории)$/});
 async function open(page:Page,d:GeoDocument){page.once('dialog',dialog=>dialog.accept());await page.getByLabel('Файл GeoDocument',{exact:true}).setInputFiles({name:'semantic.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(d))});await expect.poll(async()=>(await readAutosaveDocument(page)).metadata.title).toBe(d.metadata.title);}
 async function setup(page:Page,d=semanticFixture()){
   await page.route('**/api/ai/config',r=>r.fulfill({json:{mode:'mock'}}));
@@ -12,7 +12,7 @@ async function setup(page:Page,d=semanticFixture()){
   await page.goto('/');await expect(page.getByTestId('drawing-canvas')).toBeVisible();await open(page,d);
 }
 async function selectExample(page:Page,name='pipe-1'){await page.getByLabel('Поиск в документе',{exact:true}).fill(name);await page.locator('.search-results .query-result').getByRole('button',{name,exact:true}).click();}
-async function propose(page:Page,name='Трубы'){await editorCommand(page,'Научить GeoService');await modal(page).getByLabel('Название смысловой категории',{exact:true}).fill(name);await modal(page).getByRole('button',{name:'Предложить правило',exact:true}).click();await expect(modal(page).getByTestId('semantic-count-EXACT')).toBeVisible();}
+async function propose(page:Page,name='Трубы'){await editorCommand(page,'Научить GeoService');await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));await expect(modal(page).getByLabel('Название смысловой категории',{exact:true})).toBeFocused();await modal(page).getByLabel('Название смысловой категории',{exact:true}).fill(name);await modal(page).getByRole('button',{name:'Предложить правило',exact:true}).click();await expect(modal(page).getByTestId('semantic-count-EXACT')).toBeVisible();}
 async function save(page:Page){await modal(page).getByRole('button',{name:'Запомнить',exact:true}).click();await expect(modal(page)).toHaveCount(0);await expect.poll(async()=>!!(await readAutosaveDocument(page)).semantics).toBe(true);}
 
 test('teach review/exclude is preview first; one Undo/Redo, local Search/AI, reload/JSON',async({page})=>{
@@ -26,7 +26,7 @@ test('teach review/exclude is preview first; one Undo/Redo, local Search/AI, rel
 });
 
 test('cancel and Escape leave no knowledge/history; focus supports immediate Space pan',async({page})=>{
-  await setup(page);await selectExample(page);const before=await readAutosaveDocument(page);await propose(page);await modal(page).getByLabel('Принять WEAK',{exact:true}).check();await modal(page).getByRole('button',{name:'Отмена',exact:true}).click();expect(await readAutosaveDocument(page)).toEqual(before);await expect(page.getByRole('button',{name:'Отменить',exact:true})).toBeDisabled();await propose(page);await page.keyboard.press('Escape');await expect(modal(page)).toHaveCount(0);await expect(page.getByTestId('selected-id')).toHaveText('pipe-1');await expect(page.getByTestId('drawing-canvas')).toBeFocused();const canvas=page.getByTestId('drawing-canvas'),center=await canvas.getAttribute('data-center-x'),r=(await canvas.boundingBox())!;await page.keyboard.down('Space');await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.mouse.move(r.x+r.width/2+50,r.y+r.height/2+20);await page.mouse.up();await page.keyboard.up('Space');await expect(canvas).not.toHaveAttribute('data-center-x',center!);expect(await readAutosaveDocument(page)).toEqual(before);
+  await setup(page);await selectExample(page);const before=await readAutosaveDocument(page);await propose(page);await modal(page).getByLabel('Принять WEAK',{exact:true}).check();await modal(page).getByRole('button',{name:'Отмена',exact:true}).click();expect(await readAutosaveDocument(page)).toEqual(before);await expect(page.getByRole('button',{name:'Отменить',exact:true})).toBeDisabled();await propose(page);await page.keyboard.press('Escape');await expect(modal(page)).toHaveCount(0);await expect(page.getByTestId('selected-id')).toHaveText('pipe-1');await expect.poll(()=>page.evaluate(()=>document.activeElement?.tagName)).not.toBe('BODY');await page.getByTestId('drawing-canvas').focus();const canvas=page.getByTestId('drawing-canvas'),center=await canvas.getAttribute('data-center-x'),r=(await canvas.boundingBox())!;await page.keyboard.down('Space');await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.mouse.move(r.x+r.width/2+50,r.y+r.height/2+20);await page.mouse.up();await page.keyboard.up('Space');await expect(canvas).not.toHaveAttribute('data-center-x',center!);expect(await readAutosaveDocument(page)).toEqual(before);
 });
 
 test('custom category aliases, parent, management refine/disable/delete and Properties labels',async({page})=>{

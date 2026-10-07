@@ -1,8 +1,7 @@
 import '../semantics/learning.css';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { GeoDocument } from '../domain/model';
-import { CloseButton } from './IconButton';
-import { focusEditor } from '../editor/focus';
+import { Dialog } from './Dialog';
 import { conceptsFor, conceptsNamed } from '../semantics/concepts';
 import { describeCondition } from '../semantics/features';
 import { learnedMatches, proposeRule, rememberedKnowledge, removeConcept, ruleMatches, type ProposedRule } from '../semantics/learning';
@@ -11,9 +10,9 @@ interface Props {document:GeoDocument;selectionIds:readonly string[];mode:'teach
 const tiers:MatchTier[]=['EXACT','STRONG','WEAK'];
 export function SemanticLearningDialog({document,selectionIds,mode,onClose,onApply,onPreview,onSelect,onFit}:Props) {
   const [basedOnDocument]=useState(document),[name,setName]=useState('Трубы'),[aliases,setAliases]=useState(''),[parent,setParent]=useState(''),[proposal,setProposal]=useState<ProposedRule|null>(null),[concept,setConcept]=useState<SemanticConcept|null>(null),[rule,setRule]=useState<SemanticRule|null>(null),[factCatalog,setFactCatalog]=useState<FeatureCondition[]>([]),[error,setError]=useState(''),[excluded,setExcluded]=useState<Set<string>>(new Set()),[enabled,setEnabled]=useState<Set<MatchTier>>(new Set(['EXACT','STRONG'])),[activeTier,setActiveTier]=useState<MatchTier|null>(null),[inspecting,setInspecting]=useState(false);
-  const ref=useRef<HTMLDivElement>(null),all=useMemo(()=>conceptsFor(document),[document]),knowledge=document.semantics??emptyKnowledge();
+  const all=useMemo(()=>conceptsFor(document),[document]),knowledge=document.semantics??emptyKnowledge();
   const matches=useMemo(()=>rule?ruleMatches(basedOnDocument,{...rule,exclusions:[]}):[],[basedOnDocument,rule]),ids=useMemo(()=>matches.filter(m=>enabled.has(m.tier)&&!excluded.has(m.entityId)).map(m=>m.entityId),[matches,enabled,excluded]);
-  useEffect(()=>{ref.current?.querySelector<HTMLElement>('button')?.focus({preventScroll:true});return()=>{onPreview([]);setTimeout(focusEditor,0);};},[onPreview]);
+  useEffect(()=>()=>onPreview([]),[onPreview]);
   useEffect(()=>{onPreview(document===basedOnDocument?ids:[]);},[ids,onPreview,document,basedOnDocument]);
   const apply=(next:SemanticKnowledge)=>{try{if(document!==basedOnDocument)throw new Error('Документ изменился. Откройте обучение заново.');onApply(next,basedOnDocument);}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить.');}};
   const generate=()=>{try{if(!name.trim())throw new Error('Введите название категории.');const found=conceptsNamed(document,name);if(found.length>1)throw new Error('Неоднозначное название категории.');const c:SemanticConcept=found[0]??{id:`concept-${crypto.randomUUID()}`,name:name.trim(),aliases:[]};const draft={...c,aliases:aliases.trim()?aliases.split(',').map(a=>a.trim()).filter(Boolean):c.aliases,...(parent?{parentConceptId:parent}:{})};const p=proposeRule(document,selectionIds,c.id,`rule-${crypto.randomUUID()}`);setName(draft.name);setAliases(draft.aliases.join(', '));setParent(draft.parentConceptId??'');setConcept(draft);setFactCatalog(p.shared.map(s=>s.fact));setProposal(p);setRule(p.rule);setExcluded(new Set(knowledge.annotations.filter(a=>a.conceptId===c.id&&a.polarity==='negative').map(a=>a.entityId)));setEnabled(new Set(['EXACT','STRONG']));setError('');setInspecting(true);}catch(e){setError(e instanceof Error?e.message:'Выберите примеры.');}};
@@ -21,10 +20,8 @@ export function SemanticLearningDialog({document,selectionIds,mode,onClose,onApp
   const updatedConcept=()=>{if(!concept)throw new Error('Выберите категорию');const {parentConceptId:_old,...rest}=concept;void _old;return {...rest,name:name.trim(),aliases:aliases.split(',').map(a=>a.trim()).filter(Boolean),...(parent?{parentConceptId:parent}:{})};};
   const save=()=>{try{const c=updatedConcept();if(!c.name)throw new Error('Введите название категории');apply(rule?rememberedKnowledge(basedOnDocument,c,rule,excluded,enabled):{...knowledge,concepts:[...knowledge.concepts.filter(x=>x.id!==c.id),c]});}catch(e){setError(e instanceof Error?e.message:'Проверьте категорию');}};
   const changeFact=(fact:FeatureCondition,role:string)=>{if(!rule)return;const key=featureIdentity(fact),conditions=rule.conditions.filter(f=>featureIdentity(f)!==key),supporting=rule.supporting.filter(f=>featureIdentity(f)!==key);if(role==='required')conditions.push(fact);if(role==='supporting')supporting.push(fact);setRule({...rule,conditions,supporting});};
-  const keydown=(e:KeyboardEvent<HTMLDivElement>)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();onClose();}if(e.key==='Tab'){const elements=[...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')],first=elements[0],last=elements.at(-1);if(e.shiftKey&&window.document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&window.document.activeElement===last){e.preventDefault();first?.focus();}}};
   const facts=factCatalog;
-  return <div className="modal-backdrop semantic-backdrop"><div ref={ref} className="import-dialog semantic-learning-dialog" role="dialog" aria-modal="true" aria-label="Научить GeoService" data-shortcut-suppressed onKeyDown={keydown}>
-    <div className="import-heading"><div><h2>{mode==='manage'&&!inspecting?'Смысл / категории':'Научить GeoService'}</h2><p>Только этот документ · локально · без отправки в AI</p></div><CloseButton label="Закрыть обучение" onClick={onClose}/></div>
+  return <Dialog title={mode==='manage'&&!inspecting?'Смысл / категории':'Научить GeoService'} subtitle="Только этот документ · локально · без отправки в AI" size="lg" className="semantic-learning-dialog" closeLabel="Закрыть обучение" onClose={onClose} footer={<><span>Preview не создаёт Undo · Запомнить — один шаг Undo</span><button onClick={onClose}>Отмена</button></>}>
     {document!==basedOnDocument&&<p role="alert">Документ изменился. Закройте и откройте обучение заново.</p>}{error&&<p role="alert">{error}</p>}
     {mode==='manage'&&!inspecting?<div className="semantic-knowledge">
       <p>Явные метки сохраняются при отключении правила. Удаление категории убирает её метки и правила; геометрия остаётся.</p>
@@ -43,6 +40,5 @@ export function SemanticLearningDialog({document,selectionIds,mode,onClose,onApp
       </>}
       <button className="primary-button" disabled={document!==basedOnDocument||!!rule&&!rule.conditions.length} onClick={save}>Запомнить</button></>}
     </div>}
-    <footer><small>Preview не создаёт Undo · Запомнить — один шаг Undo</small><button onClick={onClose}>Отмена</button></footer>
-  </div></div>;
+  </Dialog>;
 }

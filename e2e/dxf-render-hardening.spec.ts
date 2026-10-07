@@ -71,7 +71,9 @@ test('15 MB portable Save -> New -> Open preserves canonical document',async({pa
   const download=page.waitForEvent('download');await editorCommand(page, 'Сохранить JSON');const file=(await (await download).path())!,saved=JSON.parse(await readFile(file,'utf8'));expect(saved).toEqual(d);await editorCommand(page, 'Новый документ');await expect(page.locator('[data-entity-id]')).toHaveCount(0);await page.getByLabel('Файл GeoDocument',{exact:true}).setInputFiles(file);expect(await readAutosaveDocument(page)).toEqual(d);
 });
 test('real DXF zoom saturation regression and edited Save/Open (opt-in)',async({page})=>{
-  test.skip(!process.env.DXF_REFERENCE,'Local reference only');test.setTimeout(120000);
+  test.skip(!process.env.DXF_REFERENCE,'Local reference only');
+  // Dense reference + >10MB Save/Open is slower under parallel Chrome/trace load. Assertions stay unchanged.
+  test.setTimeout(180000);
   await editorCommand(page, 'DXF');await page.getByLabel('Файл DXF',{exact:true}).setInputFiles(process.env.DXF_REFERENCE!);await page.getByTestId('dxf-report').waitFor();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Открыть как новый документ',exact:true}).click();await page.getByRole('dialog',{name:'Открыть DXF',exact:true}).waitFor({state:'hidden'});
   const d=await readAutosaveDocument(page);await editorCommand(page, 'Вписать');const b=(await page.getByTestId('drawing-canvas').boundingBox())!,anchor={x:b.x+b.width*.15,y:b.y+b.height*.54},states=[];
   for(const factor of [1,1.1,1.25,1.5,2,2,2,2,2,2,2,.5,.5]){if(factor!==1)await wheel(page,factor,anchor);const state=await diagnostics(page,d);const large=state.owners.filter(o=>o.kind==='block_instance'&&['dxf-entity-0','dxf-entity-67'].includes(o.id));expect(large).toHaveLength(2);for(const o of large.filter(o=>o.candidate)){expect(o.present).toBe(true);expect(o.intersects,o.id).toBe(true);expect(Math.abs(o.actual!.x-o.expected.x),o.id).toBeLessThan(8);}states.push({zoom:state.zoom,center:state.center,considered:state.owners.length,candidates:state.owners.filter(o=>o.candidate).length,largeOwners:large});}

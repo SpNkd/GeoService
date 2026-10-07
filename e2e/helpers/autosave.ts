@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import type { GeoDocument } from '../../src/domain/model';
+import type { Entity, GeoDocument } from '../../src/domain/model';
 
 export interface BrowserAutosaveRecord {
   id: 'current';
@@ -54,4 +54,19 @@ export async function corruptAutosaveRecord(page: Page) {
       tx.onerror = () => { db.close(); reject(tx.error); };
     };
   }));
+}
+
+/** Project just one persisted owner before the CDP boundary for large reference drawings. */
+export async function readAutosaveEntity(page: Page, entityId: string): Promise<Entity | undefined> {
+  await expect(page.getByTestId('persistence-status')).toHaveText('Сохранено локально', { timeout: 30000 });
+  return page.evaluate(entityId => new Promise<Entity | undefined>((resolve, reject) => {
+    const request = indexedDB.open('geoservice.autosave', 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const read = db.transaction('documents', 'readonly').objectStore('documents').get('current');
+      read.onsuccess = () => { db.close(); resolve((read.result as BrowserAutosaveRecord | undefined)?.document.entities.find(e => e.id === entityId)); };
+      read.onerror = () => { db.close(); reject(read.error); };
+    };
+  }), entityId);
 }

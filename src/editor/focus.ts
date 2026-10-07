@@ -1,3 +1,4 @@
+import { activeEditorDialog, dialogFocus, dialogKey, dialogPointer, rememberDialogOpener } from './dialogs';
 import { useEffect, type RefObject } from 'react';
 const popupSelector = 'details[data-popup],details.toolbar-overflow,details.toolbar-menu,details.layer-menu,details.dxf-views,details.view-orientation,details.current-style';
 const overlays = new Map<HTMLElement, () => void>();
@@ -44,6 +45,8 @@ export function useEditorFocus() {
             if (!(event.target instanceof Element))
                 return;
             const target = event.target;
+            rememberDialogOpener(target);
+            dialogPointer(event);
             for (const popup of openPopups())
                 if (!belongs(popup, target))
                     close(popup);
@@ -52,11 +55,9 @@ export function useEditorFocus() {
         };
         const key = (event: KeyboardEvent) => {
             pointer = false;
-            if (event.key !== 'Escape')
-                return;
+            if (event.key !== 'Escape') { dialogKey(event); return; }
             const popups = openPopups();
-            if (!popups.length)
-                return;
+            if (!popups.length) { dialogKey(event); return; }
             const target = event.target;
             const focused = target instanceof Element ? popups.filter(p => belongs(p, target)).at(-1) : undefined;
             const popup = focused ?? popups.at(-1)!;
@@ -84,11 +85,11 @@ export function useEditorFocus() {
             if (popup && target.closest('button,[role="button"],[data-popup-action]') && !target.closest('[data-popup-keep-open]')) {
                 const fromPointer = pointer;
                 let completed = false;
-                const complete = () => { if (completed) return; completed = true; close(popup); if (fromPointer && !isTextEntry(document.activeElement)) focusEditor(); };
+                const complete = () => { if (completed) return; completed = true; close(popup); if (fromPointer && !activeEditorDialog() && !isTextEntry(document.activeElement)) focusEditor(); };
                 actionCompletions.set(event, complete);
                 setTimeout(complete);
             }
-            else if (pointer && target.closest('button,input[type="checkbox"],input[type="radio"]') && !target.closest('[role="dialog"]')) {
+            else if (pointer && target.closest('button,input[type="checkbox"],input[type="radio"]') && !activeEditorDialog() && !target.closest('[role="dialog"]')) {
                 actionCompletions.set(event, () => { if (!isTextEntry(document.activeElement)) focusEditor(); });
             }
         };
@@ -103,12 +104,14 @@ export function useEditorFocus() {
             }
         };
         const wheel=(event:WheelEvent)=>{if(event.target instanceof Element&&event.target.closest('.drawing-canvas,[data-testid="layout-canvas"]'))for(const popup of openPopups())if(!belongs(popup,event.target))close(popup);};
+        document.addEventListener('focusin', dialogFocus, true);
         document.addEventListener('pointerdown', down, true);
         document.addEventListener('keydown', key, true);
         document.addEventListener('click', click,true);
         document.addEventListener('click', completeClick);
         document.addEventListener('change', change);document.addEventListener('wheel',wheel,{capture:true,passive:true});
         return () => {
+            document.removeEventListener('focusin', dialogFocus, true);
             document.removeEventListener('pointerdown', down, true);
             document.removeEventListener('keydown', key, true);
             document.removeEventListener('click', click,true);

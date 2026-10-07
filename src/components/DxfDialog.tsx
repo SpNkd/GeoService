@@ -1,4 +1,4 @@
-import { CloseButton } from './IconButton';
+import { Dialog } from './Dialog';
 import { useEffect, useRef, useState } from 'react';
 import type { DxfOptions, DxfPlan, TypeReport } from '../dxf/types';
 import type { DxfEncoding } from '../dxf/encoding';
@@ -15,7 +15,7 @@ export function DxfDialog({onClose,onApply}:{onClose:()=>void;onApply:(plan:DxfP
   },[file,options]);
   const totals=Object.values(plan?.report.types??{}).reduce((a,r)=>({converted:a.converted+r.converted,simplified:a.simplified+r.simplified,proxy:a.proxy+r.proxy,unsupported:a.unsupported+r.unsupported}),{converted:0,simplified:0,proxy:0,unsupported:0});
   const report=plan?.report,canApply=!!plan&&completedOptions.current===options&&!phase&&!report?.requiresUnitsChoice&&!report?.requiresEncodingChoice;
-  return <div className="modal-backdrop" role="presentation"><section className="dxf-dialog" role="dialog" aria-modal="true" aria-labelledby="dxf-title" data-shortcut-suppressed="true"><div className="import-heading"><h2 id="dxf-title">Открыть DXF</h2><CloseButton label="Закрыть DXF" onClick={onClose}/></div><p>Файл обрабатывается в этом браузере и открывается как новый документ.</p>
+  return <Dialog title="Открыть DXF" subtitle="Файл обрабатывается в этом браузере и открывается как новый документ." size="lg" className="dxf-dialog" closeLabel="Закрыть DXF" onClose={onClose} footer={<><button onClick={onClose}>Отмена</button><button className="primary-button" disabled={!canApply} onClick={()=>{if(plan)onApply(plan);}}>Открыть как новый документ</button></>}>
     <div className="dxf-dropzone" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f?.name.toLowerCase().endsWith('.dxf'))setFile(f);else setError('Выберите файл DXF');}}><span>Перетащите DXF сюда или</span><button onClick={()=>fileInput.current?.click()}>Выбрать файл</button><input ref={fileInput} style={{display:'none'}} type="file" accept=".dxf" aria-label="Файл DXF" onChange={e=>{setFile(e.target.files?.[0]??null);}} />{file&&<strong>{file.name} · {(file.size/1024/1024).toFixed(2)} МБ</strong>}</div>
     <h3>Параметры</h3><div className="dxf-options"><label>Кодировка<select aria-label="Кодировка DXF" value={options.encoding} onChange={e=>setOptions({...options,encoding:e.target.value as DxfEncoding})}><option value="auto">Auto · header + UTF-8 validation</option><option value="utf-8">UTF-8</option><option value="windows-1251">Windows-1251</option></select></label>
     <label>Исходные единицы<select aria-label="Единицы DXF" value={options.units??''} onChange={e=>{const units=e.target.value as 'mm'|'cm'|'m'|'';const next={...options};if(units)next.units=units;else delete next.units;setOptions(next);}}><option value="">INSUNITS</option><option value="mm">Миллиметры</option><option value="cm">Сантиметры</option><option value="m">Метры</option></select></label>
@@ -25,6 +25,5 @@ export function DxfDialog({onClose,onApply}:{onClose:()=>void;onApply:(plan:DxfP
       {report.requiresUnitsChoice&&<p role="alert">Выберите исходные единицы; координаты не будут угадываться.</p>}{report.requiresEncodingChoice&&<p role="alert">Подтвердите кодировку перед открытием.</p>}
       <details><summary>Подробный отчёт</summary><p>Исходные записи ENTITIES вне MODEL: {report.paperSpaceCount}, включая VIEWPORT. Содержимое Paper Space-блоков учтено отдельно.</p><details><summary>Отчёт по типам Model Space</summary><Breakdown rows={report.types}/></details><details><summary>Геометрия внутри definitions</summary><Breakdown rows={report.blockTypes}/></details><details><summary>Предупреждения ({report.warnings.length})</summary><ul>{report.warnings.map(w=><li key={w}>{w}</li>)}</ul></details><details><summary>Время обработки</summary><p>{Object.entries(report.timings).map(([phase,ms])=>`${phase}: ${ms.toFixed(1)} ms`).join(' · ')}</p><p>Normalized primitives: {report.normalizedPrimitives}</p></details></details>
     </div>}
-    <div className="dialog-actions"><button onClick={onClose}>Отмена</button><button disabled={!canApply} onClick={()=>{if(plan)onApply(plan);}}>Открыть как новый документ</button></div>
-  </section></div>;
+  </Dialog>;
 }

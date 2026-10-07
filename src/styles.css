@@ -163,12 +163,6 @@ h2, h3, p { margin: 0; }
 .document-notice { position: fixed; z-index: 5; bottom: 45px; left: 50%; transform: translateX(-50%); max-width: 650px; display: flex; align-items: center; gap: 20px; padding: 11px 15px; border: 1px solid #d7e6df; border-radius: 6px; background: #f1f8f4; color: #3a705b; box-shadow: 0 4px 20px #192d3815; font-size: 12px; }
 .document-notice.error { background: #fff5f1; color: #a4513e; border-color: #efd6ce; }
 .document-notice button { background: none; border: 0; color: inherit; font-size: 19px; }
-.modal-backdrop { position: fixed; inset: 0; z-index: 10; background: #122b3b55; display: grid; place-items: center; padding: 28px; }
-.import-dialog { background: #fff; border: 1px solid #d9e3e8; border-radius: 10px; box-shadow: 0 15px 70px #102a3c38; width: min(1100px, 100%); max-height: calc(100dvh - 56px); display: flex; flex-direction: column; }
-.import-heading { padding: 19px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e1e8ec; }
-.import-heading h2 { font-size: 17px; font-weight: 600; }
-.import-heading p { margin-top: 7px; font-size: 12px; color: #82949e; }
-.import-body { overflow-y: auto; min-height: 0; padding: 18px 24px; }
 .import-source { display: flex; align-items: center; gap: 18px; margin-bottom: 15px; color: #80949f; font-size: 11px; }
 .file-picker { display: flex; align-items: center; gap: 10px; color: #4c6573; }
 .file-picker input { font-size: 11px; max-width: 320px; }
@@ -191,8 +185,6 @@ h2, h3, p { margin: 0; }
 .import-error, .import-errors { font-size: 12px; color: #a35643; background: #fff4ee; padding: 9px 12px; border-radius: 4px; margin-top: 8px; overflow-wrap: anywhere; }
 .import-errors p + p { margin-top: 6px; }
 .import-warning { color: #9a743b; font-size: 12px; background: #fcf7e9; padding: 9px 12px; border-radius: 4px; margin-top: 8px; line-height: 1.5; overflow-wrap: anywhere; }
-.import-footer { display: flex; gap: 10px; align-items: center; padding: 14px 24px; border-top: 1px solid #e2e9ed; }
-.import-footer > span { font-size: 11px; color: #8b9ba5; margin-right: auto; }
 .primary-button { background: #277960; border: 1px solid #277960; border-radius: 5px; padding: 9px 16px; font-size: 12px; color: #fff; }
 .primary-button:not(:disabled):hover { background: #21664f; }
 
@@ -271,7 +263,6 @@ h2, h3, p { margin: 0; }
 .coordinate-reference-panel p { margin:5px 0; }
 .coordinate-reference-panel input { width:110px; min-width:0; padding:6px; border:1px solid #cbdde7; border-radius:4px; font:11px monospace; }
 .reference-warning { margin-top:10px; padding:8px; background:#fcf7e9; color:#8f6225; border-radius:4px; }
-.georeference-dialog { width:min(740px,100%); max-height:calc(100dvh - 56px); display:flex; flex-direction:column; background:white; border:1px solid #d9e3e8; border-radius:10px; box-shadow:0 15px 70px #102a3c38; }
 .reference-backdrop { background:#122b3b18; }
 .reference-controls { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 .reference-controls fieldset { min-width:0; padding:12px; border:1px solid #d9e3e8; border-radius:6px; font-size:12px; }
@@ -305,7 +296,6 @@ h2, h3, p { margin: 0; }
 .move-mode button { flex:1; padding:7px 3px; border:1px solid #cfdae1; border-radius:4px; background:white; font-size:11px; }
 .move-mode button[aria-pressed="true"] { color:#236956; background:#edf6f2; border-color:#87b3a5; }
 .move-selection select { width:100%; margin:5px 0 10px; padding:7px; }
-.symbol-palette { position:fixed; z-index:40; top:108px; left:260px; width:390px; max-height:calc(100vh - 140px); overflow:auto; padding:14px; background:#fff; border:1px solid #cbd8df; border-radius:8px; box-shadow:0 8px 32px #29425224; }
 .symbol-palette > input, .symbol-palette select { width:100%; padding:8px; border:1px solid #cbd8df; border-radius:4px; margin:5px 0; }
 .symbol-palette-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:10px; }
 .symbol-palette-grid button { display:flex; flex-direction:column; align-items:center; min-height:90px; border:1px solid #dbe4e8; border-radius:5px; background:#f9fbfc; padding:6px; font-size:11px; }
@@ -315,7 +305,6 @@ h2, h3, p { margin: 0; }
 .right-column .right-panel > * { flex-shrink:0; }
 .right-column .inspector-content { flex:none; overflow:visible; }
 
-.dxf-dialog { width:min(900px,94vw); max-height:90vh; overflow:auto; background:white; padding:24px; border-radius:12px; box-shadow:0 20px 80px #0004; }
 .dxf-dialog label { display:flex; flex-direction:column; gap:6px; }
 .dxf-options { display:flex; flex-wrap:wrap; gap:16px; margin:20px 0; }
 .dxf-dialog select,.dxf-dialog input { padding:8px; }
@@ -324,7 +313,6 @@ h2, h3, p { margin: 0; }
 .dxf-dialog table { border-collapse:collapse; width:100%; font-size:12px; }
 .dxf-dialog th,.dxf-dialog td { border-bottom:1px solid #dde4e8; padding:7px; text-align:left; }
 .dxf-dialog details { margin:12px 0; }
-.dxf-dialog .dialog-actions { display:flex; gap:12px; justify-content:flex-end; margin-top:20px; }
 .dxf-dialog button { padding:9px 16px; }
 .persistence-startup { min-height: 100vh; display: grid; place-items: center; color: #607782; background: #f6f9fb; font-size: 13px; }
 .persistence-status { color: #607e71; white-space: nowrap; }
@@ -363,10 +351,8 @@ h2, h3, p { margin: 0; }
 .search-count {display:block;color:#71818d;margin:8px 0}
 .query-result {padding:8px 0;border-bottom:1px solid #e4eaee;overflow-wrap:anywhere}
 .query-result>button:first-child {text-align:left;width:100%}
-.dxf-dialog {max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow-y:auto;max-width:720px;width:min(720px,calc(100vw - 32px));padding:20px;gap:10px}
 .dxf-dropzone {border:1px dashed #8ca7bb;border-radius:8px;padding:18px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;background:#f5f8fb}
 .dxf-dropzone strong {width:100%;text-align:center;font-size:12px}
-.dxf-dialog .dialog-actions {position:sticky;bottom:-20px;background:white;padding:12px 0;border-top:1px solid #d9e1e7;z-index:2}
 .dxf-dialog h3 {font-size:13px;margin:5px 0}
 .dxf-dialog table {font-size:11px;max-width:100%;width:100%}
 .dxf-summary {grid-template-columns:minmax(120px,1fr) 2fr;font-size:12px}

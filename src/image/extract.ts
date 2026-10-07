@@ -1,3 +1,4 @@
+import { drawingMask } from './binary';
 import { CANDIDATE_LIMIT, type Candidate, type ExtractionOptions, type ExtractionResult, type PixelImage, type PixelPoint } from './types';
 import { distancePx } from './transform';
 const offsets = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]] as const;
@@ -48,6 +49,9 @@ export function cleanupPaths(raw: PixelPoint[][], options: ExtractionOptions): {
         for (const reverseA of [false, true]) for (const reverseB of [false, true]) {
           const ap = reverseA ? [...a.points].reverse() : a.points, bp = reverseB ? [...b.points].reverse() : b.points, end = ap.at(-1)!, start = bp[0]!;
           if (distancePx(end, start) > 2.8) continue;
+          const u={x:end.x-ap.at(-2)!.x,y:end.y-ap.at(-2)!.y},v={x:bp[1]!.x-start.x,y:bp[1]!.y-start.y};
+          // Bridge only collinear scan gaps, never an arbitrary nearby corner/parallel stroke.
+          if((u.x*v.x+u.y*v.y)/(Math.hypot(u.x,u.y)*Math.hypot(v.x,v.y)||1)<.94)continue;
           const ambiguous = paths.some((p, k) => k !== i && k !== j && !p.closed && [p.points[0]!, p.points.at(-1)!].some(q => distancePx(q, end) <= 2.8));
           if (ambiguous) continue;
           const middle = { x: (end.x + start.x) / 2, y: (end.y + start.y) / 2 };
@@ -82,13 +86,14 @@ function components(mask: Uint8Array, width: number, height: number, options: Ex
   }
   return result;
 }
-function textRegions(items: Component[], mask: Uint8Array): Candidate[] {
-  const compact = items.filter(c => c.height >= 6 && c.height <= 36 && c.width >= 2 && c.width <= c.height * 1.4 && c.pixels.length / (c.width * c.height) > .24).sort((a, b) => a.y - b.y || a.x - b.x), used = new Set<Component>(), result: Candidate[] = [];
+function textRegions(items: Component[], mask: Uint8Array, vertical=false): Candidate[] {
+  const compact = items.filter(c => c.height >= 6 && c.height <= 60 && c.width >= 2 && c.width <= c.height * 1.7 && c.pixels.length / (c.width * c.height) > .12).sort((a, b) => a.y - b.y || a.x - b.x), used = new Set<Component>(), result: Candidate[] = [];
   for (const a of compact) { if (used.has(a)) continue;
     const row = compact.filter(b => !used.has(b) && Math.abs(b.y + b.height / 2 - a.y - a.height / 2) < a.height * .35 && b.height / a.height > .6 && b.height / a.height < 1.7).sort((a, b) => a.x - b.x);
     const groups: Component[][] = []; for (const b of row) { const group = groups.at(-1), previous = group?.at(-1); if (previous && b.x - previous.x - previous.width < a.height * 1.8) group!.push(b); else groups.push([b]); }
     for (const group of groups) if (group.length >= 3) { group.forEach(c => { used.add(c); c.pixels.forEach(i => { mask[i] = 0; }); }); const x = Math.min(...group.map(c => c.x)), y = Math.min(...group.map(c => c.y)); result.push({ id: '', type: 'text', bounds: { x, y, width: Math.max(...group.map(c => c.x + c.width)) - x, height: Math.max(...group.map(c => c.y + c.height)) - y } }); }
   }
+  if(!vertical){const transposed=items.filter(c=>!used.has(c)).map(c=>({...c,x:c.y,y:c.x,width:c.height,height:c.width}));result.push(...textRegions(transposed,mask,true).map(c=>{if(!('bounds'in c))return c;return {...c,bounds:{x:c.bounds.y,y:c.bounds.x,width:c.bounds.height,height:c.bounds.width},rotationDeg:90};}));}
   return result;
 }
 /** Zhang–Suen thinning preserves topology; bounded iterations handle ordinary drawing strokes. */
@@ -109,7 +114,7 @@ function thin(mask: Uint8Array, width: number, height: number) {
   }
 }
 function trace(mask: Uint8Array, width: number, height: number): PixelPoint[][] {
-  const edges = new Uint8Array(mask.length), visited = new Uint8Array(mask.length), paths: PixelPoint[][] = [];
+  const edges = new Uint8Array(mask.length), paths: PixelPoint[][] = [];
   const neighbours = (i: number) => { const x = i % width, y = Math.floor(i / width), result: { index: number; direction: number }[] = [];
     offsets.forEach(([dx, dy], direction) => { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= width || ny >= height) return; const index = ny * width + nx; if (!mask[index]) return;
       // Suppress triangle shortcuts around an orthogonal corner; retain true diagonal strokes.
@@ -117,29 +122,25 @@ function trace(mask: Uint8Array, width: number, height: number): PixelPoint[][] 
       result.push({ index, direction }); }); return result;
   };
   for (let i = 0; i < mask.length; i++) if (mask[i]) neighbours(i).forEach(n => { edges[i] = edges[i]! | (1 << n.direction); });
-  const degree = (i: number) => { let value = edges[i]!, n = 0; while (value) { n += value & 1; value >>= 1; } return n; };
-  const walk = (start: number, first: { index: number; direction: number }) => { const path: PixelPoint[] = [{ x: start % width + .5, y: Math.floor(start / width) + .5 }]; let current = start, next = first;
-    for (let count = 0; count <= mask.length; count++) { visited[current] = visited[current]! | (1 << next.direction); visited[next.index] = visited[next.index]! | (1 << ((next.direction + 4) % 8)); current = next.index; path.push({ x: current % width + .5, y: Math.floor(current / width) + .5 });
-      if (current === start || degree(current) !== 2) break;
-      const following = neighbours(current).find(n => !(visited[current]! & (1 << n.direction))); if (!following) break; next = following;
-    }
-    paths.push(path); if (paths.length > CANDIDATE_LIMIT * 4) throw new Error('Слишком много фрагментов. Увеличьте удаление шума.');
-  };
-  for (let i = 0; i < mask.length; i++) if (mask[i] && degree(i) !== 2) for (const n of neighbours(i)) if (!(visited[i]! & (1 << n.direction))) walk(i, n);
-  for (let i = 0; i < mask.length; i++) if (mask[i]) for (const n of neighbours(i)) if (!(visited[i]! & (1 << n.direction))) walk(i, n);
+  const rawDegree = (i: number) => { let value = edges[i]!, n = 0; while (value) { n += value & 1; value >>= 1; } return n; };
+  // A thick X/T intersection can thin to adjacent branch pixels. Contract its connected
+  // branch cluster into one shared geometric endpoint, retaining every outgoing edge.
+  const owners=new Map<number,number>(),clusters=new Map<number,number[]>();
+  for(let i=0;i<mask.length;i++)if(mask[i]&&rawDegree(i)>2&&!owners.has(i)){const pending=[i],members:number[]=[];owners.set(i,i);while(pending.length){const n=pending.pop()!;members.push(n);for(const q of neighbours(n))if(rawDegree(q.index)>2&&!owners.has(q.index)){owners.set(q.index,i);pending.push(q.index);}}clusters.set(i,members);}
+  const node=(i:number)=>owners.get(i)??i;
+  const adjacent=(i:number)=>[...new Set((clusters.get(i)??[i]).flatMap(n=>neighbours(n).map(q=>node(q.index)))).values()].filter(n=>n!==i).sort((a,b)=>a-b);
+  const position=(i:number)=>{const members=clusters.get(i)??[i];return {x:members.reduce((v,n)=>v+n%width+.5,0)/members.length,y:members.reduce((v,n)=>v+Math.floor(n/width)+.5,0)/members.length};};
+  const seen=new Set<number>(),edge=(a:number,b:number)=>Math.min(a,b)*mask.length+Math.max(a,b);
+  const walk=(start:number,first:number)=>{const path=[position(start)];let current=start,next=first;for(let count=0;count<=mask.length;count++){seen.add(edge(current,next));current=next;path.push(position(current));const choices=adjacent(current);if(current===start||choices.length!==2)break;const following=choices.find(n=>!seen.has(edge(current,n)));if(following===undefined)break;next=following;}paths.push(path);if(paths.length>CANDIDATE_LIMIT*4)throw new Error('Слишком много фрагментов. Увеличьте удаление шума.');};
+  for(let phase=0;phase<2;phase++)for(let i=0;i<mask.length;i++)if(mask[i]&&node(i)===i){const ns=adjacent(i);if(!phase&&ns.length===2)continue;for(const n of ns)if(!seen.has(edge(i,n)))walk(i,n);}
   return paths;
 }
 /** Otsu threshold after alpha-on-white compositing; no OCR/network/provider imports. */
 export function extractGeometry(image: PixelImage, options: ExtractionOptions, stage: (value: string) => void = () => {}): ExtractionResult {
   if (image.width < 2 || image.height < 2 || image.width * image.height > 1_440_000 || image.data.length !== image.width * image.height * 4) throw new Error('Недопустимый размер рабочего изображения.');
-  const started = performance.now(), gray = new Uint8Array(image.width * image.height), histogram = new Uint32Array(256);
-  for (let i = 0; i < gray.length; i++) { const a = image.data[i * 4 + 3]! / 255, g = Math.round((image.data[i * 4]! * .299 + image.data[i * 4 + 1]! * .587 + image.data[i * 4 + 2]! * .114) * a + 255 * (1 - a)); gray[i] = g; histogram[g] = histogram[g]! + 1; }
-  let total = 0; for (let i = 0; i < 256; i++) total += i * histogram[i]!;
-  let count = 0, sum = 0, maximum = -1, threshold = 128;
-  for (let t = 0; t < 255; t++) { count += histogram[t]!; sum += t * histogram[t]!; if (!count || count === gray.length) continue; const between = count * (gray.length - count) * (sum / count - (total - sum) / (gray.length - count)) ** 2; if (between > maximum) { maximum = between; threshold = t; } }
-  const mask = gray.map(g => g <= Math.max(60, Math.min(200, threshold)) ? 1 : 0);
-  if (mask.reduce((n, value) => n + value, 0) > mask.length * .5) throw new Error('Слишком большая тёмная область. V1 рассчитан на штриховой чертёж на светлом фоне; выберите область чертежа.');
-  stage('Выделение линий'); const items = components(mask, image.width, image.height, options), regions = textRegions(items, mask); items.forEach(c => { c.pixels.length = 0; }); items.length = 0; thin(mask, image.width, image.height);
+  const started = performance.now(), mask = drawingMask(image,options.lighting==='adaptive');
+  if (mask.reduce((n, value) => n + value, 0) > mask.length * .5) throw new Error('Слишком большая тёмная область. Обработка рассчитана на штриховой чертёж на светлом фоне; выберите область чертежа.');
+  stage('Выделение линий'); const items = components(mask, image.width, image.height, options), textStarted=performance.now(),regions = textRegions(items, mask),textDetection=performance.now()-textStarted; items.forEach(c => { c.pixels.length = 0; }); items.length = 0; thin(mask, image.width, image.height);
   stage('Трассировка контуров'); const raw = trace(mask, image.width, image.height), detection = performance.now() - started, cleanStarted = performance.now();
   stage('Очистка геометрии'); const candidates: Candidate[] = [...regions];
   // Fit on original traced pixels; simplification must not erase circle evidence.
@@ -152,7 +153,7 @@ export function extractGeometry(image: PixelImage, options: ExtractionOptions, s
   }
   if (candidates.length > CANDIDATE_LIMIT) throw new Error('Более 5000 кандидатов. Увеличьте удаление шума или уменьшите область.');
   candidates.forEach((c, i) => { c.id = `candidate-${i + 1}`; });
-  return { candidates, timings: { detection, cleanup: performance.now() - cleanStarted }, analysisWidth: image.width, analysisHeight: image.height };
+  return { candidates, timings: { detection, textDetection, cleanup: performance.now() - cleanStarted }, analysisWidth: image.width, analysisHeight: image.height };
 }
 export function scaleCandidates(candidates: Candidate[], sx: number, sy: number): Candidate[] {
   const point = (p: PixelPoint) => ({ x: p.x * sx, y: p.y * sy });

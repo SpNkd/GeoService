@@ -1,5 +1,5 @@
-import { CloseButton } from './IconButton';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Dialog } from './Dialog';
+import { useMemo, useState } from 'react';
 import { documentModelFrame } from '../geometry/georeferencing';
 import type { GeoDocument } from '../domain/model';
 import type { DocumentCommand } from '../domain/commands';
@@ -20,12 +20,6 @@ export function ImportDialog({ document, onClose, onImport }: Props) {
   const [source, setSource] = useState('Вставка из таблицы');
   const [notice, setNotice] = useState('');
   const [fileError, setFileError] = useState('');
-  const dialog = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const previous = window.document.activeElement;
-    dialog.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
-    return () => { if (previous instanceof HTMLElement) previous.focus(); };
-  }, []);
   const parsed = useMemo(() => {
     try { return { table: parseTable(raw, delimiter), error: '' }; }
     catch (error) { return { table: null, error: error instanceof Error ? error.message : 'Ошибка чтения таблицы' }; }
@@ -55,18 +49,8 @@ export function ImportDialog({ document, onClose, onImport }: Props) {
     try { onImport({ ...createImportCommand(plan, document, layerId, validOnly), coordinateSpace } as DocumentCommand); }
     catch (error) { setFileError(error instanceof Error ? error.message : 'Не удалось подготовить импорт'); }
   };
-  return <div className="modal-backdrop"><div className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title" ref={dialog}
-    onKeyDown={event => {
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); }
-      if (event.key === 'Tab') {
-        const elements = [...dialog.current!.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea')];
-        const first = elements[0], last = elements[elements.length - 1];
-        if (event.shiftKey && window.document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        if (!event.shiftKey && window.document.activeElement === last) { event.preventDefault(); first?.focus(); }
-      }
-    }}>
-    <div className="import-heading"><div><h2 id="import-title">Импорт координат</h2><p>CSV / TXT / TSV или вставка из Excel · координаты в метрах</p></div><CloseButton className="icon-button" label="Закрыть импорт" onClick={onClose}/></div>
-    <div className="import-body">
+  return <Dialog title="Импорт координат" subtitle="CSV / TXT / TSV или вставка из Excel · координаты в метрах" size="xl" closeLabel="Закрыть импорт" onClose={onClose} initialFocus="textarea" footer={<><span>Один импорт = один шаг Undo · лимит 5 МБ / 50 000 точек</span><button onClick={onClose}>Отмена</button><button className="primary-button" disabled={!canImport} onClick={importNow}>Импортировать{plan?.points.length ? ` (${plan.points.length})` : ''}</button></>}>
+    <div className="coordinate-import-body">
       <div className="import-source"><label className="file-picker">Файл координат<input aria-label="Файл координат" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values" onChange={async event => {
         const file = event.target.files?.[0]; if (!file) return;
         if (file.size > MAX_TABLE_BYTES) { setFileError('Таблица превышает лимит 5 МБ'); return; }
@@ -91,6 +75,6 @@ export function ImportDialog({ document, onClose, onImport }: Props) {
         {plan.errors.length > 0 && <div className="import-errors" role="alert">{plan.errors.slice(0, 5).map(error => <p key={error.line}>Row {error.line}: {error.message}</p>)}{plan.errors.length > 5 && <p>Ещё ошибок: {plan.errors.length - 5}</p>}<label className="check-label"><input type="checkbox" checked={validOnly} onChange={event => setValidOnly(event.target.checked)} />Импортировать только валидные строки</label></div>}
         {plan.warnings.map(message => <p className="import-warning" key={message}>{message}</p>)}
       </>}
-    </div><div className="import-footer"><span>Один импорт = один шаг Undo · лимит 5 МБ / 50 000 точек</span><button className="tool-button" onClick={onClose}>Отмена</button><button className="primary-button" disabled={!canImport} onClick={importNow}>Импортировать{plan?.points.length ? ` (${plan.points.length})` : ''}</button></div>
-  </div></div>;
+    </div>
+  </Dialog>;
 }
