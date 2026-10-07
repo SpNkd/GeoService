@@ -53,7 +53,7 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
   const preview = ai.status === 'preview' || ai.status === 'stale' ? ai : ai.status === 'applied' && ai.results ? { plan: ai.results, notice: null } : null;
   const resolution = preview?.plan.resolution;
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
-  return <section className="ai-panel" aria-label="AI Assistant">
+  return <section id="editor-panel-ai" role="tabpanel" aria-labelledby="editor-tab-ai" className="ai-panel" aria-label="AI Assistant">
     <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{browserNeedsKey?'AI не настроен':settingsStatus?.label ?? (mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? browserAiTransport?'OpenRouter · свой ключ':'AI: Qwen · готов' : 'AI отключён')}</span></div>
     <button className="secondary-action" aria-label="Настройки AI" onClick={onSettings}>{browserNeedsKey?'Настроить':'⚙ Настройки AI'}</button>
     {browserNeedsKey&&<p className="ai-caption">Редактор работает без AI. Для текстовых команд введите свой OpenRouter ключ в настройках.</p>}

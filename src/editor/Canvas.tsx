@@ -317,7 +317,12 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         const exact=createHitStack(document,owners,pointerWorld,5/viewport.pixelsPerUnit).find(candidate=>candidate.selection?.attribute&&candidate.selection.attributeTag===active.attributeTag&&candidate.selection.ownerEntityId===active.ownerEntityId&&candidate.selection.primitivePath.length===active.primitivePath.length&&candidate.selection.primitivePath.every((part,i)=>part===active.primitivePath[i]));
         if(exact&&resolved?.primitive.kind==='text'&&owner?.type==='block_instance'&&definition&&!isLayerLocked(document,owner)&&!isLayerLocked(document,{...owner,layerId:resolved.primitive.layerId})){
           const transform=blockMatrix(owner,definition.basePoint),linear=invertMatrix([transform[0],transform[1],transform[2],transform[3],0,0]),start=blockAttributeLocalPosition(owner,definition,resolved.primitive.position);
-          if(linear){dispatch({type:'begin-transaction'});drag.current={kind:'block-attribute',pointerId:event.pointerId,entityId:owner.id,tag:active.attributeTag!,attributeIndex:active.primitivePath[0]!,...(resolved.source?.handle?{sourceHandle:resolved.source.handle}:{}),start,pointerStart:pointerWorld,inverseLinear:linear};event.currentTarget.setPointerCapture(event.pointerId);setDragging(true);return;}
+          if(linear){
+            // Retaining an already selected attribute must retain its position in
+            // the hit cycle, even when another overlapping owner sorts first.
+            const activeIndex=normal.findIndex(candidate=>candidate.selection?.attribute&&candidate.selection.ownerEntityId===active.ownerEntityId&&candidate.selection.primitivePath.length===active.primitivePath.length&&candidate.selection.primitivePath.every((part,i)=>part===active.primitivePath[i]));
+            if(activeIndex>=0)normalCycle.current.index=activeIndex;
+            dispatch({type:'begin-transaction'});drag.current={kind:'block-attribute',pointerId:event.pointerId,entityId:owner.id,tag:active.attributeTag!,attributeIndex:active.primitivePath[0]!,...(resolved.source?.handle?{sourceHandle:resolved.source.handle}:{}),start,pointerStart:pointerWorld,inverseLinear:linear};event.currentTarget.setPointerCapture(event.pointerId);setDragging(true);return;}
         }
       }
       if(normal[0]?.selection&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey){

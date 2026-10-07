@@ -26,3 +26,12 @@ for(const context of ['model','rotated','paper','viewport']as const)test(`primit
  const p=await point(page,context==='paper'?48:8,context==='paper'?22:2,context==='paper'?'layout-canvas':'drawing-canvas');await page.mouse.move(p.x,p.y);await frames(page);const leaf=page.getByTestId('deep-selection-highlight');await expect(leaf).toHaveCount(1);await expect(leaf.locator('polyline,path,line')).toHaveCount(1);await expect(page.getByTestId('hover-contour')).toHaveCount(0);await page.mouse.click(p.x,p.y);await expect(page.getByTestId('deep-properties')).toContainText('только просмотр');await page.getByRole('button',{name:'Выбрать блок',exact:true}).click();await expect(page.getByTestId('deep-properties')).toHaveCount(0);
  await page.mouse.click(p.x,p.y);await expect(page.getByTestId('deep-properties')).toBeVisible();await page.keyboard.down('Control');await page.mouse.click(p.x,p.y);await page.keyboard.up('Control');await expect(page.getByTestId('deep-properties')).toHaveCount(0);expect(await readAutosaveDocument(page)).toEqual(before);await expect(page.getByRole('button',{name:'Отменить',exact:true})).toBeDisabled();
 });
+
+test('stationary click on a selected overlapping ATTRIB retains the correct Tab cycle',async({page})=>{
+ const before=await setup(page);await click(page,5,0);await page.keyboard.press('Tab');await page.keyboard.press('Tab');
+ await expect(page.getByLabel('Значение атрибута',{exact:true})).toHaveValue('V1');
+ await click(page,5,0);await expect(page.getByLabel('Значение атрибута',{exact:true})).toHaveValue('V1');
+ await page.keyboard.press('Tab');await expect(page.getByTestId('selection-cycle')).toContainText('4 / 7');
+ await page.keyboard.press('Shift+Tab');await expect(page.getByLabel('Значение атрибута',{exact:true})).toHaveValue('V1');
+ expect(await readAutosaveDocument(page)).toEqual(before);
+});

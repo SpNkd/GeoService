@@ -215,7 +215,7 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
   const subtitle = entity?.type==='imported_graphic' && entity.source?.originalType==='MULTILEADER' ? 'Мультивыноска' : entity?.type==='imported_graphic' && entity.source?.originalType==='DIMENSION' ? 'DXF размер' : entity ? typeNames[entity.type] : '';
   const selectedLayer = state.document.layers.find(layer => layer.id === state.selectedLayerId);
   const locked = entity ? isLayerLocked(state.document, entity) : false;
-  return <aside className="right-panel" aria-label="Свойства объекта">
+  return <aside id="editor-panel-properties" role="tabpanel" aria-labelledby="editor-tab-properties" className="right-panel" aria-label="Свойства объекта">
     <div className="panel-heading"><h2>Свойства</h2><span className="subtle">{selectedLayer ? 'Слой' : state.selectedEntityIds.length > 1 ? `${state.selectedEntityIds.length} объектов` : entity ? '1 объект' : `Текущий: ${state.document.layers.find(layer => layer.id === state.currentLayerId)?.name ?? '—'}`}</span></div>
     {(state.selectedEntityIds.length>1||state.selectedPaperIds.length>0||!!state.selectionScopeLabel) && <SelectionSummary state={state} dispatch={dispatch} size={size}/>}
     {(entity||state.selectedPaperIds.length>0)&&<nav className="object-breadcrumb" aria-label="Контекст объекта">{state.layoutId?'Paper Space':'Model Space'}{state.layoutId&&state.selectedEntityIds.length>0?' → MODEL viewport':''} → {state.deepSelection?.attribute?'Блок → Атрибут':state.deepSelection?'Блок → Элемент':entity?typeNames[entity.type]:'Объект листа · только чтение'}</nav>}

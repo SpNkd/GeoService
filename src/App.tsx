@@ -50,7 +50,9 @@ const DxfDialog = lazy(() => import('./components/DxfDialog').then(module => ({ 
 const GeoreferenceDialog = lazy(() => import('./components/GeoreferenceDialog').then(module => ({ default: module.GeoreferenceDialog })));
 const storageFailureMessage = (failure: AutosaveError, startup = false) => {
   if (failure.code === 'CORRUPTED_AUTOSAVE') return failure.message;
-  if (failure.code === 'VALIDATION_FAILED') return 'Локальный документ не прошёл проверку и не был восстановлен. Открыт демодокумент.';
+  if (failure.code === 'VALIDATION_FAILED') return startup
+    ? 'Локальный документ не прошёл проверку и не был восстановлен. Открыт демодокумент.'
+    : 'Не удалось подготовить автосохранение. Документ остаётся открыт. Сохраните JSON вручную.';
   if (failure.code === 'INDEXEDDB_UNAVAILABLE') return startup
     ? 'Автосохранение не загружено: IndexedDB недоступен. Открыт демодокумент; продолжайте работу и сохраняйте JSON вручную.'
     : 'Автосохранение не выполнено: IndexedDB недоступен. Документ остаётся открыт. Сохраните JSON вручную.';
@@ -125,8 +127,25 @@ export default function App() {
   const committedDirty = useMemo(() => isDocumentDirty({ document: committed, savedFingerprint: state.savedFingerprint }), [committed, state.savedFingerprint]);
   const dirty = committedDirty || Boolean(state.transactionBefore && state.document !== committed);
   latestCommitted.current={document:committed,dirty:committedDirty};
-  useEffect(()=>{if(!hydrationDone)return;if(skipNextAutosave.current){skipNextAutosave.current=false;return;}const revision=++autosaveRevision.current;pendingAutosave.current=true;setPersistence(previous=>previous.state==='error'?previous:{state:'saving'});if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=window.setTimeout(()=>{autosaveTimer.current=null;void saveAutosave(committed,committedDirty).then(record=>{if(revision!==autosaveRevision.current||!record)return;pendingAutosave.current=false;void getAutosaveInfo().then(info=>{if(revision===autosaveRevision.current)setPersistence(info?{state:'saved',info}:{state:'saved'});}).catch(()=>{if(revision===autosaveRevision.current)setPersistence({state:'saved'});});}).catch(error=>{if(revision!==autosaveRevision.current)return;pendingAutosave.current=false;const failure=error instanceof AutosaveError?error:new AutosaveError('WRITE_FAILED','Ошибка IndexedDB.');const message=storageFailureMessage(failure);setPersistence({state:'error',message});setNotice(message);});},500);return()=>{if(autosaveTimer.current!==null){window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;}};},[committed,committedDirty,hydrationDone]);
-  useEffect(()=>{if(!hydrationDone)return;const flush=()=>{if(!pendingAutosave.current)return;if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;const current=latestCommitted.current;void saveAutosave(current.document,current.dirty);};window.addEventListener('pagehide',flush);return()=>window.removeEventListener('pagehide',flush);},[hydrationDone]);
+  // Debounced saves and pagehide flushes share completion/error handling. A flush can
+  // supersede an in-flight preparation; only the actual current revision may report saved.
+  const persistCommitted = useCallback((document: GeoDocument, dirty: boolean, revision: number) => {
+    void saveAutosave(document, dirty).then(record => {
+      if (revision !== autosaveRevision.current || !record) return;
+      pendingAutosave.current = false;
+      void getAutosaveInfo().then(info => {
+        if (revision === autosaveRevision.current) setPersistence(info ? {state:'saved', info} : {state:'saved'});
+      }).catch(() => { if (revision === autosaveRevision.current) setPersistence({state:'saved'}); });
+    }).catch(error => {
+      if (revision !== autosaveRevision.current) return;
+      pendingAutosave.current = false;
+      const failure = error instanceof AutosaveError ? error : new AutosaveError('WRITE_FAILED', 'Ошибка IndexedDB.');
+      const message = storageFailureMessage(failure);
+      setPersistence({state:'error', message}); setNotice(message);
+    });
+  }, []);
+  useEffect(()=>{if(!hydrationDone)return;if(skipNextAutosave.current){skipNextAutosave.current=false;return;}const revision=++autosaveRevision.current;pendingAutosave.current=true;setPersistence(previous=>previous.state==='error'?previous:{state:'saving'});if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=window.setTimeout(()=>{autosaveTimer.current=null;persistCommitted(committed,committedDirty,revision);},500);return()=>{if(autosaveTimer.current!==null){window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;}};},[committed,committedDirty,hydrationDone,persistCommitted]);
+  useEffect(()=>{if(!hydrationDone)return;const flush=()=>{if(!pendingAutosave.current)return;if(autosaveTimer.current!==null)window.clearTimeout(autosaveTimer.current);autosaveTimer.current=null;const current=latestCommitted.current;persistCommitted(current.document,current.dirty,autosaveRevision.current);};window.addEventListener('pagehide',flush);return()=>window.removeEventListener('pagehide',flush);},[hydrationDone,persistCommitted]);
   const cursorReadout=useRef<CursorReadoutHandle>(null);
   const setCursor=useCallback((point:ScreenPoint|null)=>cursorReadout.current?.update(point),[]);
 
