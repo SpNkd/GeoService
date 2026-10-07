@@ -1,3 +1,4 @@
+import { knowledgeSchema, validateSemanticKnowledge } from '../semantics/schema';
 import { imageCalibrationSchema, imageProvenanceSchema } from '../image/schema';
 import { layerStyleSchema, styleOverridesSchema } from '../styles/schema';
 import { dxfLayoutsSchema } from '../layouts/schema';
@@ -47,6 +48,7 @@ export const verticalReferenceSchema = z.strictObject({ modelZero: z.literal(0),
 
 /** Structure first; referential integrity is checked separately below. Unknown UI fields are stripped. */
 export const documentSchema = z.object({
+  semantics: knowledgeSchema.optional(),
   dxfLayouts:dxfLayoutsSchema.optional(),
   sources: z.array(sourceDocumentSchema).max(100).optional(),
   blocks: z.array(blockDefinitionSchema).max(2000).optional(),
@@ -77,6 +79,7 @@ export function validateDocument(raw: unknown): GeoDocument {
 }
 /** Referential/geometry checks on structurally validated canonical data. */
 export function validateDocumentSemantics(document: GeoDocument): void {
+  validateSemanticKnowledge(document);
   for (const [kind, items] of [['layer', document.layers], ['entity', document.entities], ['style', document.styles]] as const) {
     const seen = new Set<string>();
     for (const item of items) {

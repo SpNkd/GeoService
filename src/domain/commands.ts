@@ -1,3 +1,5 @@
+import { validateSemanticKnowledge } from '../semantics/schema';
+import { withoutEntities } from '../semantics/learning';
 import { projectSelectionTransform, resolveSelectionTransform } from './selectionTransform';
 import { styleKeysFor } from '../styles/model';
 import { connectorRoute, connectivityIndex, validateConnector } from '../connectors/model';
@@ -16,6 +18,7 @@ import { blockAttributeLocalPosition } from '../vectors/geometry';
 
 /** The one deterministic mutation boundary shared by canvas, inspector, and future AI adapters. */
 export type DocumentCommand =
+  | {type:'set-semantic-knowledge';knowledge:import('../semantics/model').SemanticKnowledge}
   | {type:'reset-entity-style';entityIds:string[]}
   | {type:'reset-layer-style';layerId:string}
   | {type:'transform-selection';entityIds:string[];transform:import('./selectionTransform').SelectionTransform}
@@ -119,6 +122,7 @@ function applyEntityAdditions(document: GeoDocument, commands: readonly Extract<
 
 export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
   const command = parseCommand(raw);
+  if(command.type==='set-semantic-knowledge'){const next={...document,semantics:command.knowledge};validateSemanticKnowledge(next);return JSON.stringify(document.semantics)===JSON.stringify(command.knowledge)?document:next;}
   if(command.type==='update-underlay'){
       const entity=document.entities.find(e=>e.id===command.entityId);
       if(!entity||entity.type!=='raster_underlay')throw new Error('Подложка не найдена');
@@ -249,7 +253,7 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
     const referenced = referencedVertices(entities);
     const vertices: Record<string, Vertex> = {};
     for (const [id, vertex] of Object.entries(document.vertices)) if (referenced.has(id)) vertices[id] = vertex;
-    return { ...document, entities, vertices };
+    return { ...document, entities, vertices, ...(document.semantics?{semantics:withoutEntities(document.semantics,removedIds)}:{}) };
   }
   if (command.type === 'move-text') {
     const text = document.entities.find(item => item.id === command.entityId);

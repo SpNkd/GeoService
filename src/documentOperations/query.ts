@@ -1,3 +1,5 @@
+import { conceptsNamed, conceptsFor } from '../semantics/concepts';
+import { learnedMatches, rejectedFor } from '../semantics/learning';
 import type { Entity, GeoDocument } from '../domain/model';
 import { createProvenanceIndex, type SemanticTextHit } from '../dxf/provenance';
 import { conceptEvidence, conceptLabels, normalizeQuery } from './aliases';
@@ -29,7 +31,7 @@ export function documentQueryIndex(document:GeoDocument):DocumentQueryIndex {
   indexes.set(document,index);return index;
 }
 export function querySummary(query:DocumentQuery):string {
-  switch(query.kind){case 'all_entities':return 'Все объекты';case 'semantic_concept':return query.concepts.map(c=>conceptLabels[c]).join(', ');case 'current_selection':return 'Текущее выделение';case 'entity_type':return query.entityType;case 'source_type':return `DXF тип: ${query.sourceType}`;case 'text_contains':return `Текст: ${query.text}${query.sourceType?` · ${query.sourceType}`:''}`;case 'block_attribute':return `ATTRIB: ${query.tag??'любой tag'} = ${query.value??'любое значение'}`;default:return `${query.kind}: ${query.name}`;}
+  switch(query.kind){case 'learned_concept':return query.name;case 'all_entities':return 'Все объекты';case 'semantic_concept':return query.concepts.map(c=>conceptLabels[c]).join(', ');case 'current_selection':return 'Текущее выделение';case 'entity_type':return query.entityType;case 'source_type':return `DXF тип: ${query.sourceType}`;case 'text_contains':return `Текст: ${query.text}${query.sourceType?` · ${query.sourceType}`:''}`;case 'block_attribute':return `ATTRIB: ${query.tag??'любой tag'} = ${query.value??'любое значение'}`;default:return `${query.kind}: ${query.name}`;}
 }
 const intrinsic=(record:RecordEntry,concept:SemanticConcept)=>({dimensions:record.entity.type==='dimension'||record.sourceTypes.includes('DIMENSION'),text:record.texts.length>0,blocks:record.entity.type==='block_instance',hatches:record.sourceTypes.includes('HATCH'),symbols:record.entity.type==='symbol',annotations:['label','text'].includes(record.entity.type)||record.sourceTypes.includes('MULTILEADER')}[concept as 'dimensions'|'text'|'blocks'|'hatches'|'symbols'|'annotations']??false);
 export function resolveDocumentQuery(raw:DocumentQuery,document:GeoDocument,selection:readonly string[]=[],excluded:ReadonlySet<string>=new Set(),currentViewIds?:ReadonlySet<string>):ResolvedEntitySet {
@@ -62,21 +64,26 @@ export function resolveDocumentQuery(raw:DocumentQuery,document:GeoDocument,sele
         if(found)match(id,{source:hit.sourceKind,reason:query.kind==='text_contains'?`Текст содержит «${query.text}»`:'Текущее значение/tag ATTRIB',tier:'EXACT',path:hit.path,text:hit.text,...(hit.tag?{tag:hit.tag}:{}),...(hit.sourceHandle?{sourceHandle:hit.sourceHandle}:{}),...(hit.attributeIndex===undefined?{}:{attributeIndex:hit.attributeIndex})});
       }break;
     }
+    case 'learned_concept': {const concepts=conceptsNamed(document,query.name);if(concepts.length!==1){result.error=concepts.length?'Категория неоднозначна. Уточните название.':'Категория не найдена. Сначала научите GeoService.';break;}for(const m of learnedMatches(document,concepts[0]!.id,true))match(m.entityId,{source:concepts[0]!.name,reason:`${m.origin==='explicit'?'Явная метка':'Правило'}: ${m.reasons.join(' · ')}`,tier:m.tier,path:[]});break;}
     case 'semantic_concept':
       for(const [id,r] of index.records)for(const concept of [...new Set(query.concepts)]) {
+        if(rejectedFor(document,id,concept))continue;
         if(intrinsic(r,concept))match(id,{source:conceptLabels[concept],reason:`Тип содержимого: ${conceptLabels[concept]}`,tier:'EXACT',path:[]});
         for(const [kind,value] of [['Текущий слой',r.layerName],['DXF-слой',r.sourceLayer],['Имя блока',r.blockName],['Имя объекта',r.entity.name]] as const) {const tier=conceptEvidence(value,concept);if(tier)match(id,{source:`${kind}: ${value}`,reason:`${conceptLabels[concept]}: словарь alias (${normalizeQuery(value)})`,tier,path:[]});}
         for(const hit of r.texts)if(conceptEvidence(hit.text,concept))match(id,{source:`Текст: ${hit.sourceKind}`,reason:`${conceptLabels[concept]}: упоминание в тексте`,tier:'WEAK',path:hit.path,text:hit.text});
-      }break;
+      }
+      for(const concept of [...new Set(query.concepts)])for(const m of learnedMatches(document,concept,true))match(m.entityId,{source:conceptLabels[concept],reason:`${m.origin==='explicit'?'Явная метка':'Правило'}: ${m.reasons.join(' · ')}`,tier:m.tier,path:[]});break;
   }
   result.groups=[...groups.values()];
   if(result.evidence.size>DOCUMENT_QUERY_LIMITS.results||result.groups.length>DOCUMENT_QUERY_LIMITS.groups){result.error=`Превышен лимит запроса (${DOCUMENT_QUERY_LIMITS.results} объектов / ${DOCUMENT_QUERY_LIMITS.groups} групп). Уточните запрос.`;result.entityIds=[];return result;}
   result.entityIds=[...new Set(result.groups.filter(g=>!excluded.has(g.id)).flatMap(g=>g.entityIds))];return result;
 }
 export function defaultExcludedGroups(result:ResolvedEntitySet):Set<string>{return new Set(result.groups.filter(g=>g.tier==='WEAK').map(g=>g.id));}
-export interface LocalSearchRow {entityId:string;name:string;entityType:Entity['type'];layer:string;sourceLayer:string;matches:SemanticTextHit[]}
-export function searchDocument(document:GeoDocument,text:string,scopeIds?:ReadonlySet<string>):{rows:LocalSearchRow[];total:number} {
-  const needle=normalizeQuery(text);if(!needle)return {rows:[],total:0};const rows:LocalSearchRow[]=[];let total=0;
-  for(const [id,r] of documentQueryIndex(document).records)if((!scopeIds||scopeIds.has(id))&&r.search.includes(needle)){total++;if(rows.length<DOCUMENT_QUERY_LIMITS.searchRows)rows.push({entityId:id,name:r.entity.name,entityType:r.entity.type,layer:r.layerName,sourceLayer:r.sourceLayer,matches:r.texts.filter(t=>normalizeQuery(`${t.text}\n${t.tag??''}`).includes(needle)).slice(0,5)});}
-  return {rows,total};
+export interface LocalSearchRow {entityId:string;name:string;entityType:Entity['type'];layer:string;sourceLayer:string;matches:SemanticTextHit[];semantics?:{tier:MatchEvidence['tier'];label:string;reasons:string[]} }
+export function searchDocument(document:GeoDocument,text:string,scopeIds?:ReadonlySet<string>,includeWeak=false,semanticDocument:GeoDocument=document):{rows:LocalSearchRow[];total:number;entityIds:string[]} {
+  const needle=normalizeQuery(text);if(!needle)return {rows:[],total:0,entityIds:[]};const rows:LocalSearchRow[]=[],entityIds:string[]=[];let total=0;
+  const concepts=conceptsNamed(semanticDocument,text),semantic=new Map<string,MatchEvidence[]>();
+  for(const c of concepts){const query:DocumentQuery=Object.hasOwn(conceptLabels,c.id)?{kind:'semantic_concept',concepts:[c.id as SemanticConcept]}:{kind:'learned_concept',name:c.name};const resolved=resolveDocumentQuery(query,semanticDocument);if(resolved.error)continue;for(const [id,evidence]of resolved.evidence){const kept=evidence.filter(e=>includeWeak||e.tier!=='WEAK');if(kept.length)semantic.set(id,[...(semantic.get(id)??[]),...kept]);}}
+  for(const [id,r] of documentQueryIndex(document).records)if((!scopeIds||scopeIds.has(id))&&(concepts.length?semantic.has(id):r.search.includes(needle))){total++;entityIds.push(id);if(rows.length<DOCUMENT_QUERY_LIMITS.searchRows){const evidence=semantic.get(id),tier=evidence?.some(e=>e.tier==='EXACT')?'EXACT':evidence?.some(e=>e.tier==='STRONG')?'STRONG':'WEAK';rows.push({entityId:id,name:r.entity.name,entityType:r.entity.type,layer:r.layerName,sourceLayer:r.sourceLayer,matches:r.texts.filter(t=>normalizeQuery(`${t.text}\n${t.tag??''}`).includes(needle)).slice(0,5),...(evidence?{semantics:{tier,label:conceptsFor(semanticDocument).filter(c=>concepts.some(x=>x.id===c.id)).map(c=>c.name).join(', '),reasons:evidence.map(e=>e.reason).slice(0,5)}}:{})});}}
+  return {rows,total,entityIds};
 }

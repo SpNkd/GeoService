@@ -1,7 +1,8 @@
+import { BUILTIN_CONCEPT_IDS } from '../semantics/model';
 import { z } from 'zod';
 
 export const DOCUMENT_QUERY_LIMITS = Object.freeze({ results: 10000, groups: 2000, evidencePerOwner: 20, searchRows: 100 });
-export const semanticConceptSchema = z.enum(['buildings','roads','slopes','utilities','annotations','dimensions','text','blocks','hatches','symbols']);
+export const semanticConceptSchema = z.enum(BUILTIN_CONCEPT_IDS);
 export type SemanticConcept = z.infer<typeof semanticConceptSchema>;
 const name = z.string().trim().min(1).max(128);
 export const documentQuerySchema = z.discriminatedUnion('kind', [
@@ -15,6 +16,7 @@ export const documentQuerySchema = z.discriminatedUnion('kind', [
   z.strictObject({scope:z.enum(['current_view','current_layout','active_viewport','document']).optional(),kind:z.literal('block_attribute'),tag:name.nullable(),value:name.nullable()}),
   z.strictObject({scope:z.enum(['current_view','current_layout','active_viewport','document']).optional(),kind:z.literal('entity_type'),entityType:z.enum(['point','line','polyline','polygon','text','label','dimension','symbol','block_instance','imported_graphic','arc','circle'])}),
   z.strictObject({scope:z.enum(['current_view','current_layout','active_viewport','document']).optional(),kind:z.literal('semantic_concept'),concepts:z.array(semanticConceptSchema).min(1).max(10)}),
+  z.strictObject({scope:z.enum(['current_view','current_layout','active_viewport','document']).optional(),kind:z.literal('learned_concept'),name}),
   z.strictObject({scope:z.enum(['current_view','current_layout','active_viewport','document']).optional(),kind:z.literal('current_selection')}),
 ]);
 export type DocumentQuery = z.infer<typeof documentQuerySchema>;

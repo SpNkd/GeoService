@@ -1,0 +1,22 @@
+import { readFileSync,writeFileSync } from 'node:fs';
+import { expect,it } from 'vitest';
+import { importDxf } from '../src/dxf/import';
+import { featureIndex } from '../src/semantics/features';
+import { proposeRule,ruleMatches,rememberedKnowledge } from '../src/semantics/learning';
+import { resolveDocumentQuery,searchDocument } from '../src/documentOperations/query';
+import { selectionBounds } from '../src/renderer/selectors';
+import { fitToBounds } from '../src/geometry';
+import { editorReducer,initialEditorState } from '../src/store/editor';
+const path=process.env.DXF_REFERENCE;
+it.skipIf(!path)('local reference teaching and timing acceptance',()=>{
+  const bytes=readFileSync(path!),d=importDxf(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'p10b8003-7.dxf').document;
+  const volumes=resolveDocumentQuery({kind:'block_name',name:'VOLUME'},d).entityIds,examples=volumes.slice(0,2),concept={id:'test-volume',name:'Тестовая группа VOLUME',aliases:['test-volume'],description:'Нейтральная категория: совпадает определение VOLUME; инженерный смысл не назначен.'};
+  const time=<T,>(fn:()=>T)=>{const started=performance.now(),result=fn();return {result,ms:performance.now()-started};};
+  const extraction=time(()=>featureIndex(d)),proposal=time(()=>proposeRule(d,examples,concept.id,'reference-rule')),evaluation=time(()=>ruleMatches(d,proposal.result.rule)),knowledge=rememberedKnowledge(d,concept,proposal.result.rule,new Set(),new Set(['EXACT','STRONG'])),learned={...d,semantics:knowledge};
+  const search=time(()=>searchDocument(learned,concept.name)),select=time(()=>editorReducer(initialEditorState(learned),{type:'select-entities',entityIds:search.result.rows.map(r=>r.entityId)})),fit=time(()=>fitToBounds(selectionBounds(learned,search.result.rows.map(r=>r.entityId)),{width:1000,height:700},60));
+  const warm=Array.from({length:20},()=>time(()=>searchDocument(learned,concept.name)).ms).sort((a,b)=>a-b);
+  const counts=Object.fromEntries(['EXACT','STRONG','WEAK'].map(t=>[t,evaluation.result.filter(m=>m.tier===t).length]));
+  expect((counts.EXACT??0)+(counts.STRONG??0)).toBe(62);expect(search.result.total).toBe(62);expect(select.result.selectedEntityIds).toHaveLength(62);expect(fit.result).toBeTruthy();
+  const building=resolveDocumentQuery({kind:'source_layer',name:'_ГП_ЗИС'},d).entityIds,bconcept={id:'building-contours-demo',name:'Контуры на _ГП_ЗИС',aliases:[]},bp=proposeRule(d,building.slice(0,2),bconcept.id,'contours-demo'),bm=ruleMatches(d,bp.rule);
+  writeFileSync('docs/audit-results/semantic-learning-reference.json',JSON.stringify({filename:'p10b8003-7.dxf',owners:d.entities.length,layers:d.layers.length,blocks:d.blocks?.length,examples,concept,rule:proposal.result.rule,counts,exampleReasons:['EXACT','STRONG','WEAK'].map(t=>evaluation.result.find(m=>m.tier===t)),defaultSearchCount:search.result.total,timingsMs:{coldFeatureExtraction:extraction.ms,proposal:proposal.ms,evaluation:evaluation.ms,coldSearch:search.ms,warmSearchMedian:warm[10],selectResult:select.ms,fitResult:fit.ms},cache:{derived:extraction.result.derived,reused:extraction.result.reused},buildingContoursDemo:{concept:bconcept,examples:building.slice(0,2),rule:bp.rule,counts:Object.fromEntries(['EXACT','STRONG','WEAK'].map(t=>[t,bm.filter(m=>m.tier===t).length])),note:'Контуры по исходному слою. Назначение/инженерные свойства не выведены.'}},null,2)+'\n');
+});

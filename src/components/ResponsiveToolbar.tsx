@@ -21,7 +21,7 @@ export function ResponsiveToolbar({ children, inert = false }: {
     const lines = take(/^Инструмент: (Линия|Полилиния)$/), polyline = lines.find(n => label(n).endsWith('Полилиния'))?.props['aria-pressed'];
     return <nav inert={inert} className="toolbar semantic-toolbar" aria-label="Инструменты редактора">
  {group('Файл / данные', take(/Новый документ|Открыть JSON|Сохранить JSON|^DXF$|[Пп]одложк|Импорт координат|Векторизация изображения/))}
- {group('Правка', take(/Повернуть выделенное|Переместить выбор/))}
+ {group('Правка', take(/Повернуть выделенное|Переместить выбор|Научить GeoService|Смысл \/ категории/))}
  <div className="semantic-draw" role="group" aria-label="Рисование">{take(/^Инструмент: (Выбор|Точка)$/).map(render)}{group(polyline ? 'Полилиния' : 'Линия', lines, lines.some(n => n.props['aria-pressed']))}{take(/^Инструмент: (Полигон|Текст|Соединение)$/).map(render)}{take(/^Символы$/).map(render)}</div>
  {group('Инженерия', take(/^Инструмент: (Размер|Измерение|Панорама)$/))}
  <div className="semantic-history" role="group" aria-label="История">{take(/^(Отменить|Повторить)$/).map(n => cloneElement(render(n), { children: Children.toArray(n.props.children).filter(isValidElement) }))}</div>

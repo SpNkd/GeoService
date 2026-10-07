@@ -1,3 +1,4 @@
+import { SemanticProperties } from './SemanticProperties';
 import { CloseButton } from './IconButton';
 import { RotateSelectionPanel } from './RotateSelectionPanel';
 import { SelectionStyle,LayerStyleEditor } from './StyleEditor';
@@ -202,7 +203,7 @@ function InstanceAttributes({entity,locked,dispatch,document}:{entity:Extract<En
  const primitives=(entity.attributePrimitives??[]).flatMap((p,index)=>p.kind==='text'&&p.attributeTag?[{tag:p.attributeTag,value:p.content,...(p.source?.originalType==='ATTRIB'?{index}:{}),handle:p.source?.handle,attributeLocked:document.layers.find(l=>l.id===p.layerId)?.locked??true}]:[]),represented=new Set(primitives.map(p=>p.tag)),values=[...primitives,...Object.entries(entity.attributes??{}).filter(([tag])=>!represented.has(tag)).map(([tag,value])=>({tag,value}))];
  return values.length>0?<details className="property-section" open><summary>Атрибуты · {values.length}</summary>{values.slice(0,40).map((p,i)=><AttributeValue key={`${p.tag}:${i}`} entityId={entity.id} {...p} locked={locked||('attributeLocked' in p&&p.attributeLocked===true)} dispatch={dispatch}/>)}{values.length>40&&<small>Показаны первые 40 атрибутов.</small>}</details>:null;
 }
-export const PropertyInspector = memo(function PropertyInspector({ state, dispatch, size }: { size: ViewSize; state: EditorState; dispatch: Dispatch<EditorAction> }) {
+export const PropertyInspector = memo(function PropertyInspector({ state, dispatch, size, onTeach }: { onTeach?:()=>void; size: ViewSize; state: EditorState; dispatch: Dispatch<EditorAction> }) {
   const entity = state.document.entities.find(item => item.id === state.selectionId);
   const semanticIndex = useMemo(()=>createProvenanceIndex(state.document),[state.document]);
   const summary = useMemo(()=>entity?semanticIndex.getEntitySemanticSummary(entity.id,{includeTexts:false}):undefined,[entity,semanticIndex]);
@@ -218,6 +219,7 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
     {!selectedLayer&&!deep&&entity&&state.selectedEntityIds.length===1&&<>
       <div className="entity-heading"><span className="entity-icon"><Icon name={entity.type==='raster_underlay'?'symbol':entity.type==='connector'?'line':['raster_underlay','arc','circle','block_instance','imported_graphic'].includes(entity.type) ? 'symbol' : entity.type === 'polyline' ? 'line' : entity.type === 'symbol' ? 'symbol' : entity.type === 'label' ? 'text' : entity.type} size={23} /></span><div><h3>{heading}</h3><span>{subtitle}</span></div><CloseButton className="close-button" label="Снять выбор" onClick={() => dispatch({ type: 'select', entityId: null })}/></div>
     </>}
+    {!selectedLayer&&<SemanticProperties state={state} dispatch={dispatch} onTeach={onTeach}/>}
     <RotateSelectionPanel state={state} dispatch={dispatch}/>
     {!selectedLayer&&state.selectedEntityIds.length>1&&<SelectionStyle state={state} dispatch={dispatch}/>}
     {selectedLayer&&<LayerStyleEditor state={state} dispatch={dispatch} layerId={selectedLayer.id}/>}
@@ -258,4 +260,4 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
     </div> : state.selectedPaperIds.length||state.selectedEntityIds.length>1 ? null : <div className="empty-inspector"><div className="empty-symbol"><Icon name="cursor" size={30} /></div><h3>Выберите объект</h3><p>Нажмите на точку, линию, полигон или подпись на схеме.</p><div className="empty-preview"><span>X</span><i /><span>Y</span><i /><span>Z</span><i /></div><small>Свойства и координаты появятся здесь</small></div>}
     <div className="inspector-footer"><span>Изменения сохраняются в этом браузере.</span><small>Save экспортирует полный документ в JSON.</small></div>
   </aside>;
-},(a,b)=>a.dispatch===b.dispatch&&a.size===b.size&&(Object.keys(a.state) as (keyof EditorState)[]).every(key=>['viewport','layoutViewport','planViewport','axonViewport','viewportNavigation'].includes(key)||a.state[key]===b.state[key]));
+},(a,b)=>a.onTeach===b.onTeach&&a.dispatch===b.dispatch&&a.size===b.size&&(Object.keys(a.state) as (keyof EditorState)[]).every(key=>['viewport','layoutViewport','planViewport','axonViewport','viewportNavigation'].includes(key)||a.state[key]===b.state[key]));

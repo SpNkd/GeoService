@@ -29,6 +29,7 @@ export interface HorizontalControl { pointEntityId: string; vertexId: string; mo
 export interface HorizontalReference { controls: [HorizontalControl, HorizontalControl]; transform: RigidTransform2D }
 export interface VerticalReference { modelZero: 0; absoluteAtModelZero: number }
 export interface GeoDocument {
+  semantics?: import('../semantics/model').SemanticKnowledge;
   /** Absent only in legacy v2: projected/direct. */
   modelFrame?: 'local' | 'projected';
   horizontalReference?: HorizontalReference;
