@@ -51,7 +51,9 @@ export class BrowserAiIntentProvider implements AiIntentProvider {
     if(settings.provider!=='openrouter')throw new AiProviderError('BAD_REQUEST',undefined,'На статическом сайте выберите OpenRouter. OpenAI и mock доступны через локальный dev-server.');
     if(!settings.apiKey)throw new AiProviderError('AUTH_ERROR',undefined,'Введите свой OpenRouter API key в Настройках → AI. Чертёж не изменён.');
     const {OpenRouterIntentProvider}=await import('./openrouter');
-    return new OpenRouterIntentProvider(settings.apiKey,settings.primaryModel,this.transport,settings.fallbackModel?[settings.fallbackModel]:[],aiRuntime().timeoutMs).parseIntent(request);
+    // OpenRouter CORS allows Authorization/Content-Type, not our local trace header.
+    const browserTransport:typeof fetch=(url,init)=>{const headers=new Headers(init?.headers);headers.delete('X-AI-Trace-ID');return this.transport(url,{...init,headers});};
+    return new OpenRouterIntentProvider(settings.apiKey,settings.primaryModel,browserTransport,settings.fallbackModel?[settings.fallbackModel]:[],aiRuntime().timeoutMs).parseIntent(request);
   }
 }
 export const createAiIntentProvider=():AiIntentProvider=>browserAiTransport?new BrowserAiIntentProvider():new HttpAiIntentProvider();

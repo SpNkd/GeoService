@@ -1,5 +1,7 @@
 # Статическая публикация GeoService
 
+GitVerse SSH: `ssh://git@gitverse.ru/spnkd/GeoService.git` (existing credential; no embedded tokens).
+
 Source: `main` одинаков на GitHub и GitVerse. Статика: `gh-pages`, корень `/`.
 
 - GitHub: https://github.com/SpNkd/GeoService — https://spnkd.github.io/GeoService/
@@ -17,7 +19,7 @@ npm test
 npm run build
 npm run preview:static
 PRODUCTION_URL=http://127.0.0.1:5180/GeoService/ node scripts/smoke-pages.mjs
-# Source remotes: origin → GitHub, gitverse → GitVerse
+# Source remotes: origin → GitHub HTTPS, gitverse → GitVerse SSH
 git push origin HEAD:main
 git push gitverse HEAD:main
 npm run deploy:pages -- origin gitverse
