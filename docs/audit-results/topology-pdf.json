@@ -1,0 +1,27 @@
+{
+  "symbols": 5,
+  "geometry": 4,
+  "graph": {
+    "geometryCount": 4,
+    "segments": 4,
+    "suppressed": 0,
+    "pairChecks": 0,
+    "tolerances": {
+      "exact": 2e-7,
+      "port": 0.01,
+      "gap": 0.07,
+      "angleDeg": 8
+    },
+    "timings": {
+      "graph": 1.3000000715255737,
+      "intersections": 0,
+      "ports": 0.2999999523162842,
+      "tracing": 0.30000007152557373,
+      "preview": 0,
+      "total": 1.9000000953674316
+    }
+  },
+  "connectors": 4,
+  "rasterEntities": 0,
+  "externalTopologyRequests": 0
+}

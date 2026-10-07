@@ -1,0 +1,95 @@
+{
+  "method": "Final production build bytes and Python gzip (HTTP/Vite compression differs slightly); no chunk splitting in this slice. Runtime eagerness measured independently.",
+  "assets": [
+    {
+      "name": "index-HkTDRIud.js",
+      "bytes": 918556,
+      "gzipBytes": 272795
+    },
+    {
+      "name": "PdfImportDialog-6eD-SvCL.js",
+      "bytes": 422567,
+      "gzipBytes": 126477
+    },
+    {
+      "name": "worker-2wjEI3kE.js",
+      "bytes": 181639,
+      "gzipBytes": 56026
+    },
+    {
+      "name": "analysis.worker-BjSF5Y83.js",
+      "bytes": 146081,
+      "gzipBytes": 44396
+    },
+    {
+      "name": "understanding.worker-DGzshuCi.js",
+      "bytes": 132943,
+      "gzipBytes": 42170
+    },
+    {
+      "name": "autosave.worker-BQ_WbDd8.js",
+      "bytes": 129943,
+      "gzipBytes": 38439
+    },
+    {
+      "name": "index-rMlmWtdL.css",
+      "bytes": 46429,
+      "gzipBytes": 10264
+    },
+    {
+      "name": "openrouter-33uzNv7w.js",
+      "bytes": 34385,
+      "gzipBytes": 11644
+    },
+    {
+      "name": "ImageVectorizationDialog-DhUI5xXc.js",
+      "bytes": 30094,
+      "gzipBytes": 10037
+    },
+    {
+      "name": "TopologyDialog-B3l3mJvy.js",
+      "bytes": 18906,
+      "gzipBytes": 6556
+    },
+    {
+      "name": "worker-CCgMmCYN.js",
+      "bytes": 17725,
+      "gzipBytes": 7267
+    },
+    {
+      "name": "apply-C_qo1S07.js",
+      "bytes": 16055,
+      "gzipBytes": 6039
+    },
+    {
+      "name": "SemanticLearningDialog-BjabFELz.js",
+      "bytes": 10187,
+      "gzipBytes": 3581
+    },
+    {
+      "name": "DxfDialog-bIapORBu.js",
+      "bytes": 7167,
+      "gzipBytes": 2772
+    },
+    {
+      "name": "GeoreferenceDialog-B8ZuJjwS.js",
+      "bytes": 5203,
+      "gzipBytes": 2200
+    },
+    {
+      "name": "ImageVectorizationDialog-BPlq4ULW.css",
+      "bytes": 5102,
+      "gzipBytes": 1512
+    },
+    {
+      "name": "spatial-NOsI9S0f.js",
+      "bytes": 924,
+      "gzipBytes": 486
+    },
+    {
+      "name": "TopologyDialog-DhIlNlQU.css",
+      "bytes": 561,
+      "gzipBytes": 290
+    }
+  ]
+}

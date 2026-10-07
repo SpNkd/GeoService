@@ -1,0 +1,21 @@
+{
+  "canonicalOwners": 458,
+  "scopedGeometry": 2,
+  "counts": "Связи: 0 · Узлы: 0 · Пересечения: 0 · Незавершённые концы: 4 · Неоднозначности: 0",
+  "diagnostics": {
+    "geometryCount": 2,
+    "segments": 2,
+    "suppressed": 0,
+    "pairChecks": 0,
+    "timings": {
+      "graph": 0.5,
+      "intersections": 0,
+      "ports": 0,
+      "tracing": 0,
+      "preview": 0.10000002384185791,
+      "total": 0.6000000238418579
+    }
+  },
+  "nestedExpansion": false,
+  "engineeringInterpretation": false
+}

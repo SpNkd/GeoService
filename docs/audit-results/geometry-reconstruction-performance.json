@@ -1,0 +1,1064 @@
+{
+  "date": "2026-10-07T20:47:50.409Z",
+  "method": "Current sanitized HEAD only. Sequential Chrome, safe deterministic fixtures, including noisy near-straight line. Fixture generation excluded. Source bounded before Worker extraction. Native decoder RSS is not measured.",
+  "measurements": [
+    {
+      "kind": "straight",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.600000023841858,
+      "preparation": 7.200000047683716,
+      "workerWall": 114,
+      "previewMs": 4.800000071525574,
+      "apply": 2.700000047683716,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 80.30000007152557,
+      "textDetection": 0,
+      "cleanup": 1,
+      "rectification": 25.199999928474426,
+      "preview": 0.09999990463256836,
+      "metrics": {
+        "rawVertices": 736,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 1.1698235007179543,
+        "medianDeviationPx": 0.3671108878131287,
+        "strokeWidthPx": 8,
+        "traceMs": 12.600000023841858,
+        "fittingMs": 0.6000000238418579,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1913
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 8294400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "straight",
+      "width": 3840,
+      "height": 2160,
+      "decode": 6.699999928474426,
+      "preparation": 2.9000000953674316,
+      "workerWall": 111.39999997615814,
+      "previewMs": 11.400000095367432,
+      "apply": 0.30000007152557373,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 78.5,
+      "textDetection": 0,
+      "cleanup": 1.899999976158142,
+      "rectification": 25.700000047683716,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 734,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 1.010924758231675,
+        "medianDeviationPx": 0.3040993175168452,
+        "strokeWidthPx": 6,
+        "traceMs": 12.399999976158142,
+        "fittingMs": 1.399999976158142,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1913
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 33177600,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "straight",
+      "width": 7680,
+      "height": 4320,
+      "decode": 34.299999952316284,
+      "preparation": 3.100000023841858,
+      "workerWall": 112.20000004768372,
+      "previewMs": 10.799999952316284,
+      "apply": 0.3999999761581421,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 78.60000002384186,
+      "textDetection": 0,
+      "cleanup": 1.100000023841858,
+      "rectification": 26.5,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 732,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 0.9520883123936961,
+        "medianDeviationPx": 0.2817962533808929,
+        "strokeWidthPx": 6,
+        "traceMs": 12.600000023841858,
+        "fittingMs": 0.6000000238418579,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1912
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 132710400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "corner",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.7999999523162842,
+      "preparation": 2.899999976158142,
+      "workerWall": 120.70000004768372,
+      "previewMs": 16,
+      "apply": 0.5,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 88,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.2999999523162842,
+      "rectification": 26.399999976158142,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 773,
+        "finalVertices": 4,
+        "fittedPrimitives": 2,
+        "maxDeviationPx": 2.842170943040401e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 8,
+        "traceMs": 12.399999976158142,
+        "fittingMs": 0.9000000953674316,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 2,
+        "types": {
+          "line": 2
+        },
+        "vertices": 4,
+        "jsonBytes": 2404
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 8294400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "corner",
+      "width": 3840,
+      "height": 2160,
+      "decode": 6.399999976158142,
+      "preparation": 3.100000023841858,
+      "workerWall": 110.59999990463257,
+      "previewMs": 5.700000047683716,
+      "apply": 0.3999999761581421,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 78.39999997615814,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.399999976158142,
+      "rectification": 25.5,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 773,
+        "finalVertices": 4,
+        "fittedPrimitives": 2,
+        "maxDeviationPx": 2.842170943040401e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 6,
+        "traceMs": 12.300000071525574,
+        "fittingMs": 0.8000000715255737,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 2,
+        "types": {
+          "line": 2
+        },
+        "vertices": 4,
+        "jsonBytes": 2428
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 33177600,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "corner",
+      "width": 7680,
+      "height": 4320,
+      "decode": 26.299999952316284,
+      "preparation": 3,
+      "workerWall": 284.7000000476837,
+      "previewMs": 16.899999976158142,
+      "apply": 0.2999999523162842,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 251.29999995231628,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.4000000953674316,
+      "rectification": 26.299999952316284,
+      "preview": 0.09999990463256836,
+      "metrics": {
+        "rawVertices": 773,
+        "finalVertices": 4,
+        "fittedPrimitives": 2,
+        "maxDeviationPx": 2.842170943040401e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 6,
+        "traceMs": 13.199999928474426,
+        "fittingMs": 1,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 2,
+        "types": {
+          "line": 2
+        },
+        "vertices": 4,
+        "jsonBytes": 2431
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 132710400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "T",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.9000000953674316,
+      "preparation": 3.1999999284744263,
+      "workerWall": 121.89999997615814,
+      "previewMs": 10.700000047683716,
+      "apply": 0.20000004768371582,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 88.70000004768372,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.100000023841858,
+      "rectification": 26.5,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 986,
+        "finalVertices": 6,
+        "fittedPrimitives": 3,
+        "maxDeviationPx": 2.842170943040401e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 8,
+        "traceMs": 20.700000047683716,
+        "fittingMs": 0.5999999046325684,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 3,
+        "types": {
+          "line": 3
+        },
+        "vertices": 6,
+        "jsonBytes": 2906
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 8294400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "T",
+      "width": 3840,
+      "height": 2160,
+      "decode": 6.899999976158142,
+      "preparation": 3.3000000715255737,
+      "workerWall": 901.3999999761581,
+      "previewMs": 18.600000023841858,
+      "apply": 0.19999992847442627,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 866.7999999523163,
+      "textDetection": 0,
+      "cleanup": 1.2000000476837158,
+      "rectification": 27,
+      "preview": 0,
+      "metrics": {
+        "rawVertices": 985,
+        "finalVertices": 6,
+        "fittedPrimitives": 3,
+        "maxDeviationPx": 2.842170943040401e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 6,
+        "traceMs": 11.799999952316284,
+        "fittingMs": 0.6000000238418579,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 3,
+        "types": {
+          "line": 3
+        },
+        "vertices": 6,
+        "jsonBytes": 2931
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 33177600,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "T",
+      "width": 7680,
+      "height": 4320,
+      "decode": 26.700000047683716,
+      "preparation": 3.200000047683716,
+      "workerWall": 117.39999997615814,
+      "previewMs": 2.3000000715255737,
+      "apply": 0.20000004768371582,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 81.70000004768372,
+      "textDetection": 0,
+      "cleanup": 1,
+      "rectification": 26.100000023841858,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 985,
+        "finalVertices": 6,
+        "fittedPrimitives": 3,
+        "maxDeviationPx": 0.9972640372130547,
+        "medianDeviationPx": 0.32513539843384526,
+        "strokeWidthPx": 6,
+        "traceMs": 14.799999952316284,
+        "fittingMs": 0.6000000238418579,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 3,
+        "types": {
+          "line": 3
+        },
+        "vertices": 6,
+        "jsonBytes": 2950
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 132710400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "X",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.7999999523162842,
+      "preparation": 3,
+      "workerWall": 935.7000000476837,
+      "previewMs": 17.600000023841858,
+      "apply": 0.20000004768371582,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 902.7000000476837,
+      "textDetection": 0,
+      "cleanup": 1.100000023841858,
+      "rectification": 26.199999928474426,
+      "preview": 0.09999990463256836,
+      "metrics": {
+        "rawVertices": 1239,
+        "finalVertices": 8,
+        "fittedPrimitives": 4,
+        "maxDeviationPx": 2.842170943040401e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 8,
+        "traceMs": 14.899999976158142,
+        "fittingMs": 0.6999999284744263,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 4,
+        "types": {
+          "line": 4
+        },
+        "vertices": 8,
+        "jsonBytes": 3435
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 8294400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "X",
+      "width": 3840,
+      "height": 2160,
+      "decode": 6.899999976158142,
+      "preparation": 3.399999976158142,
+      "workerWall": 150.89999997615814,
+      "previewMs": 12.399999976158142,
+      "apply": 0.19999992847442627,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 118.60000002384186,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.0999999046325684,
+      "rectification": 25.700000047683716,
+      "preview": 0.20000004768371582,
+      "metrics": {
+        "rawVertices": 1239,
+        "finalVertices": 8,
+        "fittedPrimitives": 4,
+        "maxDeviationPx": 2.842170943040401e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 6,
+        "traceMs": 20.600000023841858,
+        "fittingMs": 0.7000000476837158,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 4,
+        "types": {
+          "line": 4
+        },
+        "vertices": 8,
+        "jsonBytes": 3460
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 33177600,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "X",
+      "width": 7680,
+      "height": 4320,
+      "decode": 26.5,
+      "preparation": 3.399999976158142,
+      "workerWall": 697,
+      "previewMs": 9.899999976158142,
+      "apply": 0.40000009536743164,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 664.3999999761581,
+      "textDetection": 0,
+      "cleanup": 1.2000000476837158,
+      "rectification": 25.899999976158142,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 1240,
+        "finalVertices": 8,
+        "fittedPrimitives": 4,
+        "maxDeviationPx": 2.842170943040401e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 6,
+        "traceMs": 20.799999952316284,
+        "fittingMs": 0.6000000238418579,
+        "topologyMs": 0.10000002384185791
+      },
+      "after": {
+        "entities": 4,
+        "types": {
+          "line": 4
+        },
+        "vertices": 8,
+        "jsonBytes": 3462
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 132710400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "arc",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.899999976158142,
+      "preparation": 3.200000047683716,
+      "workerWall": 309.6999999284744,
+      "previewMs": 9.600000023841858,
+      "apply": 0.6000000238418579,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 276.7000000476837,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.100000023841858,
+      "rectification": 26.699999928474426,
+      "preview": 0,
+      "metrics": {
+        "rawVertices": 406,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 1.1170000969555929,
+        "medianDeviationPx": 0.26759484976068393,
+        "strokeWidthPx": 10,
+        "traceMs": 12.100000023841858,
+        "fittingMs": 0.5,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "arc": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1663
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 8294400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "arc",
+      "width": 3840,
+      "height": 2160,
+      "decode": 7,
+      "preparation": 3.200000047683716,
+      "workerWall": 329.10000002384186,
+      "previewMs": 14.299999952316284,
+      "apply": 0.20000004768371582,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 297,
+      "textDetection": 0,
+      "cleanup": 1,
+      "rectification": 25.799999952316284,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 438,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 1.125544703171954,
+        "medianDeviationPx": 0.31198347877025867,
+        "strokeWidthPx": 8,
+        "traceMs": 12.199999928474426,
+        "fittingMs": 0.6000000238418579,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "arc": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1662
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 33177600,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "arc",
+      "width": 7680,
+      "height": 4320,
+      "decode": 26.800000071525574,
+      "preparation": 3.799999952316284,
+      "workerWall": 505.59999990463257,
+      "previewMs": 3.3000000715255737,
+      "apply": 0.19999992847442627,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 470.60000002384186,
+      "textDetection": 0,
+      "cleanup": 0.8999999761581421,
+      "rectification": 26.200000047683716,
+      "preview": 0,
+      "metrics": {
+        "rawVertices": 362,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 0.751505371379352,
+        "medianDeviationPx": 0.23277776957348806,
+        "strokeWidthPx": 8,
+        "traceMs": 12.5,
+        "fittingMs": 0.40000009536743164,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "arc": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1659
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 132710400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "circle",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.7999999523162842,
+      "preparation": 3.100000023841858,
+      "workerWall": 117.5,
+      "previewMs": 2.5,
+      "apply": 0.5,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 83.79999995231628,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.2000000476837158,
+      "rectification": 27,
+      "preview": 0.20000004768371582,
+      "metrics": {
+        "rawVertices": 898,
+        "finalVertices": 0,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 0.8023637579258605,
+        "medianDeviationPx": 0.23659167457290664,
+        "strokeWidthPx": 9.656854629516602,
+        "traceMs": 12,
+        "fittingMs": 0.6000000238418579,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "circle": 1
+        },
+        "vertices": 0,
+        "jsonBytes": 1606
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 8294400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "circle",
+      "width": 3840,
+      "height": 2160,
+      "decode": 6.800000071525574,
+      "preparation": 3.0999999046325684,
+      "workerWall": 110,
+      "previewMs": 18.899999976158142,
+      "apply": 0.19999992847442627,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 77.5,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.2000000476837158,
+      "rectification": 26,
+      "preview": 0.09999990463256836,
+      "metrics": {
+        "rawVertices": 920,
+        "finalVertices": 0,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 0.8355651293584856,
+        "medianDeviationPx": 0.24479658709486785,
+        "strokeWidthPx": 8,
+        "traceMs": 12,
+        "fittingMs": 0.6999999284744263,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "circle": 1
+        },
+        "vertices": 0,
+        "jsonBytes": 1604
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 33177600,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "circle",
+      "width": 7680,
+      "height": 4320,
+      "decode": 26.700000047683716,
+      "preparation": 3.1999999284744263,
+      "workerWall": 113.79999995231628,
+      "previewMs": 4,
+      "apply": 0.2999999523162842,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 81.39999997615814,
+      "textDetection": 0.09999990463256836,
+      "cleanup": 1.2000000476837158,
+      "rectification": 25.799999952316284,
+      "preview": 0,
+      "metrics": {
+        "rawVertices": 898,
+        "finalVertices": 0,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 0.7562047416155053,
+        "medianDeviationPx": 0.2322143160535859,
+        "strokeWidthPx": 7.656854152679443,
+        "traceMs": 12.100000023841858,
+        "fittingMs": 0.6999999284744263,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "circle": 1
+        },
+        "vertices": 0,
+        "jsonBytes": 1603
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 132710400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "gap",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.899999976158142,
+      "preparation": 3.100000023841858,
+      "workerWall": 110.30000007152557,
+      "previewMs": 11.5,
+      "apply": 0.09999990463256836,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 76.19999992847443,
+      "textDetection": 0,
+      "cleanup": 1,
+      "rectification": 27.100000023841858,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 731,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 5.684341886080802e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 8,
+        "traceMs": 12.5,
+        "fittingMs": 0.3999999761581421,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1878
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 8294400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "gap",
+      "width": 3840,
+      "height": 2160,
+      "decode": 6.200000047683716,
+      "preparation": 3.100000023841858,
+      "workerWall": 109.30000007152557,
+      "previewMs": 18.899999976158142,
+      "apply": 0.10000002384185791,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 77.29999995231628,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1,
+      "rectification": 26.100000023841858,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 731,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 5.684341886080802e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 6,
+        "traceMs": 12.100000023841858,
+        "fittingMs": 0.5,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1879
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 33177600,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "gap",
+      "width": 7680,
+      "height": 4320,
+      "decode": 26.200000047683716,
+      "preparation": 3.200000047683716,
+      "workerWall": 100.39999997615814,
+      "previewMs": 7.100000023841858,
+      "apply": 0.19999992847442627,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 65.60000002384186,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 0.8999999761581421,
+      "rectification": 26.299999952316284,
+      "preview": 0.20000004768371582,
+      "metrics": {
+        "rawVertices": 732,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 5.684341886080802e-14,
+        "medianDeviationPx": 0,
+        "strokeWidthPx": 6,
+        "traceMs": 11.800000071525574,
+        "fittingMs": 0.5,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1879
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 132710400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "noisy",
+      "width": 1920,
+      "height": 1080,
+      "decode": 12.299999952316284,
+      "preparation": 2.9000000953674316,
+      "workerWall": 109.30000007152557,
+      "previewMs": 14.899999976158142,
+      "apply": 0.10000002384185791,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 77.39999997615814,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 1.100000023841858,
+      "rectification": 25.59999990463257,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 736,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 1.1750630177387715,
+        "medianDeviationPx": 0.3707125469234073,
+        "strokeWidthPx": 8,
+        "traceMs": 12.599999904632568,
+        "fittingMs": 0.6000000238418579,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1913
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 8294400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "noisy",
+      "width": 3840,
+      "height": 2160,
+      "decode": 50,
+      "preparation": 3.100000023841858,
+      "workerWall": 109,
+      "previewMs": 11.200000047683716,
+      "apply": 0.2999999523162842,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 77.10000002384186,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 0.8999999761581421,
+      "rectification": 25.799999952316284,
+      "preview": 0.20000004768371582,
+      "metrics": {
+        "rawVertices": 734,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 0.9042103081784959,
+        "medianDeviationPx": 0.2735885955154299,
+        "strokeWidthPx": 6,
+        "traceMs": 12.800000071525574,
+        "fittingMs": 0.5999999046325684,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1913
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 33177600,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    },
+    {
+      "kind": "noisy",
+      "width": 7680,
+      "height": 4320,
+      "decode": 199.10000002384186,
+      "preparation": 3.100000023841858,
+      "workerWall": 109.5,
+      "previewMs": 9.799999952316284,
+      "apply": 0.20000004768371582,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "detection": 77.70000004768372,
+      "textDetection": 0,
+      "cleanup": 1,
+      "rectification": 25.399999976158142,
+      "preview": 0.10000002384185791,
+      "metrics": {
+        "rawVertices": 732,
+        "finalVertices": 2,
+        "fittedPrimitives": 1,
+        "maxDeviationPx": 0.8303413873893297,
+        "medianDeviationPx": 0.2667488806275442,
+        "strokeWidthPx": 6,
+        "traceMs": 12.5,
+        "fittingMs": 0.5,
+        "topologyMs": 0
+      },
+      "after": {
+        "entities": 1,
+        "types": {
+          "line": 1
+        },
+        "vertices": 2,
+        "jsonBytes": 1912
+      },
+      "mainLongTasks": [],
+      "memory": {
+        "sourceNativeBitmapEstimate": 132710400,
+        "boundedRgbaBytes": 3240000,
+        "note": "Native decode/WASM peak RSS is not measured by JS heap."
+      }
+    }
+  ],
+  "errors": [],
+  "external": []
+}

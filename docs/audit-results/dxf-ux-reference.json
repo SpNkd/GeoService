@@ -1,0 +1,19 @@
+{
+  "method": "Structural source inspection in isolated owner views, complementary to full-document navigation/ATTRIB acceptance. No private source text, coordinates, names or handles.",
+  "nativeCounts": {
+    "TEXT": 24,
+    "MTEXT": 19
+  },
+  "nestedPrimitiveInspection": true,
+  "parentSelection": true,
+  "nativeEdited": [
+    "TEXT",
+    "MTEXT"
+  ],
+  "geometryInspected": [
+    "LINE",
+    "LWPOLYLINE",
+    "HATCH"
+  ],
+  "consoleErrors": []
+}

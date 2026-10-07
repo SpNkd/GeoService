@@ -1,0 +1,257 @@
+{
+  "method": "Three isolated Chrome contexts per origin; network and OS caches may be warm. Usable editor includes successful IndexedDB hydration/initial save, not only DOMContentLoaded. Network variability is not CPU benchmarking.",
+  "results": [
+    {
+      "url": "https://spnkd.github.io/GeoService/",
+      "run": 0,
+      "editableMs": 1583.252375,
+      "navigation": [
+        {
+          "domContentLoaded": 731.6000000238419,
+          "responseEnd": 397.10000002384186,
+          "transferSize": 682,
+          "encodedBodySize": 382
+        }
+      ],
+      "resources": [
+        {
+          "path": "/GeoService/assets/index-CpgdWGY0.js",
+          "duration": 301.7000000476837,
+          "transferSize": 275719,
+          "encodedBodySize": 275419
+        },
+        {
+          "path": "/GeoService/assets/index-rMlmWtdL.css",
+          "duration": 174.5,
+          "transferSize": 10853,
+          "encodedBodySize": 10553
+        },
+        {
+          "path": "/GeoService/favicon.svg",
+          "duration": 172.60000002384186,
+          "transferSize": 515,
+          "encodedBodySize": 215
+        },
+        {
+          "path": "/GeoService/assets/autosave.worker-BQ_WbDd8.js",
+          "duration": -1.8000000715255737,
+          "transferSize": 39134,
+          "encodedBodySize": 38834
+        }
+      ],
+      "eagerHeavy": [],
+      "errors": [],
+      "missing": []
+    },
+    {
+      "url": "https://spnkd.github.io/GeoService/",
+      "run": 1,
+      "editableMs": 1214.1095419999997,
+      "navigation": [
+        {
+          "domContentLoaded": 361,
+          "responseEnd": 163.69999992847443,
+          "transferSize": 682,
+          "encodedBodySize": 382
+        }
+      ],
+      "resources": [
+        {
+          "path": "/GeoService/assets/index-CpgdWGY0.js",
+          "duration": 170.70000004768372,
+          "transferSize": 275719,
+          "encodedBodySize": 275419
+        },
+        {
+          "path": "/GeoService/assets/index-rMlmWtdL.css",
+          "duration": 51.199999928474426,
+          "transferSize": 10853,
+          "encodedBodySize": 10553
+        },
+        {
+          "path": "/GeoService/favicon.svg",
+          "duration": 117.60000002384186,
+          "transferSize": 515,
+          "encodedBodySize": 215
+        },
+        {
+          "path": "/GeoService/assets/autosave.worker-BQ_WbDd8.js",
+          "duration": -4.5,
+          "transferSize": 39134,
+          "encodedBodySize": 38834
+        }
+      ],
+      "eagerHeavy": [],
+      "errors": [],
+      "missing": []
+    },
+    {
+      "url": "https://spnkd.github.io/GeoService/",
+      "run": 2,
+      "editableMs": 1308.435042,
+      "navigation": [
+        {
+          "domContentLoaded": 451.40000009536743,
+          "responseEnd": 242.90000009536743,
+          "transferSize": 682,
+          "encodedBodySize": 382
+        }
+      ],
+      "resources": [
+        {
+          "path": "/GeoService/assets/index-CpgdWGY0.js",
+          "duration": 157.89999997615814,
+          "transferSize": 275719,
+          "encodedBodySize": 275419
+        },
+        {
+          "path": "/GeoService/assets/index-rMlmWtdL.css",
+          "duration": 91.10000002384186,
+          "transferSize": 10853,
+          "encodedBodySize": 10553
+        },
+        {
+          "path": "/GeoService/favicon.svg",
+          "duration": 41.60000002384186,
+          "transferSize": 515,
+          "encodedBodySize": 215
+        },
+        {
+          "path": "/GeoService/assets/autosave.worker-BQ_WbDd8.js",
+          "duration": -4.5,
+          "transferSize": 39134,
+          "encodedBodySize": 38834
+        }
+      ],
+      "eagerHeavy": [],
+      "errors": [],
+      "missing": []
+    },
+    {
+      "url": "https://spnkd.gitverse.site/geoservice/",
+      "run": 0,
+      "editableMs": 2993.193625,
+      "navigation": [
+        {
+          "domContentLoaded": 1630.4000000953674,
+          "responseEnd": 523.2000000476837,
+          "transferSize": 870,
+          "encodedBodySize": 570
+        }
+      ],
+      "resources": [
+        {
+          "path": "/geoservice/assets/index-CpgdWGY0.js",
+          "duration": 1056.5,
+          "transferSize": 916319,
+          "encodedBodySize": 916019
+        },
+        {
+          "path": "/geoservice/assets/index-rMlmWtdL.css",
+          "duration": 409.5,
+          "transferSize": 46729,
+          "encodedBodySize": 46429
+        },
+        {
+          "path": "/geoservice/favicon.svg",
+          "duration": 157.79999995231628,
+          "transferSize": 589,
+          "encodedBodySize": 289
+        },
+        {
+          "path": "/geoservice/assets/autosave.worker-BQ_WbDd8.js",
+          "duration": 58.89999997615814,
+          "transferSize": 130243,
+          "encodedBodySize": 129943
+        }
+      ],
+      "eagerHeavy": [],
+      "errors": [],
+      "missing": []
+    },
+    {
+      "url": "https://spnkd.gitverse.site/geoservice/",
+      "run": 1,
+      "editableMs": 3459.860417000001,
+      "navigation": [
+        {
+          "domContentLoaded": 2100.399999976158,
+          "responseEnd": 954.6000000238419,
+          "transferSize": 870,
+          "encodedBodySize": 570
+        }
+      ],
+      "resources": [
+        {
+          "path": "/geoservice/assets/index-CpgdWGY0.js",
+          "duration": 1087.3000000715256,
+          "transferSize": 916319,
+          "encodedBodySize": 916019
+        },
+        {
+          "path": "/geoservice/assets/index-rMlmWtdL.css",
+          "duration": 371.89999997615814,
+          "transferSize": 46729,
+          "encodedBodySize": 46429
+        },
+        {
+          "path": "/geoservice/favicon.svg",
+          "duration": 192.20000004768372,
+          "transferSize": 589,
+          "encodedBodySize": 289
+        },
+        {
+          "path": "/geoservice/assets/autosave.worker-BQ_WbDd8.js",
+          "duration": 94.80000007152557,
+          "transferSize": 130243,
+          "encodedBodySize": 129943
+        }
+      ],
+      "eagerHeavy": [],
+      "errors": [],
+      "missing": []
+    },
+    {
+      "url": "https://spnkd.gitverse.site/geoservice/",
+      "run": 2,
+      "editableMs": 2789.6045840000006,
+      "navigation": [
+        {
+          "domContentLoaded": 1430.5999999046326,
+          "responseEnd": 479.09999990463257,
+          "transferSize": 870,
+          "encodedBodySize": 570
+        }
+      ],
+      "resources": [
+        {
+          "path": "/geoservice/assets/index-CpgdWGY0.js",
+          "duration": 894.3999999761581,
+          "transferSize": 916319,
+          "encodedBodySize": 916019
+        },
+        {
+          "path": "/geoservice/assets/index-rMlmWtdL.css",
+          "duration": 401.89999997615814,
+          "transferSize": 46729,
+          "encodedBodySize": 46429
+        },
+        {
+          "path": "/geoservice/favicon.svg",
+          "duration": 258.8000000715256,
+          "transferSize": 589,
+          "encodedBodySize": 289
+        },
+        {
+          "path": "/geoservice/assets/autosave.worker-BQ_WbDd8.js",
+          "duration": 60.40000009536743,
+          "transferSize": 130243,
+          "encodedBodySize": 129943
+        }
+      ],
+      "eagerHeavy": [],
+      "errors": [],
+      "missing": []
+    }
+  ]
+}

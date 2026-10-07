@@ -1,0 +1,666 @@
+{
+  "date": "2026-10-07T20:57:02.233Z",
+  "method": "Sequential Chrome browser benchmark. Source fixture generation excluded. Bounded extraction/recognition Workers; OCR real local RU+EN. Cold first job, cached languages in later jobs. Synthetic labels, not an OCR accuracy corpus.",
+  "measurements": [
+    {
+      "kind": "ocr",
+      "width": 1920,
+      "height": 1080,
+      "decode": 2,
+      "preparation": 8.200000047683716,
+      "vectorWall": 122.89999997615814,
+      "detection": 88.5,
+      "textDetection": 0.2999999523162842,
+      "cleanup": 1.100000023841858,
+      "rectification": 26.100000023841858,
+      "preview": 9.399999976158142,
+      "recognitionWall": 287.3000000715256,
+      "ocr": 244.10000002384186,
+      "grouping": 18.899999976158142,
+      "matching": 0,
+      "symbols": [],
+      "semantic": 1.2000000476837158,
+      "apply": 3.6999999284744263,
+      "suggestions": 0,
+      "ocrExamples": [
+        {
+          "expectedRegion": "candidate-1",
+          "text": "ГАЗ",
+          "confidence": 96
+        },
+        {
+          "expectedRegion": "candidate-2",
+          "text": "ВОДА",
+          "confidence": 96
+        },
+        {
+          "expectedRegion": "candidate-3",
+          "text": "TK-3",
+          "confidence": 91
+        },
+        {
+          "expectedRegion": "candidate-4",
+          "text": "Н=28.40",
+          "confidence": 90
+        },
+        {
+          "expectedRegion": "candidate-5",
+          "text": "V-101",
+          "confidence": 91
+        },
+        {
+          "expectedRegion": "candidate-6",
+          "text": "O57",
+          "confidence": 83
+        }
+      ],
+      "warnings": [],
+      "entities": 12,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 8294400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 29073677,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "ocr",
+      "width": 3840,
+      "height": 2160,
+      "decode": 7.399999976158142,
+      "preparation": 3.1999999284744263,
+      "vectorWall": 129.5,
+      "detection": 95.60000002384186,
+      "textDetection": 0.30000007152557373,
+      "cleanup": 1,
+      "rectification": 27.199999928474426,
+      "preview": 13.5,
+      "recognitionWall": 256.60000002384186,
+      "ocr": 218,
+      "grouping": 17,
+      "matching": 0,
+      "symbols": [],
+      "semantic": 0.9000000953674316,
+      "apply": 0.6000000238418579,
+      "suggestions": 0,
+      "ocrExamples": [
+        {
+          "expectedRegion": "candidate-1",
+          "text": "ГАЗ",
+          "confidence": 96
+        },
+        {
+          "expectedRegion": "candidate-2",
+          "text": "ВОДА",
+          "confidence": 96
+        },
+        {
+          "expectedRegion": "candidate-3",
+          "text": "TK-3",
+          "confidence": 88
+        },
+        {
+          "expectedRegion": "candidate-4",
+          "text": "Н=28.40",
+          "confidence": 88
+        },
+        {
+          "expectedRegion": "candidate-5",
+          "text": "\\/-101",
+          "confidence": 84
+        },
+        {
+          "expectedRegion": "candidate-6",
+          "text": "O57",
+          "confidence": 88
+        }
+      ],
+      "warnings": [],
+      "entities": 12,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 33177600,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 25934762,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "ocr",
+      "width": 7680,
+      "height": 4320,
+      "decode": 27.5,
+      "preparation": 3.600000023841858,
+      "vectorWall": 121,
+      "detection": 87.5,
+      "textDetection": 0.19999992847442627,
+      "cleanup": 1,
+      "rectification": 26.899999976158142,
+      "preview": 14.600000023841858,
+      "recognitionWall": 444.10000002384186,
+      "ocr": 406.7000000476837,
+      "grouping": 17.199999928474426,
+      "matching": 0,
+      "symbols": [],
+      "semantic": 0.8999999761581421,
+      "apply": 0.6000000238418579,
+      "suggestions": 0,
+      "ocrExamples": [
+        {
+          "expectedRegion": "candidate-1",
+          "text": "ГАЗ",
+          "confidence": 96
+        },
+        {
+          "expectedRegion": "candidate-2",
+          "text": "ВОДА",
+          "confidence": 96
+        },
+        {
+          "expectedRegion": "candidate-3",
+          "text": "TK-3",
+          "confidence": 89
+        },
+        {
+          "expectedRegion": "candidate-4",
+          "text": "H=28.40",
+          "confidence": 90
+        },
+        {
+          "expectedRegion": "candidate-5",
+          "text": "V-101",
+          "confidence": 88
+        },
+        {
+          "expectedRegion": "candidate-6",
+          "text": "(057",
+          "confidence": 82
+        }
+      ],
+      "warnings": [],
+      "entities": 12,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 132710400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 25936314,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "symbols",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.7000000476837158,
+      "preparation": 2.899999976158142,
+      "vectorWall": 423.5,
+      "detection": 387.7999999523163,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 2.700000047683716,
+      "rectification": 27.200000047683716,
+      "preview": 12.899999976158142,
+      "recognitionWall": 82.89999997615814,
+      "ocr": 0,
+      "grouping": 19.600000023841858,
+      "matching": 43.299999952316284,
+      "symbols": [
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": -90
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": 0
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": -90
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": 0
+        }
+      ],
+      "semantic": 2.5,
+      "apply": 1.899999976158142,
+      "suggestions": 4,
+      "ocrExamples": [],
+      "warnings": [],
+      "entities": 35,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 8294400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 34251711,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "symbols",
+      "width": 3840,
+      "height": 2160,
+      "decode": 6.699999928474426,
+      "preparation": 3.100000023841858,
+      "vectorWall": 438,
+      "detection": 402.6999999284744,
+      "textDetection": 0.20000004768371582,
+      "cleanup": 2.9000000953674316,
+      "rectification": 26.200000047683716,
+      "preview": 12.899999976158142,
+      "recognitionWall": 82.89999997615814,
+      "ocr": 0,
+      "grouping": 19.299999952316284,
+      "matching": 43.39999997615814,
+      "symbols": [
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": -90
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": 0
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": -90
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": 0
+        }
+      ],
+      "semantic": 2.399999976158142,
+      "apply": 1.1999999284744263,
+      "suggestions": 4,
+      "ocrExamples": [],
+      "warnings": [],
+      "entities": 33,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 33177600,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 42478740,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "symbols",
+      "width": 7680,
+      "height": 4320,
+      "decode": 27.09999990463257,
+      "preparation": 3.100000023841858,
+      "vectorWall": 126.5,
+      "detection": 91.70000004768372,
+      "textDetection": 0,
+      "cleanup": 2.5999999046325684,
+      "rectification": 26.299999952316284,
+      "preview": 12.100000023841858,
+      "recognitionWall": 85.60000002384186,
+      "ocr": 0,
+      "grouping": 20.09999990463257,
+      "matching": 43.60000002384186,
+      "symbols": [
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": -90
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": 0
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": -90
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": 0
+        }
+      ],
+      "semantic": 2.399999976158142,
+      "apply": 0.7000000476837158,
+      "suggestions": 4,
+      "ocrExamples": [],
+      "warnings": [],
+      "entities": 33,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 132710400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 50253940,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "rotated",
+      "width": 1920,
+      "height": 1080,
+      "decode": 2.100000023841858,
+      "preparation": 3.200000047683716,
+      "vectorWall": 144.39999997615814,
+      "detection": 110.29999995231628,
+      "textDetection": 0.3999999761581421,
+      "cleanup": 1.2000000476837158,
+      "rectification": 27.399999976158142,
+      "preview": 3.8000000715255737,
+      "recognitionWall": 186.10000002384186,
+      "ocr": 147.5,
+      "grouping": 16.899999976158142,
+      "matching": 0,
+      "symbols": [],
+      "semantic": 0.8999999761581421,
+      "apply": 0.30000007152557373,
+      "suggestions": 0,
+      "ocrExamples": [
+        {
+          "expectedRegion": "candidate-1",
+          "text": "ГАЗ",
+          "confidence": 96
+        },
+        {
+          "expectedRegion": "candidate-2",
+          "text": "Н=28.40",
+          "confidence": 91
+        },
+        {
+          "expectedRegion": "candidate-3",
+          "text": "ВОДА \\/-101",
+          "confidence": 90
+        },
+        {
+          "expectedRegion": "candidate-4",
+          "text": "ТК-З3 0957",
+          "confidence": 46
+        }
+      ],
+      "warnings": [],
+      "entities": 10,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 8294400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 57226238,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "photo",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.7000000476837158,
+      "preparation": 3.100000023841858,
+      "vectorWall": 3977.1999999284744,
+      "detection": 3945.1999999284744,
+      "textDetection": 0.20000004768371582,
+      "cleanup": 0.8000000715255737,
+      "rectification": 26.600000023841858,
+      "preview": 11.200000047683716,
+      "recognitionWall": 168,
+      "ocr": 119.5,
+      "grouping": 27.800000071525574,
+      "matching": 0,
+      "symbols": [],
+      "semantic": 0.6000000238418579,
+      "apply": 0.3999999761581421,
+      "suggestions": 0,
+      "ocrExamples": [
+        {
+          "expectedRegion": "candidate-1",
+          "text": "TK-3",
+          "confidence": 90
+        },
+        {
+          "expectedRegion": "candidate-2",
+          "text": "O57",
+          "confidence": 84
+        }
+      ],
+      "warnings": [],
+      "entities": 7,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 8294400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 73184890,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "unknown",
+      "width": 1920,
+      "height": 1080,
+      "decode": 1.7999999523162842,
+      "preparation": 3.3000000715255737,
+      "vectorWall": 141.39999997615814,
+      "detection": 104.5,
+      "textDetection": 0.20000004768371582,
+      "cleanup": 3.5,
+      "rectification": 27,
+      "preview": 16,
+      "recognitionWall": 111.19999992847443,
+      "ocr": 0,
+      "grouping": 19.5,
+      "matching": 71,
+      "symbols": [
+        {
+          "group": "symbol-group-1",
+          "match": null,
+          "rotation": null
+        },
+        {
+          "group": "symbol-group-1",
+          "match": null,
+          "rotation": null
+        },
+        {
+          "group": "symbol-group-1",
+          "match": null,
+          "rotation": null
+        },
+        {
+          "group": "symbol-group-1",
+          "match": null,
+          "rotation": null
+        }
+      ],
+      "semantic": 4.100000023841858,
+      "apply": 1,
+      "suggestions": 0,
+      "ocrExamples": [],
+      "warnings": [],
+      "entities": 52,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 8294400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 27186766,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "noisy-symbols",
+      "width": 1920,
+      "height": 1080,
+      "decode": 13.100000023841858,
+      "preparation": 2.6999999284744263,
+      "vectorWall": 421.7999999523163,
+      "detection": 387.10000002384186,
+      "textDetection": 0.10000002384185791,
+      "cleanup": 2.799999952316284,
+      "rectification": 26.299999952316284,
+      "preview": 9.600000023841858,
+      "recognitionWall": 83.39999997615814,
+      "ocr": 0,
+      "grouping": 19.600000023841858,
+      "matching": 43.700000047683716,
+      "symbols": [
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": -90
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": 0
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": -90
+        },
+        {
+          "group": "symbol-group-1",
+          "match": "valve",
+          "rotation": 0
+        }
+      ],
+      "semantic": 2.700000047683716,
+      "apply": 1,
+      "suggestions": 4,
+      "ocrExamples": [],
+      "warnings": [],
+      "entities": 36,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 8294400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 44354692,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    },
+    {
+      "kind": "extra-labels",
+      "width": 1920,
+      "height": 1080,
+      "decode": 2.200000047683716,
+      "preparation": 3.1999999284744263,
+      "vectorWall": 98.89999997615814,
+      "detection": 65.39999997615814,
+      "textDetection": 0.2999999523162842,
+      "cleanup": 0.20000004768371582,
+      "rectification": 27.600000023841858,
+      "preview": 7.800000071525574,
+      "recognitionWall": 196.60000002384186,
+      "ocr": 159.60000002384186,
+      "grouping": 16.600000023841858,
+      "matching": 0,
+      "symbols": [],
+      "semantic": 0.2999999523162842,
+      "apply": 0.19999992847442627,
+      "suggestions": 0,
+      "ocrExamples": [
+        {
+          "expectedRegion": "candidate-1",
+          "text": "ТРУБА ГАЗА",
+          "confidence": 95
+        },
+        {
+          "expectedRegion": "candidate-2",
+          "text": "ВВОД ВОДЫ",
+          "confidence": 96
+        },
+        {
+          "expectedRegion": "candidate-3",
+          "text": "КРАН-12",
+          "confidence": 91
+        },
+        {
+          "expectedRegion": "candidate-4",
+          "text": "РЕГУЛЯТОР ДАВЛЕНИЯ",
+          "confidence": 96
+        }
+      ],
+      "warnings": [],
+      "entities": 4,
+      "analysis": {
+        "width": 1200,
+        "height": 675
+      },
+      "longTasks": [],
+      "memory": {
+        "estimatedNativeSourceBitmap": 8294400,
+        "boundedRgbaBuffer": 3240000,
+        "cropRgbaCap": 3200000,
+        "normalizedOcrRgbaCap": 6000000,
+        "observedMainJsHeap": 51076177,
+        "note": "Native decoder and child OCR WASM heaps excluded from performance.memory; caps are algorithmic estimates, not measured peak process RSS."
+      }
+    }
+  ],
+  "external": [],
+  "errors": []
+}

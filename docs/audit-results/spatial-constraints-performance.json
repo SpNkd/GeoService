@@ -1,0 +1,168 @@
+{
+  "runtime": "Chrome",
+  "samples": [
+    {
+      "semanticParseMs": 2.100000023841858,
+      "dependencyMs": 0.30000007152557373,
+      "solveMs": 1.2999999523162842,
+      "routeMs": 0.20000004768371582,
+      "totalMs": 4.899999976158142,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.20000004768371582,
+      "dependencyMs": 0.10000002384185791,
+      "solveMs": 0.10000002384185791,
+      "routeMs": 0,
+      "totalMs": 0.8999999761581421,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.20000004768371582,
+      "dependencyMs": 0.09999990463256836,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.6999999284744263,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0,
+      "dependencyMs": 0.10000002384185791,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.6000000238418579,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.10000002384185791,
+      "dependencyMs": 0.10000002384185791,
+      "solveMs": 0.09999990463256836,
+      "routeMs": 0,
+      "totalMs": 0.5,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.09999990463256836,
+      "dependencyMs": 0,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.5,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.10000002384185791,
+      "dependencyMs": 0,
+      "solveMs": 0.10000002384185791,
+      "routeMs": 0,
+      "totalMs": 0.8000000715255737,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.09999990463256836,
+      "dependencyMs": 0,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.5,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.10000002384185791,
+      "dependencyMs": 0.10000002384185791,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 1,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.10000002384185791,
+      "dependencyMs": 0.10000002384185791,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.3999999761581421,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.10000002384185791,
+      "dependencyMs": 0,
+      "solveMs": 0.10000002384185791,
+      "routeMs": 0.09999990463256836,
+      "totalMs": 0.3999999761581421,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0,
+      "dependencyMs": 0.10000002384185791,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.30000007152557373,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.09999990463256836,
+      "dependencyMs": 0,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.40000009536743164,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0,
+      "dependencyMs": 0,
+      "solveMs": 0.10000002384185791,
+      "routeMs": 0.10000002384185791,
+      "totalMs": 0.2999999523162842,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.10000002384185791,
+      "dependencyMs": 0,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.2999999523162842,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0,
+      "dependencyMs": 0,
+      "solveMs": 0.19999992847442627,
+      "routeMs": 0,
+      "totalMs": 0.3999999761581421,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0,
+      "dependencyMs": 0,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.40000009536743164,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0,
+      "dependencyMs": 0,
+      "solveMs": 0,
+      "routeMs": 0,
+      "totalMs": 0.3999999761581421,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0.10000002384185791,
+      "dependencyMs": 0,
+      "solveMs": 0.10000002384185791,
+      "routeMs": 0,
+      "totalMs": 0.3999999761581421,
+      "previewMs": 0
+    },
+    {
+      "semanticParseMs": 0,
+      "dependencyMs": 0,
+      "solveMs": 0.19999992847442627,
+      "routeMs": 0,
+      "totalMs": 0.2999999523162842,
+      "previewMs": 0
+    }
+  ],
+  "longTasks": [],
+  "smallPlanActions": 5,
+  "generatedCommands": 8
+}

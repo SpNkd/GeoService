@@ -1,0 +1,84 @@
+{
+  "url": "https://spnkd.gitverse.site/geoservice/",
+  "realAi": true,
+  "model": "qwen/qwen3.5-27b",
+  "checks": [
+    "startup, lazy OCR/PDF",
+    "friendly no-key AI",
+    "REAL Test connection",
+    "REAL structured plan (no backend)",
+    "Remember OFF reload",
+    "Remember ON reload",
+    "disable Remember removes stored key",
+    "Preferences reload",
+    "Point/Line, select/move, Undo/Redo, IndexedDB autosave/reload",
+    "synthetic DXF import",
+    "native PDF Worker + page selection",
+    "scan PDF rendering + image geometry Worker",
+    "synthetic image + real RU/EN OCR runtime/core/languages",
+    "topology Worker, Symbol/Connector Apply"
+  ],
+  "aiTransportAudit": [
+    {
+      "fields": [
+        "max_tokens",
+        "messages",
+        "model",
+        "provider",
+        "reasoning",
+        "response_format",
+        "temperature"
+      ],
+      "messageRoles": [
+        "system",
+        "user"
+      ],
+      "userMessages": [
+        "Нарисуй прямоугольник 1x1 м"
+      ],
+      "hasSchema": true,
+      "model": "qwen/qwen3.5-27b"
+    },
+    {
+      "fields": [
+        "max_tokens",
+        "messages",
+        "model",
+        "provider",
+        "reasoning",
+        "response_format",
+        "temperature"
+      ],
+      "messageRoles": [
+        "system",
+        "user"
+      ],
+      "userMessages": [
+        "Нарисуй прямоугольник 2x3 м"
+      ],
+      "hasSchema": true,
+      "model": "qwen/qwen3.5-27b"
+    }
+  ],
+  "pageErrors": [],
+  "missingAssets": [],
+  "backendCalls": [],
+  "unexpectedExternal": [],
+  "runtimeResources": [
+    "/geoservice/assets/autosave.worker-BQ_WbDd8.js",
+    "/geoservice/assets/worker-2wjEI3kE.js",
+    "/geoservice/assets/pdf.worker.min-wgc6bjNh.mjs",
+    "/geoservice/assets/worker-CCgMmCYN.js",
+    "/geoservice/assets/understanding.worker-DGzshuCi.js",
+    "/geoservice/assets/analysis.worker-BjSF5Y83.js",
+    "/geoservice/pdf/wasm/jbig2.wasm",
+    "/geoservice/pdf/wasm/openjpeg.wasm",
+    "/geoservice/pdf/wasm/qcms_bg.wasm",
+    "/geoservice/ocr/runtime/worker.min.js",
+    "/geoservice/ocr/runtime/tesseract-core-lstm.wasm.js",
+    "/geoservice/ocr/runtime/tesseract-core-simd-lstm.wasm.js",
+    "/geoservice/ocr/lang/eng.traineddata.gz",
+    "/geoservice/ocr/lang/rus.traineddata.gz"
+  ],
+  "pass": true
+}

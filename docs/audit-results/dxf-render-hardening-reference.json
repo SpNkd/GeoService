@@ -1,0 +1,243 @@
+{
+  "entities": 458,
+  "layers": 127,
+  "definitions": 450,
+  "states": [
+    {
+      "zoomFactor": 1,
+      "considered": 446,
+      "candidates": 446,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        }
+      ]
+    },
+    {
+      "zoomFactor": 1.1000000009457114,
+      "considered": 446,
+      "candidates": 446,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        }
+      ]
+    },
+    {
+      "zoomFactor": 1.3750000058204135,
+      "considered": 446,
+      "candidates": 409,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        }
+      ]
+    },
+    {
+      "zoomFactor": 2.06250002997445,
+      "considered": 446,
+      "candidates": 275,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        }
+      ]
+    },
+    {
+      "zoomFactor": 4.1249999576562155,
+      "considered": 446,
+      "candidates": 162,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        }
+      ]
+    },
+    {
+      "zoomFactor": 8.249999710727066,
+      "considered": 446,
+      "candidates": 162,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        }
+      ]
+    },
+    {
+      "zoomFactor": 16.499999012283414,
+      "considered": 446,
+      "candidates": 7,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        }
+      ]
+    },
+    {
+      "zoomFactor": 32.99999720622541,
+      "considered": 446,
+      "candidates": 5,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        }
+      ]
+    },
+    {
+      "zoomFactor": 65.99999277576804,
+      "considered": 446,
+      "candidates": 4,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": false,
+          "candidate": false
+        }
+      ]
+    },
+    {
+      "zoomFactor": 131.9999822781706,
+      "considered": 446,
+      "candidates": 4,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": false,
+          "candidate": false
+        }
+      ]
+    },
+    {
+      "zoomFactor": 263.99995800961034,
+      "considered": 446,
+      "candidates": 4,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": false,
+          "candidate": false
+        }
+      ]
+    },
+    {
+      "zoomFactor": 131.9999822781706,
+      "considered": 446,
+      "candidates": 4,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": false,
+          "candidate": false
+        }
+      ]
+    },
+    {
+      "zoomFactor": 65.99999277576804,
+      "considered": 446,
+      "candidates": 4,
+      "largeOwners": [
+        {
+          "present": true,
+          "intersects": true,
+          "candidate": true
+        },
+        {
+          "present": true,
+          "intersects": false,
+          "candidate": false
+        }
+      ]
+    }
+  ],
+  "editedCompactBytes": 11289384,
+  "savedBytes": 21675156,
+  "saveOpenEqual": true,
+  "acceptance": [
+    "Fit",
+    "exact wheel sequence",
+    "zoom out/Fit",
+    "dense layer hide/show",
+    "block owner selection",
+    "Alt primitive before/after zoom",
+    "WINDOW marquee",
+    "Fit Layer",
+    "edited Save/New/Open"
+  ],
+  "consoleErrors": []
+}

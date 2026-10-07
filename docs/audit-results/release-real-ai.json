@@ -1,0 +1,889 @@
+{
+  "method": "REAL OpenRouter; synthetic requests only. 13 unique cases, initial two local numeric-provenance rejections corrected and retried. This is semantic geometry equivalence, not wire JSON equality. UI adds two REAL calls; public smoke calls counted separately.",
+  "initialResults": [
+    {
+      "id": "golden",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "corners-1",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "corners-2",
+      "classification": "FAIL",
+      "errorCode": "LOCAL_VALIDATION_ERROR"
+    },
+    {
+      "id": "corners-3",
+      "classification": "FAIL",
+      "errorCode": "LOCAL_VALIDATION_ERROR"
+    },
+    {
+      "id": "corners-4",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "center-1",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "center-2",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "center-3",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "relative-1",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "relative-2",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "clarification",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "semantic",
+      "classification": "PASS",
+      "errorCode": null
+    },
+    {
+      "id": "process",
+      "classification": "PASS",
+      "errorCode": null
+    }
+  ],
+  "httpAttempts": 15,
+  "reports": [
+    {
+      "id": "golden",
+      "text": "нарисуй участок (20 на 30 метров), на нём на северо-западе дом\n(5 на 6 метров), на юго востоке - газовый кран, от него труба\nпо границе участка до дома. Все сооружения должны быть отдалены\nот границ участка на 3 метра. Проставь размеры на доме",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "DeepInfra",
+      "latencyMs": 39769,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30 метров",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6 метров",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "north_west",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_spatial_point",
+            "name": "Кран",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "south_east",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_route",
+            "name": "Труба",
+            "source": {
+              "kind": "action",
+              "actionIndex": 2,
+              "result": "point"
+            },
+            "target": {
+              "kind": "action",
+              "actionIndex": 1,
+              "result": "object"
+            },
+            "boundary": {
+              "kind": "action",
+              "actionIndex": 0,
+              "result": "boundary"
+            },
+            "mode": "FOLLOW_BOUNDARY",
+            "boundaryOffset": 0
+          },
+          {
+            "type": "create_dimensions_for_boundary_edges",
+            "boundaryActionIndex": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "corners-1",
+      "text": "Нарисуй Участок 20 на 30 метров. Дом 5 на 6 метров на северо-западе участка; Кран на юго-востоке участка. Для Дома и Крана отступ 3 метра. Трубу от Крана до Дома по границе участка. Проставь размеры всех сторон Дома.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "DeepInfra",
+      "latencyMs": 26871,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30 метров",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6 метров",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "north_west",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_spatial_point",
+            "name": "Кран",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "south_east",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_route",
+            "name": "Труба",
+            "source": {
+              "kind": "action",
+              "actionIndex": 2,
+              "result": "point"
+            },
+            "target": {
+              "kind": "action",
+              "actionIndex": 1,
+              "result": "object"
+            },
+            "boundary": {
+              "kind": "action",
+              "actionIndex": 0,
+              "result": "boundary"
+            },
+            "mode": "FOLLOW_BOUNDARY",
+            "boundaryOffset": 0
+          },
+          {
+            "type": "create_dimensions_for_boundary_edges",
+            "boundaryActionIndex": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "corners-2",
+      "text": "Нарисуй Участок 20 на 30 метров. Дом 5 на 6 метров в северо-западной части участка; Кран в юго-восточной части участка. Для Дома и Крана в трёх метрах от границы. Трубу от Крана до Дома вдоль границы участка. Проставь размеры всех сторон Дома.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "Phala",
+      "latencyMs": 16509,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "north_west",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_spatial_point",
+            "name": "Кран",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "south_east",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_route",
+            "name": "Труба",
+            "source": {
+              "kind": "action",
+              "actionIndex": 2,
+              "result": "point"
+            },
+            "target": {
+              "kind": "action",
+              "actionIndex": 1,
+              "result": "object"
+            },
+            "boundary": {
+              "kind": "action",
+              "actionIndex": 0,
+              "result": "boundary"
+            },
+            "mode": "FOLLOW_BOUNDARY",
+            "boundaryOffset": 0
+          },
+          {
+            "type": "create_dimensions_for_boundary_edges",
+            "boundaryActionIndex": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "corners-3",
+      "text": "Нарисуй Участок 20 на 30 метров. Дом 5 на 6 метров в левом верхнем углу участка; Кран справа снизу участка. Для Дома и Крана не ближе трёх метров от края. Трубу от Крана до Дома по периметру участка. Проставь размеры всех сторон Дома.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "DeepInfra",
+      "latencyMs": 23214,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30 метров",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6 метров",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "north_west",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_spatial_point",
+            "name": "Кран",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "south_east",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_route",
+            "name": "Труба",
+            "source": {
+              "kind": "action",
+              "actionIndex": 2,
+              "result": "point"
+            },
+            "target": {
+              "kind": "action",
+              "actionIndex": 1,
+              "result": "object"
+            },
+            "boundary": {
+              "kind": "action",
+              "actionIndex": 0,
+              "result": "boundary"
+            },
+            "mode": "FOLLOW_BOUNDARY",
+            "boundaryOffset": 0
+          },
+          {
+            "type": "create_dimensions_for_boundary_edges",
+            "boundaryActionIndex": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "corners-4",
+      "text": "Нарисуй Участок 20 на 30 метров. Дом 5 на 6 метров сверху слева участка; Кран в правом нижнем углу участка. Для Дома и Крана оставь 3 м до границы. Трубу от Крана до Дома проведи вдоль края участка участка. Проставь размеры всех сторон Дома.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "DeepInfra",
+      "latencyMs": 7649,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30 метров",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6 метров",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "north_west",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_spatial_point",
+            "name": "Кран",
+            "placement": {
+              "type": "inside_boundary",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 0,
+                "result": "boundary"
+              },
+              "anchor": "south_east",
+              "inset": {
+                "north": 3,
+                "south": 3,
+                "east": 3,
+                "west": 3
+              },
+              "minimumClearance": 3,
+              "offsetAlongSide": null
+            }
+          },
+          {
+            "type": "create_route",
+            "name": "Труба",
+            "source": {
+              "kind": "action",
+              "actionIndex": 2,
+              "result": "point"
+            },
+            "target": {
+              "kind": "action",
+              "actionIndex": 1,
+              "result": "object"
+            },
+            "boundary": {
+              "kind": "action",
+              "actionIndex": 0,
+              "result": "boundary"
+            },
+            "mode": "FOLLOW_BOUNDARY",
+            "boundaryOffset": 0
+          },
+          {
+            "type": "create_dimensions_for_boundary_edges",
+            "boundaryActionIndex": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "center-1",
+      "text": "Создай Участок 20 на 30 метров и Дом 5 на 6 метров по центру.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "DeepInfra",
+      "latencyMs": 19021,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30 метров",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6 метров",
+            "placement": {
+              "type": "centered_in_action_result",
+              "polygonActionIndex": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "center-2",
+      "text": "Создай Участок 20 на 30 метров и Дом 5 на 6 метров в центре участка.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "DeepInfra",
+      "latencyMs": 3478,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30 метров",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6 метров",
+            "placement": {
+              "type": "centered_in_action_result",
+              "polygonActionIndex": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "center-3",
+      "text": "Создай Участок 20 на 30 метров и Дом 5 на 6 метров ровно посередине.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "Phala",
+      "latencyMs": 19603,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6",
+            "placement": {
+              "type": "centered_in_action_result",
+              "polygonActionIndex": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "relative-1",
+      "text": "Создай Участок 20 на 30 метров, Дом 5 на 6 метров в центре участка и Кран на 5 м восточнее дома.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "DeepInfra",
+      "latencyMs": 20507,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30 метров",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6 метров",
+            "placement": {
+              "type": "centered_in_action_result",
+              "polygonActionIndex": 0
+            }
+          },
+          {
+            "type": "create_spatial_point",
+            "name": "Кран",
+            "placement": {
+              "type": "relative_to",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 1,
+                "result": "object"
+              },
+              "direction": "east",
+              "distance": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "relative-2",
+      "text": "Создай Участок 20 на 30 метров, Дом 5 на 6 метров в центре участка и Кран на пять метров правее дома.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "Phala",
+      "latencyMs": 11268,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6",
+            "placement": {
+              "type": "centered_in_action_result",
+              "polygonActionIndex": 0
+            }
+          },
+          {
+            "type": "create_spatial_point",
+            "name": "Кран",
+            "placement": {
+              "type": "relative_to",
+              "reference": {
+                "kind": "action",
+                "actionIndex": 1,
+                "result": "object"
+              },
+              "direction": "east",
+              "distance": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "clarification",
+      "text": "Создай Участок 20 на 30 метров, Дом 5 на 6 метров на севере участка. Ориентацию Дома уточни у меня, не выбирай её автоматически.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "Phala",
+      "latencyMs": 11102,
+      "httpAttempts": 1,
+      "localResolution": "NEEDS_CLARIFICATION",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_rectangle",
+            "name": "Участок",
+            "width": 20,
+            "height": 30,
+            "sizeSource": "20 на 30",
+            "placement": {
+              "type": "local_origin"
+            }
+          },
+          {
+            "type": "create_rectangle",
+            "name": "Дом",
+            "width": 5,
+            "height": 6,
+            "sizeSource": "5 на 6",
+            "orientation": "ASK",
+            "placement": {
+              "type": "anchored_in_action_result",
+              "polygonActionIndex": 0,
+              "anchor": "north"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "semantic",
+      "text": "Выдели все трубы.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "DeepInfra",
+      "latencyMs": 17841,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "select_entities",
+            "query": {
+              "scope": "document",
+              "kind": "semantic_concept",
+              "concepts": [
+                "pipe"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "process",
+      "text": "Собери линию: вход, кран, фильтр, регулятор давления, счётчик, выход.",
+      "classification": "PASS",
+      "requestedModel": "qwen/qwen3.5-27b",
+      "actualModel": "qwen/qwen3.5-27b",
+      "actualProvider": "Phala",
+      "latencyMs": 20750,
+      "httpAttempts": 1,
+      "localResolution": "RESOLVED",
+      "semantic": {
+        "actions": [
+          {
+            "type": "create_process_chain",
+            "items": [
+              {
+                "ref": "step-1",
+                "symbolKind": "input",
+                "name": null
+              },
+              {
+                "ref": "step-2",
+                "symbolKind": "shutoff_valve",
+                "name": null
+              },
+              {
+                "ref": "step-3",
+                "symbolKind": "filter",
+                "name": null
+              },
+              {
+                "ref": "step-4",
+                "symbolKind": "pressure_regulator",
+                "name": null
+              },
+              {
+                "ref": "step-5",
+                "symbolKind": "gas_meter",
+                "name": null
+              },
+              {
+                "ref": "step-6",
+                "symbolKind": "output",
+                "name": null
+              }
+            ],
+            "connections": [
+              {
+                "from": "step-1",
+                "to": "step-2"
+              },
+              {
+                "from": "step-2",
+                "to": "step-3"
+              },
+              {
+                "from": "step-3",
+                "to": "step-4"
+              },
+              {
+                "from": "step-4",
+                "to": "step-5"
+              },
+              {
+                "from": "step-5",
+                "to": "step-6"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

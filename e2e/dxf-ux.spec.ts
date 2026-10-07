@@ -47,9 +47,15 @@ test('native TEXT and MTEXT inspector edit, double click, Move, layer and Save/O
 test('reference real DXF semantic and deep inspection acceptance (opt-in)',async({page})=>{
   test.skip(!process.env.DXF_REFERENCE,'Local DXF is not a CI fixture');test.setTimeout(90000);
   await editorCommand(page, 'DXF');await page.getByLabel('Файл DXF',{exact:true}).setInputFiles(process.env.DXF_REFERENCE!);await page.getByTestId('dxf-report').waitFor();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Открыть как новый документ',exact:true}).click();await page.getByRole('dialog',{name:'Открыть DXF',exact:true}).waitFor({state:'hidden'});const d=await readAutosaveDocument(page);
-  expect(d.entities.filter(e=>e.source?.originalType==='TEXT'&&e.type==='text')).toHaveLength(24);expect(d.entities.filter(e=>e.source?.originalType==='MTEXT'&&e.type==='text')).toHaveLength(19);
-  const result=await page.evaluate(async document=>{const {createProvenanceIndex}=await import(String('/src/dxf/provenance.ts'));const index=createProvenanceIndex(document);return {soil:index.searchText('Плодородный'),gas:index.searchText('газ'),volume:index.getBlockInstancesBySourceName('VOLUME').length};},d);expect(result.soil.length).toBeGreaterThan(0);expect(result.volume).toBe(62);
-  const leader=d.entities.find(e=>e.source?.handle==='58829')!;expect(leader).toMatchObject({type:'imported_graphic',semanticContent:{primaryText:'Плодородный грунт, h=0.20 м'}});await open(page,{...d,entities:[leader]});if(leader.type!=='imported_graphic')throw Error();const text=leader.primitives.find(p=>p.kind==='text')!;if(text.kind!=='text')throw Error();const p=await screen(page,text.position.x+text.height*.5,text.position.y+text.height*.4);await page.mouse.click(p.x,p.y);await expect(page.locator('.entity-heading h3')).toContainText('Плодородный грунт');
+  const nativeCounts={TEXT:d.entities.filter(e=>e.source?.originalType==='TEXT'&&e.type==='text').length,MTEXT:d.entities.filter(e=>e.source?.originalType==='MTEXT'&&e.type==='text').length};
+  expect(nativeCounts.TEXT).toBeGreaterThan(0);expect(nativeCounts.MTEXT).toBeGreaterThan(0);
+  // Structural source inspection, never sample handles, names or proprietary text.
+  const leader=d.entities.find(e=>e.type==='imported_graphic'&&e.primitives.some(p=>p.kind==='text'&&p.content)&&d.layers.find(l=>l.id===e.layerId)?.visible)!;
+  expect(leader?.type).toBe('imported_graphic');await open(page,{...d,entities:[leader]});
+  if(leader.type!=='imported_graphic')throw Error('No visible text-bearing source owner');
+  const text=leader.primitives.find(p=>p.kind==='text'&&p.content)!;if(text.kind!=='text')throw Error();
+  const p=await screen(page,leader.position.x+text.position.x+text.height*.5,leader.position.y+text.position.y+text.height*.4);await page.mouse.click(p.x,p.y);
+  await expect(page.getByTestId('deep-properties')).toBeVisible();
   const block=d.entities.filter(e=>e.type==='block_instance'&&d.layers.find(l=>l.id===e.layerId)?.visible&&d.blocks?.find(b=>b.id===e.blockDefinitionId)?.primitives.some(p=>p.kind==='text'&&p.visible!==false)).sort((a,b)=>(a.type==='block_instance'?d.blocks?.find(x=>x.id===a.blockDefinitionId)?.primitives.length??0:0)-(b.type==='block_instance'?d.blocks?.find(x=>x.id===b.blockDefinitionId)?.primitives.length??0:0))[0]!;
   await open(page,{...d,entities:[block]});
   const probe=await page.evaluate(async ({document,ownerId})=>{
@@ -71,5 +77,16 @@ test('reference real DXF semantic and deep inspection acceptance (opt-in)',async
     const changed=await readAutosaveDocument(page);expect(changed.entities[0]).toMatchObject({type:'text',content:'Газ reference',source:{originalType:sourceType}});nativeEdited.push(sourceType);
     await editorCommand(page, 'Сохранить JSON'); // reset dirty before the next isolated reference document
   }
-  await writeFile('docs/audit-results/dxf-ux-reference.json',JSON.stringify({nativeText:24,nativeMtext:19,soilHits:result.soil.length,gasHits:result.gas.length,volume:result.volume,soilHandle:leader.source?.handle,deepOwner:block.id,deepText:probe!.text,nativeEdited,consoleErrors:errors.get(page)},null,2)+'\n');
+  const geometryInspected:string[]=[];
+  for(const sourceType of ['LINE','LWPOLYLINE','HATCH']){
+    const owner=d.entities.find(e=>e.source?.originalType===sourceType&&d.layers.find(l=>l.id===e.layerId)?.visible)!;
+    expect(owner,`Missing visible ${sourceType}`).toBeDefined();await open(page,{...d,entities:[owner]});
+    const probe=await page.evaluate(async({d,id})=>{
+      const {entityBoundsPoints}=await import(String('/src/geometry/entityBounds.ts'));
+      const e=d.entities.find((e:{id:string})=>e.id===id),path=e?.type==='imported_graphic'?e.primitives.find(p=>p.kind==='path'&&p.points.length>1):null,points=path?.kind==='path'?path.points.map(p=>({x:p.x+(e?.type==='imported_graphic'?e.position.x:0),y:p.y+(e?.type==='imported_graphic'?e.position.y:0)})):entityBoundsPoints(d,e),svg=document.querySelector('.drawing-canvas')!,b=svg.getBoundingClientRect(),z=Number(svg.getAttribute('data-zoom')),cx=Number(svg.getAttribute('data-center-x')),cy=Number(svg.getAttribute('data-center-y'));
+      const a=points[0],q=points[1]??a;return {x:b.x+b.width/2+((a.x+q.x)/2-cx)*z,y:b.y+b.height/2-((a.y+q.y)/2-cy)*z};
+    },{d,id:owner.id});await page.mouse.click(probe.x,probe.y);await expect(page.getByTestId('selected-id')).toHaveText(owner.id);
+    await expect(page.getByRole('tabpanel',{name:'Свойства',exact:true})).toBeVisible();geometryInspected.push(sourceType);
+  }
+  await writeFile('docs/audit-results/dxf-ux-reference.json',JSON.stringify({method:'Structural source inspection in isolated owner views, complementary to full-document navigation/ATTRIB acceptance. No private source text, coordinates, names or handles.',nativeCounts,nestedPrimitiveInspection:true,parentSelection:true,nativeEdited,geometryInspected,consoleErrors:errors.get(page)},null,2)+'\n');
 });

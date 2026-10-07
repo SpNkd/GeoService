@@ -1,0 +1,25 @@
+{
+  "method": "Isolated Chrome DEV, generated 50k points, safe local coordinates. Fixture generation excluded; cold large preparation Worker measured separately from IndexedDB put. Open/Save/reload are actual UI. Save wall includes Playwright and local download. No native process RSS estimate.",
+  "owners": 50000,
+  "bytes": 10830416,
+  "workerPrepareMs": 271.10000002384186,
+  "indexedDBWriteMs": 58.799999952316284,
+  "roundTripSha256Matches": true,
+  "openMs": 5222.5,
+  "saveMs": 2013.1991669999989,
+  "hydrationToSavedMs": 3835.7945,
+  "mainLongTasks": [
+    56,
+    106,
+    1910,
+    863,
+    152,
+    183,
+    997,
+    89,
+    69,
+    490,
+    111
+  ],
+  "errors": []
+}
