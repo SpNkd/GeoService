@@ -1,3 +1,4 @@
+import { activeLayout } from '../layouts/context';
 import {activeDxfViewport} from '../layouts/context';
 import {modelViewportCamera,navigationFromCamera,type ViewportNavigation} from '../layouts/camera';
 import { viewRotation } from '../view/projection';
@@ -288,6 +289,8 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'exit-isolation':return {...state,isolation:null,deepSelection:null,hitStackStatus:null,selectionId:reconcileSelection(state.document,state.selectionId),selectedEntityIds:state.selectedEntityIds.filter(id=>reconcileSelection(state.document,id)!==null)};
     case 'deep-select': {
+      const layout=activeLayout(state),paper=layout?paperDocument(state.document,layout):null;
+      if(paper?.entities.some(e=>e.id===action.candidate.ownerEntityId)&&!state.transactionBefore){if(action.candidate.selection&&!resolveDeepSelection(paper,action.candidate.selection))return state;return {...state,selectionId:null,selectedEntityIds:[],selectedLayerId:null,selectedPaperIds:[action.candidate.ownerEntityId],deepSelection:action.candidate.selection,hitStackStatus:{index:action.index,count:action.count},error:null};}
       const id=reconcileSelection(editorViewDocument(state),action.candidate.ownerEntityId);
       if(!id || state.transactionBefore || action.candidate.selection && !resolveDeepSelection(state.document, action.candidate.selection))return state;
       return {...state,selectedPaperIds:[],selectionScopeLabel:null,selectionId:id,selectedEntityIds:[id],selectedLayerId:null,orderedPointIds:[],deepSelection:action.candidate.selection,hitStackStatus:{index:action.index,count:action.count},moveInputOpen:false,error:null};

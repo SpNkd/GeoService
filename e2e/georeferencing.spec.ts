@@ -1,4 +1,4 @@
-import { editorCommand } from './helpers/editorCommands';
+import { editorCommand , openRightTab } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import { readFile } from 'node:fs/promises';
@@ -37,7 +37,7 @@ test('A: AI local 20×30, centered 6×5 and four dimensions; PointEntity corner 
       { type: 'create_dimensions_for_boundary_edges', boundaryActionIndex: 1 },
     ] } } });
   });
-  await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text); await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
+  await openRightTab(page,'ai');await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text); await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
   await expect(page.getByTestId('ai-ghost')).toHaveCount(6); await page.getByRole('button', { name: 'Apply 6 changes', exact: true }).click();
   const ai = await document(page); expect(ai.modelFrame).toBe('local');
   const site = ai.entities.find(entity => entity.type === 'polygon' && entity.name === 'Участок')!;

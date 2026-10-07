@@ -64,15 +64,21 @@ export function prioritizeHitOwners(document:GeoDocument,ids:readonly string[],p
  return candidates.sort((a,b)=>a.rank-b.rank||a.area-b.area||(a.id<b.id?-1:a.id>b.id?1:0)).map(c=>c.id);
 }
 export function hitCandidateOrder(document:GeoDocument,candidate:HitCandidate){const m=metadata(document).get(candidate.ownerEntityId)!;return {rank:candidate.hitKind==='fill'?Math.max(3.5,m.rank):candidate.selection?1:m.rank,area:m.area};}
-/** Normal selection visits only instance ATTRIB, never nested definition content. */
+/** Primitive-first inspection: painted leaf, deepest nested context, then explicit parent.
+ * Native annotations/contours retain their established CAD rank. Fill interiors remain fallback. */
 export function normalHitStack(document:GeoDocument,ids:readonly string[],world:WorldPoint,tolerance:number):HitCandidate[] {
- const map=metadata(document),attributes:HitCandidate[]=[],resolve=context(document).resolve,filled=lastFillHits.get(document);
- for(const id of ids){const e=map.get(id)?.entity;if(e?.type!=='block_instance')continue;const block=blockDefinition(document,e.blockDefinitionId);if(!block)continue;
- for(const [i,p] of (e.attributePrimitives??[]).entries())if(p.kind==='text'&&p.source?.originalType==='ATTRIB'&&p.attributeTag&&resolve(p,{stroke:'#000',lineWeight:1,dash:undefined},true).visible&&primitiveHit(document,p,blockAttributeMatrix(e,block),world,tolerance))attributes.push({ownerEntityId:id,selection:{ownerEntityId:id,blockPath:[block.sourceName,'ATTRIB'],primitivePath:[i],sourceType:'ATTRIB',attribute:true,attributeTag:p.attributeTag}});
- }
- const candidates=prioritizeHitOwners(document,ids).map(ownerEntityId=>({ownerEntityId,selection:null,...((interiorHit(document,map.get(ownerEntityId)!.entity,world,tolerance)||filled?.x===world.x&&filled.y===world.y&&filled.ids.has(ownerEntityId))?{hitKind:'fill' as const}:{})} as HitCandidate));
- return [...candidates,...attributes].sort((a,b)=>{const x=hitCandidateOrder(document,a),y=hitCandidateOrder(document,b);return x.rank-y.rank||x.area-y.area||(a.ownerEntityId<b.ownerEntityId?-1:a.ownerEntityId>b.ownerEntityId?1:0)||(a.selection?.primitivePath[0]??-1)-(b.selection?.primitivePath[0]??-1);});
+ const candidates=createHitStack(document,ids,world,tolerance);
+ return candidates.sort((a,b)=>{
+  const rank=(c:HitCandidate)=>{const order=hitCandidateOrder(document,c);if(!c.selection)return order.rank;
+   const resolved=resolveDeepSelection(document,c.selection),p=resolved?.primitive;if(!p)return 9;
+   if(p.kind==='block')return 2.1;
+   if(c.hitKind==='fill')return order.rank;
+   return p.kind==='text'?.5:1;
+  };
+  return rank(a)-rank(b)||(b.selection?.primitivePath.length??0)-(a.selection?.primitivePath.length??0)||hitCandidateOrder(document,a).area-hitCandidateOrder(document,b).area;
+ });
 }
+
 const hitContext=new WeakMap<GeoDocument,{layers:Map<string,GeoDocument['layers'][number]>;styles:Map<string,GeoDocument['styles'][number]>;resolve:ReturnType<typeof createVectorStyleResolver>}>();
 function context(document:GeoDocument){let c=hitContext.get(document);if(!c){c={layers:new Map(document.layers.map(l=>[l.id,l])),styles:new Map(document.styles.map(s=>[s.id,s])),resolve:createVectorStyleResolver(document)};hitContext.set(document,c);}return c;}
 function primitiveHit(document:GeoDocument,p:VectorPrimitive,matrix:Matrix,world:WorldPoint,tolerance:number,includeFill=true):boolean {
@@ -137,7 +143,7 @@ const singletonPrimitives=new WeakMap<VectorPrimitive,VectorPrimitive[]>();
 const singleton=(p:VectorPrimitive)=>{let ps=singletonPrimitives.get(p);if(!ps){ps=[p];singletonPrimitives.set(p,ps);}return ps;};
 let deepWalks=0;
 export const deepSelectionMetrics=()=>({walks:deepWalks});
-/** Explicit Alt/Option click only. Owner first, then depth-first nested INSERT and painted primitives. */
+/** Indexed primitive hit hierarchy, shared by hover/normal click and explicit Alt cycling. Owner first, then depth-first nested INSERT and painted primitives. */
 export function createHitStack(document:GeoDocument,ownerIds:readonly string[],world:WorldPoint,tolerance:number):HitCandidate[] {
   deepWalks++;
   const result:HitCandidate[]=[],layers=new Map(document.layers.map(l=>[l.id,l]));
@@ -151,13 +157,13 @@ export function createHitStack(document:GeoDocument,ownerIds:readonly string[],w
         const block=blockDefinition(document,p.blockDefinitionId);if(!block||stack.includes(block.id)||stack.length>=VECTOR_LIMITS.depth)continue;
         const nextPath=[...blockPath,block.sourceName],nested=walk(ownerEntityId,block.primitives,multiply(matrix,blockMatrix(p,block.basePoint)),nextPath,primitivePath,[...stack,block.id],attribute);
         if(nested.length){hits.push({ownerEntityId,selection:{ownerEntityId,blockPath:nextPath,primitivePath,sourceType,attribute}},...nested);}
-      }else hits.push({ownerEntityId,selection:{ownerEntityId,blockPath,primitivePath,sourceType,attribute,...(attribute&&p.kind==='text'&&p.attributeTag?{attributeTag:p.attributeTag}:{})}});
+      }else hits.push({ownerEntityId,...(!primitiveHit(document,p,matrix,world,tolerance,false)?{hitKind:'fill' as const}:{}),selection:{ownerEntityId,blockPath,primitivePath,sourceType,attribute,...(attribute&&p.kind==='text'&&p.attributeTag?{attributeTag:p.attributeTag}:{})}});
     }
     return hits;
   };
   for(const id of prioritizeHitOwners(document,ownerIds)){
     const entity=document.entities.find(e=>e.id===id);if(!entity)continue;
-    result.push({ownerEntityId:id,selection:null});
+    result.push({ownerEntityId:id,selection:null,...(interiorHit(document,entity,world,tolerance)||lastFillHits.get(document)?.ids.has(id)?{hitKind:'fill' as const}:{})});
     if(entity.type==='block_instance') {
       const block=blockDefinition(document,entity.blockDefinitionId);if(!block)continue;
       result.push(...walk(id,block.primitives,blockMatrix(entity,block.basePoint),[block.sourceName],[],[block.id]));

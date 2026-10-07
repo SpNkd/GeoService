@@ -1,4 +1,4 @@
-import { editorCommand } from './helpers/editorCommands';
+import { editorCommand , openRightTab, aiDiagnosticsSettings } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { autosaveSnapshot } from './helpers/autosave';
 import { createDiagnostic, type AiDiagnostic } from '../src/ai/reliability';
@@ -26,26 +26,26 @@ async function setup(page: Page, scenario: 'success' | 'unsupported' | '502' | '
     return route.fulfill({ json: { result, diagnostics: diagnostic } });
   });
   await page.goto('/'); await editorCommand(page, 'Новый документ');
-  await expect(page.getByText('MOCK · демо')).toBeVisible();
+  await openRightTab(page,'ai');await expect(page.getByText('MOCK · демо')).toBeVisible();
   const before = await autosaveSnapshot(page);
-  await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text);
+  await openRightTab(page,'ai');await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text);
   await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
   return before;
 }
 for (const scenario of ['success', 'unsupported', '502', 'timeout', 'retry', 'fallback'] as const) {
   test(`AI reliability deterministic mock: ${scenario}`, async ({ page }) => {
     const before = await setup(page, scenario);
-    const diagnostics = page.getByTestId('ai-diagnostics'); await diagnostics.locator(':scope > summary').click();
+    await expect(page.getByTestId('ai-plan').or(page.getByRole('alert'))).toBeVisible();const settings=await aiDiagnosticsSettings(page);const diagnostics = page.getByTestId('ai-diagnostics'); await diagnostics.locator(':scope > summary').click();
     const record = page.getByTestId('ai-diagnostic'); await expect(record).toHaveCount(1);
     await record.locator(':scope > summary').click();
     await expect(record).toContainText('"provider": "mock"'); await expect(record).toContainText('ai-');
     if (['success', 'retry', 'fallback'].includes(scenario)) {
-      await expect(page.getByTestId('ai-plan')).toContainText('3 actions');
-      await expect(page.getByRole('button', { name: 'Apply 6 changes', exact: true })).toBeEnabled();
       await expect(record).toContainText('"resolverStatus": "ready"');
       if (scenario === 'retry') await expect(record).toContainText('"attempt": 2');
       if (scenario === 'fallback') await expect(record).toContainText('MockFallback');
-    } else {
+    }
+    await settings.getByRole('button',{name:'Готово',exact:true}).click();
+    if (['success','retry','fallback'].includes(scenario)){await expect(page.getByTestId('ai-plan')).toContainText('3 actions');await expect(page.getByRole('button',{name:'Apply 6 changes',exact:true})).toBeEnabled();} else {
       const alert = page.getByRole('alert');
       await expect(alert).toContainText(scenario === 'unsupported' ? 'Эта команда пока не поддерживается' : scenario === 'timeout' ? 'не ответил вовремя' : 'AI недоступен временно');
       if (scenario !== 'unsupported') { await expect(alert).not.toContainText('не поддерживается'); await expect(page.getByRole('button', { name: 'Повторить запрос', exact: true })).toBeVisible(); await expect(page.getByText('Подробнее', { exact: true })).toBeVisible(); }
@@ -59,7 +59,7 @@ for (const scenario of ['success', 'unsupported', '502', 'timeout', 'retry', 'fa
 test('retry button retries the same failed text and produces a preview without Apply', async ({ page }) => {
   await setup(page, '502'); await expect(page.getByRole('alert')).toBeVisible();
   await page.unroute('**/api/ai/intent'); await page.route('**/api/ai/intent', route => { expect(route.request().postDataJSON()).toEqual({ text }); return route.fulfill({ json: semantic }); });
-  await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill('другой запрос');
+  await openRightTab(page,'ai');await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill('другой запрос');
   await page.getByRole('button', { name: 'Повторить запрос', exact: true }).click();
   await expect(page.getByTestId('ai-plan')).toContainText(text);
   await expect(page.locator('[data-entity-type="polygon"]')).toHaveCount(0);
@@ -68,7 +68,7 @@ test('retry button retries the same failed text and produces a preview without A
 test('Copy diagnostics is redacted and includes trace and resolver status', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await setup(page, 'success'); await expect(page.getByTestId('ai-plan')).toBeVisible();
-  await page.getByTestId('ai-diagnostics').locator(':scope > summary').click();
+  await aiDiagnosticsSettings(page);await page.getByTestId('ai-diagnostics').locator(':scope > summary').click();
   await page.getByRole('button', { name: 'Copy diagnostics', exact: true }).click();
   await expect(page.getByText('Скопировано', { exact: true })).toBeVisible();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -81,11 +81,11 @@ test('real provider manual smoke (opt-in): trace, exact semantic preview, no mut
   await page.goto('/'); await expect(page.getByText('OpenRouter', { exact: true })).toBeVisible();
   await editorCommand(page, 'Новый документ');
   const before = await autosaveSnapshot(page);
-  await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text);
+  await openRightTab(page,'ai');await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text);
   await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
   await expect(page.getByTestId('ai-plan')).toContainText('3 actions', { timeout: 35000 });
   await expect(page.getByRole('button', { name: 'Apply 6 changes', exact: true })).toBeEnabled();
-  const diagnostics = page.getByTestId('ai-diagnostics'); await diagnostics.locator(':scope > summary').click();
+  await aiDiagnosticsSettings(page);const diagnostics = page.getByTestId('ai-diagnostics'); await diagnostics.locator(':scope > summary').click();
   const record = page.getByTestId('ai-diagnostic'); await record.locator(':scope > summary').click();
   await expect(record).toContainText('"provider": "openrouter"'); await expect(record).toContainText('"resolverStatus": "ready"');
   await expect(record).toContainText('"localValidationStatus": "valid"');

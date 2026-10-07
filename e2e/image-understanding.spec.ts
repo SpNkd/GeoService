@@ -1,6 +1,6 @@
 import {expect,test,type Page} from '@playwright/test';
 import {createNewDocument} from '../src/domain/newDocument';
-import {editorCommand} from './helpers/editorCommands';
+import {editorCommand, openRightTab } from './helpers/editorCommands';
 import {readAutosaveDocument} from './helpers/autosave';
 async function setup(page:Page,kind='ocr',width=960,height=640){
  await page.addInitScript(d=>{if(!sessionStorage.getItem('v2-seeded')){localStorage.setItem('geoservice.document.v2',JSON.stringify(d));sessionStorage.setItem('v2-seeded','1');}},createNewDocument());
@@ -30,9 +30,9 @@ test('real local OCR RU/EN correction, editable Text Search/Undo/Redo/reload; st
  await page.getByRole('button',{name:/Применить результат/}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
  await expect.poll(async()=>(await readAutosaveDocument(page)).entities.some(e=>e.type==='text'&&e.content==='ГАЗ проверено')).toBe(true);
  const applied=await readAutosaveDocument(page),text=applied.entities.find(e=>e.type==='text')!;expect(text.imageSource?.source).toBe('image-ocr');
- await page.getByLabel('Поиск в документе',{exact:true}).fill('ГАЗ проверено');await expect(page.locator('.search-results')).toContainText('ГАЗ проверено');
+ await openRightTab(page,'search');await page.getByLabel('Поиск в документе',{exact:true}).fill('ГАЗ проверено');await expect(page.locator('.search-results')).toContainText('ГАЗ проверено');
  await page.locator('.search-results .query-result').getByRole('button',{name:'ГАЗ проверено',exact:true}).click();
- await page.getByLabel('Текст',{exact:true}).fill('ГАЗ исправлен');await page.getByTestId('drawing-canvas').focus();
+ await openRightTab(page,'properties');await page.getByLabel('Текст',{exact:true}).fill('ГАЗ исправлен');await page.getByTestId('drawing-canvas').focus();
  await expect.poll(async()=>(await readAutosaveDocument(page)).entities.some(e=>e.type==='text'&&e.content==='ГАЗ исправлен')).toBe(true);
  await editorCommand(page,'Отменить');await expect.poll(async()=>(await readAutosaveDocument(page)).entities.some(e=>e.type==='text'&&e.content==='ГАЗ проверено')).toBe(true);
  await editorCommand(page,'Отменить');await expect.poll(async()=>(await readAutosaveDocument(page)).entities.length).toBe(1);
@@ -46,8 +46,8 @@ test('known repeated group across rotation/scale; individual exception, native S
  await page.getByRole('button',{name:/Применить результат/}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
  await expect.poll(async()=>(await readAutosaveDocument(page)).entities.filter(e=>e.type==='symbol').length).toBe(3);
  const doc=await readAutosaveDocument(page),symbols=doc.entities.filter(e=>e.type==='symbol');expect(symbols.every(e=>e.symbolId==='valve')).toBe(true);expect(new Set(symbols.map(e=>e.rotationDeg)).size).toBe(2);expect(doc.entities.some(e=>e.type==='line'||e.type==='polygon'||e.type==='polyline')).toBe(true);
- await page.getByLabel('Поиск в документе',{exact:true}).fill('Клапан');await expect(page.locator('.search-results .query-result')).toHaveCount(3);await page.locator('.search-results .query-result').first().getByRole('button',{name:'Клапан',exact:true}).click();
- await page.getByLabel('MODEL X',{exact:true}).fill('20');await page.getByLabel('MODEL X',{exact:true}).press('Enter');await page.getByLabel('Поворот (°)',{exact:true}).fill('180');await page.getByLabel('Поворот (°)',{exact:true}).press('Enter');
+ await openRightTab(page,'search');await page.getByLabel('Поиск в документе',{exact:true}).fill('Клапан');await expect(page.locator('.search-results .query-result')).toHaveCount(3);await page.locator('.search-results .query-result').first().getByRole('button',{name:'Клапан',exact:true}).click();
+ await openRightTab(page,'properties');await page.getByLabel('MODEL X',{exact:true}).fill('20');await page.getByLabel('MODEL X',{exact:true}).press('Enter');await page.getByLabel('Поворот (°)',{exact:true}).fill('180');await page.getByLabel('Поворот (°)',{exact:true}).press('Enter');
  await expect.poll(async()=>(await readAutosaveDocument(page)).entities.some(e=>e.type==='symbol'&&e.position.x===20&&e.rotationDeg===180)).toBe(true);
  await editorCommand(page,'Отменить');await editorCommand(page,'Отменить');await expect.poll(async()=>JSON.stringify((await readAutosaveDocument(page)).entities)).toBe(JSON.stringify(doc.entities));
  await page.reload();await expect.poll(async()=>(await readAutosaveDocument(page)).entities.filter(e=>e.type==='symbol').length).toBe(3);
@@ -72,9 +72,9 @@ test('OCR failure/cancel preserves V1 geometry; cached review does not rerun OCR
 test('image Symbol semantics reuse Teach/Search/local AI resolver; request sends text only',async({page})=>{
  let sent:unknown;await page.route('**/api/ai/config',r=>r.fulfill({json:{mode:'mock'}}));await page.route('**/api/ai/intent',r=>{sent=r.request().postDataJSON();return r.fulfill({json:{intent:{actions:[{type:'select_entities',query:{kind:'learned_concept',name:'Арматура скана',scope:'document'}}]},unsupported:false}});});
  await setup(page,'symbols');await recognize(page);await page.getByRole('button',{name:/Подтвердить группу/}).click();await page.getByRole('checkbox',{name:/Добавить категорию/}).first().check();await page.getByRole('button',{name:/Применить результат/}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
- const applied=await readAutosaveDocument(page);expect(applied.semantics!.annotations).toHaveLength(1);await page.getByLabel('Поиск в документе',{exact:true}).fill('Клапан');await page.locator('.search-results .query-result').first().getByRole('button',{name:'Клапан',exact:true}).click();await editorCommand(page,'Научить GeoService');await page.getByLabel('Название смысловой категории',{exact:true}).fill('Арматура скана');await page.getByRole('button',{name:'Предложить правило',exact:true}).click();await page.getByRole('button',{name:'Запомнить',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
- await page.getByLabel('Поиск в документе',{exact:true}).fill('Арматура скана');await expect(page.locator('.search-results .query-result')).toHaveCount(4);
- await page.getByLabel('Запрос',{exact:true}).fill('выдели Арматура скана');await page.getByRole('button',{name:'Generate plan',exact:true}).click();await expect(page.getByTestId('document-operations-preview')).toBeVisible();expect(sent).toEqual({text:'выдели Арматура скана'});
+ const applied=await readAutosaveDocument(page);expect(applied.semantics!.annotations).toHaveLength(1);await openRightTab(page,'search');await page.getByLabel('Поиск в документе',{exact:true}).fill('Клапан');await page.locator('.search-results .query-result').first().getByRole('button',{name:'Клапан',exact:true}).click();await editorCommand(page,'Научить GeoService');await page.getByLabel('Название смысловой категории',{exact:true}).fill('Арматура скана');await page.getByRole('button',{name:'Предложить правило',exact:true}).click();await page.getByRole('button',{name:'Запомнить',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
+ await openRightTab(page,'search');await page.getByLabel('Поиск в документе',{exact:true}).fill('Арматура скана');await expect(page.locator('.search-results .query-result')).toHaveCount(4);
+ await openRightTab(page,'ai');await page.getByLabel('Запрос',{exact:true}).fill('выдели Арматура скана');await page.getByRole('button',{name:'Generate plan',exact:true}).click();await expect(page.getByTestId('document-operations-preview')).toBeVisible();expect(sent).toEqual({text:'выдели Арматура скана'});
 });
 
 test('private reference scan local opt-in: review geometry and real OCR without committing source',async({page})=>{

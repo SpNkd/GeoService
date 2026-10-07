@@ -1,4 +1,4 @@
-import { editorCommand } from './helpers/editorCommands';
+import { editorCommand , openRightTab } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { autosaveSnapshot } from './helpers/autosave';
 import { developmentMockProvider } from '../server/ai';
@@ -12,7 +12,7 @@ test.afterEach(({ page }) => { expect(consoleErrors.get(page)).toEqual([]); });
 const data = 'Name\tEasting\tNorthing\tHeight\nP1\t1000\t2000\t10\nP2\t1060\t2000\t13\nP3\t1060\t2040\t\nP4\t1000\t2040\t';
 async function setup(page: Page, duplicate = false, coordinates = data) {
   await page.addInitScript(() => { const writes: string[] = []; Reflect.set(window, '__writes', writes);
-    const original = Storage.prototype.setItem; Storage.prototype.setItem = function(k, v) { writes.push(k); return original.call(this, k, v); }; });
+    const original = Storage.prototype.setItem; Storage.prototype.setItem = function(k, v) { if(!['geoservice.preferences.v1','geoservice.ai-device-key.v1'].includes(k))writes.push(k); return original.call(this, k, v); }; });
   await page.route('**/api/ai/config', route => route.fulfill({ json: { mode: 'mock' } }));
   const provider = developmentMockProvider();
   await page.route('**/api/ai/intent', async route => {
@@ -28,11 +28,11 @@ async function setup(page: Page, duplicate = false, coordinates = data) {
 }
 async function snapshot(page: Page) { return { ...await autosaveSnapshot(page), writes: await page.evaluate(() => Reflect.get(window, '__writes').length) }; }
 async function generate(page: Page, text: string) {
-  await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text); await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
+  await openRightTab(page,'ai');await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(text); await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
 }
 async function moveX(page: Page, name: string, x: string) {
   await page.locator(`[data-entity-type="point"][aria-label="${name}"] circle[r="14"]`).click();
-  const input = page.getByRole('textbox', { name: 'X', exact: true }); await input.fill(x); await input.blur();
+  await openRightTab(page,'properties');const input = page.getByRole('textbox', { name: 'X', exact: true }); await input.fill(x); await input.blur();await openRightTab(page,'ai');
 }
 const request = 'Построй границу по P1 P2 P3 P4 и проставь размеры всех её сторон';
 const mutations = (page: Page) => page.locator('[data-entity-type="polygon"], [data-entity-type="dimension"]');

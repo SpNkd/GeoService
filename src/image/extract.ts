@@ -1,4 +1,6 @@
+import { polygonArea } from '../geometry';
 import { drawingMask } from './binary';
+import { candidateDeviation, median, reconstructPaths, strokeDistances } from './reconstruct';
 import { CANDIDATE_LIMIT, type Candidate, type ExtractionOptions, type ExtractionResult, type PixelImage, type PixelPoint } from './types';
 import { distancePx } from './transform';
 const offsets = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]] as const;
@@ -140,22 +142,24 @@ export function extractGeometry(image: PixelImage, options: ExtractionOptions, s
   if (image.width < 2 || image.height < 2 || image.width * image.height > 1_440_000 || image.data.length !== image.width * image.height * 4) throw new Error('Недопустимый размер рабочего изображения.');
   const started = performance.now(), mask = drawingMask(image,options.lighting==='adaptive');
   if (mask.reduce((n, value) => n + value, 0) > mask.length * .5) throw new Error('Слишком большая тёмная область. Обработка рассчитана на штриховой чертёж на светлом фоне; выберите область чертежа.');
-  stage('Выделение линий'); const items = components(mask, image.width, image.height, options), textStarted=performance.now(),regions = textRegions(items, mask),textDetection=performance.now()-textStarted; items.forEach(c => { c.pixels.length = 0; }); items.length = 0; thin(mask, image.width, image.height);
-  stage('Трассировка контуров'); const raw = trace(mask, image.width, image.height), detection = performance.now() - started, cleanStarted = performance.now();
+  stage('Выделение линий'); const items = components(mask, image.width, image.height, options), textStarted=performance.now(),regions = textRegions(items, mask),textDetection=performance.now()-textStarted; items.forEach(c => { c.pixels.length = 0; }); items.length = 0;
+  const distances=strokeDistances(mask,image.width,image.height);thin(mask, image.width, image.height);
+  stage('Трассировка контуров'); const traceStart=performance.now(),raw = trace(mask, image.width, image.height),traceMs=performance.now()-traceStart,detection = performance.now() - started, cleanStarted = performance.now();
   stage('Очистка геометрии'); const candidates: Candidate[] = [...regions];
-  // Fit on original traced pixels; simplification must not erase circle evidence.
-  const circles: { points: PixelPoint[]; circle: NonNullable<ReturnType<typeof fitCircle>> }[] = [];
-  const remaining = raw.filter(points => { if (points.length < 20 || distancePx(points[0]!, points.at(-1)!) > 1.5) return true; const circle = fitCircle(points.slice(0, -1)); if (!circle) return true; circles.push({ points, circle }); return false; });
-  circles.forEach(({ circle }) => candidates.push({ id: '', type: 'circle', ...circle }));
-  for (const path of cleanupPaths(remaining, options)) {
-    if (path.closed) { const area = Math.abs(path.points.reduce((sum, p, i) => { const q = path.points[(i + 1) % path.points.length]!; return sum + p.x * q.y - p.y * q.x; }, 0)) / 2; if (area < 16) continue; }
-    candidates.push({ id: '', type: path.closed ? 'contour' : path.points.length === 2 ? 'line' : 'polyline', points: path.points });
-  }
+  const reconstructed=reconstructPaths(raw,{detail:options.detail,join:options.join,minimum:{low:4,medium:8,high:14}[options.noise],distances,width:image.width,...(options.modelTolerancePx?{modelTolerancePx:options.modelTolerancePx}:{})});
+  for(const candidate of reconstructed.candidates){if('points'in candidate&&candidate.type!=='line')candidate.points=simplify(candidate.points,Math.min({low:2.5,medium:1.3,high:.65}[options.detail],reconstructed.tolerances.get(candidate)??Infinity),candidate.type==='contour');if(candidate.type==='contour'&&(candidate.points.length<3||polygonArea(candidate.points)<16))continue;candidates.push(candidate);}
+  const geometry=reconstructed.candidates.filter(c=>candidates.includes(c));
+  reconstructed.metrics.fittedPrimitives=geometry.length;
+  const residuals=geometry.flatMap(c=>(reconstructed.samples.get(c)??[]).map(p=>candidateDeviation(c,p)));
+  reconstructed.metrics.maxDeviationPx=residuals.reduce((m,d)=>Math.max(m,d),0);reconstructed.metrics.medianDeviationPx=median(residuals);
+  reconstructed.metrics.traceMs=traceMs;
+  reconstructed.metrics.finalVertices=candidates.reduce((n,c)=>n+('points'in c?c.points.length:c.type==='arc'?2:0),0);
   if (candidates.length > CANDIDATE_LIMIT) throw new Error('Более 5000 кандидатов. Увеличьте удаление шума или уменьшите область.');
   candidates.forEach((c, i) => { c.id = `candidate-${i + 1}`; });
-  return { candidates, timings: { detection, textDetection, cleanup: performance.now() - cleanStarted }, analysisWidth: image.width, analysisHeight: image.height };
+  const rawTrace:PixelPoint[][]=[];let count=0;for(const path of raw){if(count+path.length>25000)break;rawTrace.push(path);count+=path.length;}
+  return { candidates, reconstruction:reconstructed.metrics,rawTrace,timings: { detection, textDetection, cleanup: performance.now() - cleanStarted }, analysisWidth: image.width, analysisHeight: image.height };
 }
 export function scaleCandidates(candidates: Candidate[], sx: number, sy: number): Candidate[] {
   const point = (p: PixelPoint) => ({ x: p.x * sx, y: p.y * sy });
-  return candidates.map(c => c.type === 'circle' ? { ...c, center: point(c.center), radius: c.radius * (sx + sy) / 2 } : 'points' in c ? { ...c, points: c.points.map(point) } : { ...c, bounds: { x: c.bounds.x * sx, y: c.bounds.y * sy, width: c.bounds.width * sx, height: c.bounds.height * sy } });
+  return candidates.map(c => c.type === 'circle'||c.type==='arc' ? { ...c, center: point(c.center), radius: c.radius * (sx + sy) / 2 } : 'points' in c ? { ...c, points: c.points.map(point) } : { ...c, bounds: { x: c.bounds.x * sx, y: c.bounds.y * sy, width: c.bounds.width * sx, height: c.bounds.height * sy } });
 }

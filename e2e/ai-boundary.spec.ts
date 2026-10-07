@@ -1,4 +1,4 @@
-import { editorCommand } from './helpers/editorCommands';
+import { editorCommand , openRightTab } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { autosaveSnapshot } from './helpers/autosave';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -11,7 +11,7 @@ async function setup(page: Page, output: unknown = boundary(), duplicates = fals
   await page.addInitScript(() => {
     const writes: string[] = []; Reflect.set(window, '__aiWrites', writes);
     const setItem = Storage.prototype.setItem;
-    Storage.prototype.setItem = function(key, value) { writes.push(key); return setItem.call(this, key, value); };
+    Storage.prototype.setItem = function(key, value) { if(!['geoservice.preferences.v1','geoservice.ai-device-key.v1'].includes(key))writes.push(key); return setItem.call(this, key, value); };
   });
   await page.route('**/api/ai/config', route => route.fulfill({ json: { mode: 'mock' } }));
   const provider = new MockAiIntentProvider(() => { if (output instanceof Error) throw output; return output; });
@@ -32,7 +32,7 @@ async function snapshot(page: Page) {
   return { ...await autosaveSnapshot(page), writes: await page.evaluate(() => Reflect.get(window, '__aiWrites').length) };
 }
 async function generate(page: Page, request = text) {
-  await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(request);
+  await openRightTab(page,'ai');await page.getByRole('textbox', { name: 'Запрос', exact: true }).fill(request);
   await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
 }
 
@@ -88,8 +88,8 @@ test('manual P2 coordinate edit invalidates ghost and requires refreshed preview
   await setup(page); await generate(page); const ghost = page.getByTestId('ai-ghost'); await expect(ghost).toBeVisible();
   const original = await ghost.locator('polygon').getAttribute('points');
   await page.locator('[data-entity-type="point"][aria-label="P2"] circle[r="14"]').click();
-  const x = page.getByRole('textbox', { name: 'X', exact: true }); await x.fill('562366.123456789');
-  await expect(ghost).toHaveCount(0); await x.blur();
+  await openRightTab(page,'properties');const x = page.getByRole('textbox', { name: 'X', exact: true }); await x.fill('562366.123456789');
+  await expect(ghost).toHaveCount(0); await x.blur();await openRightTab(page,'ai');
   await expect(page.getByTestId('ai-plan')).toHaveAttribute('data-status', 'stale'); await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Пересчитать план', exact: true }).click();
   await expect(ghost).toBeVisible(); await expect(ghost.locator('polygon')).not.toHaveAttribute('points', original!);

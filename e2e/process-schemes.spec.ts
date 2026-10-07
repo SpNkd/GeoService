@@ -1,4 +1,4 @@
-import { editorCommand } from './helpers/editorCommands';
+import { editorCommand , openRightTab } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { readAutosaveDocument } from './helpers/autosave';
@@ -14,7 +14,7 @@ async function setup(page:Page,d=createNewDocument(),real=false){
   await page.addInitScript(d=>localStorage.setItem('geoservice.document.v2',JSON.stringify(d)),d);await page.goto('/');await expect(page.getByTestId('drawing-canvas')).toBeVisible();
 }
 const drawing=(page:Page)=>readAutosaveDocument(page);
-async function plan(page:Page,text:string){await page.getByLabel('Запрос',{exact:true}).fill(text);await page.getByRole('button',{name:'Generate plan',exact:true}).click();await expect(page.getByTestId('process-preview')).toBeVisible({timeout:35000});}
+async function plan(page:Page,text:string){await openRightTab(page,'ai');await page.getByLabel('Запрос',{exact:true}).fill(text);await page.getByRole('button',{name:'Generate plan',exact:true}).click();await expect(page.getByTestId('process-preview')).toBeVisible({timeout:35000});}
 async function apply(page:Page){await page.getByTestId('process-preview').getByRole('button',{name:/^Apply /}).click();await expect(page.getByTestId('process-preview')).toHaveCount(0);}
 async function saveOpen(page:Page){const event=page.waitForEvent('download');await editorCommand(page, 'Сохранить JSON');const path=(await(await event).path())!,saved=JSON.parse(await readFile(path,'utf8'));await editorCommand(page, 'Новый документ');await page.getByLabel('Файл GeoDocument',{exact:true}).setInputFiles(path);expect(await drawing(page)).toEqual(saved);validateConnectivity(saved);return saved as GeoDocument;}
 async function chooseSymbol(page:Page,id:string){await page.getByRole('button',{name:'Инструмент: Выбор',exact:true}).click();await page.locator(`[data-entity-id="${id}"] [data-symbol-hit]`).click();}
@@ -30,7 +30,7 @@ test('chain6 + 5 ghosts, target layer, one Undo/Redo, insert, occupied/free appe
   const valve=d.entities.find(e=>e.name==='К-2')! as SymbolEntity;await chooseSymbol(page,valve.id);await page.keyboard.press('m');await page.getByLabel('Перемещение ΔX',{exact:true}).fill('1');await page.getByLabel('Перемещение ΔY',{exact:true}).fill('3');await page.getByRole('button',{name:'Применить перемещение',exact:true}).click();await page.getByLabel('Поворот (°)',{exact:true}).fill('90');await page.getByLabel('Поворот (°)',{exact:true}).press('Enter');validateConnectivity(await drawing(page));const saved=await saveOpen(page);await page.reload();expect(await drawing(page)).toEqual(saved);await page.screenshot({path:'/private/tmp/geoservice-ai-process-chain.png'});
 });
 test('current selection reference; selection change stale; local refresh; definition chooser',async({page})=>{
-  const d=createNewDocument();d.entities=[{id:'existing-filter',type:'symbol',name:'Ф-1',layerId:'buildings',libraryId:'gas-process-demo',symbolId:'filter',rotationDeg:0,scale:1,position:{x:0,y:0}}];await setup(page,d);await chooseSymbol(page,'existing-filter');await plan(page,PROCESS_REQUESTS.C);await expect(page.getByTestId('symbol-ghost')).toHaveCount(2);await page.keyboard.press('Escape');await expect(page.getByTestId('process-preview')).toHaveAttribute('data-status','process-stale');await chooseSymbol(page,'existing-filter');await page.getByRole('button',{name:'Пересчитать план',exact:true}).click();await apply(page);validateConnectivity(await drawing(page));
+  const d=createNewDocument();d.entities=[{id:'existing-filter',type:'symbol',name:'Ф-1',layerId:'buildings',libraryId:'gas-process-demo',symbolId:'filter',rotationDeg:0,scale:1,position:{x:0,y:0}}];await setup(page,d);await chooseSymbol(page,'existing-filter');await plan(page,PROCESS_REQUESTS.C);await expect(page.getByTestId('symbol-ghost')).toHaveCount(2);await page.keyboard.press('Escape');await expect(page.getByTestId('process-preview')).toHaveAttribute('data-status','process-stale');await chooseSymbol(page,'existing-filter');await openRightTab(page,'ai');await page.getByRole('button',{name:'Пересчитать план',exact:true}).click();await apply(page);validateConnectivity(await drawing(page));
   const text='Создай клапан и фильтр.';PROCESS_FIXTURES.set(text,{actions:[chainAction(['valve','filter'])]});await plan(page,text);await expect(page.getByTestId('process-preview').getByRole('button',{name:/Apply/})).toBeDisabled();await page.getByLabel(/Разрешить definition:/).selectOption('shutoff-valve');await expect(page.getByTestId('symbol-ghost')).toHaveCount(2);await apply(page);
 });
 test('DXF coexistence: current named layer, preview and Apply do not compile/redraw Canvas base',async({page})=>{

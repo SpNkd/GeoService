@@ -1,4 +1,4 @@
-import { editorCommand } from './helpers/editorCommands';
+import { editorCommand, openRightTab } from './helpers/editorCommands';
 import { test, expect, type Page } from '@playwright/test';
 import { readAutosaveDocument } from './helpers/autosave';
 import type { GeoDocument, DimensionEntity, PolygonEntity } from '../src/domain/model';
@@ -17,7 +17,7 @@ async function setup(page: Page) {
   await page.route('**/api/ai/intent', async route => { const request = route.request().postDataJSON(); expect(Object.keys(request)).toEqual(['text']); await route.fulfill({json:await provider.parseIntent({text:request.text,signal:new AbortController().signal})}); });
   await page.goto('/'); await editorCommand(page, 'Новый документ');
 }
-async function generate(page: Page, text: string) { await page.getByRole('textbox',{name:'Запрос',exact:true}).fill(text); await page.getByRole('button',{name:'Generate plan',exact:true}).click(); }
+async function generate(page: Page, text: string) { await openRightTab(page,'ai');await page.getByRole('textbox',{name:'Запрос',exact:true}).fill(text); await page.getByRole('button',{name:'Generate plan',exact:true}).click(); }
 async function roundTrip(page: Page) {
   const [download] = await Promise.all([page.waitForEvent('download'),editorCommand(page,'Сохранить JSON')]);
   await editorCommand(page, 'Новый документ'); await page.getByLabel('Файл GeoDocument',{exact:true}).setInputFiles((await download.path())!);

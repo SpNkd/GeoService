@@ -20,8 +20,8 @@ export function processImage(source: PixelImage, sourceSize: { width: number; he
     worker.onmessage = ({ data }: MessageEvent<WorkerResult & { stage?: string; error?: string }>) => {
       if (data.stage) { stage(data.stage); return; } finish(); if (data.error) reject(new Error(data.error)); else resolve(data);
     };
-    try { const image = { ...source, data: source.data.slice() }, quad = calibration.quad.map(p => ({ x: p.x * source.width / sourceSize.width, y: p.y * source.height / sourceSize.height })) as ImageQuad, size = analysisSize(calibration.rectifiedWidth, calibration.rectifiedHeight);
-    worker.postMessage({ image, quad, ...size, logicalWidth: calibration.rectifiedWidth, logicalHeight: calibration.rectifiedHeight, ...(options ? { options } : {}) }, [image.data.buffer]); }
+    try { const image = { ...source, data: source.data.slice() }, quad = calibration.quad.map(p => ({ x: p.x * source.width / sourceSize.width, y: p.y * source.height / sourceSize.height })) as ImageQuad, perspectiveWidth=calibration.perspectiveWidth??calibration.rectifiedWidth,perspectiveHeight=calibration.perspectiveHeight??calibration.rectifiedHeight,size = analysisSize(perspectiveWidth,perspectiveHeight);
+    worker.postMessage({ image, quad, ...size, perspectiveWidth,perspectiveHeight,analysisRotationDeg:calibration.analysisRotationDeg??0,logicalWidth: calibration.rectifiedWidth, logicalHeight: calibration.rectifiedHeight, ...(options ? { options } : {}) }, [image.data.buffer]); }
     catch { finish(); reject(new Error('Недостаточно памяти для локальной обработки.')); }
   });
 }

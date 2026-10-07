@@ -25,6 +25,6 @@ export function ResponsiveToolbar({ children, inert = false }: {
  <div className="semantic-draw" role="group" aria-label="Рисование">{take(/^Инструмент: (Выбор|Точка)$/).map(render)}{group(polyline ? 'Полилиния' : 'Линия', lines, lines.some(n => n.props['aria-pressed']))}{take(/^Инструмент: (Полигон|Текст|Соединение)$/).map(render)}{take(/^Символы$/).map(render)}</div>
  {group('Инженерия', take(/^Инструмент: (Размер|Измерение|Панорама)$/))}
  <div className="semantic-history" role="group" aria-label="История">{take(/^(Отменить|Повторить)$/).map(n => cloneElement(render(n), { children: Children.toArray(n.props.children).filter(isValidElement) }))}</div>
- {width < 1100 ? group('Ещё', take(/Горячие клавиши/)) : take(/Горячие клавиши/).map(render)}
+ {width < 1100 ? group('Ещё', take(/Горячие клавиши|^Настройки$|^AI Assistant$/)) : take(/Горячие клавиши|^Настройки$|^AI Assistant$/).map(render)}
  </nav>;
 }

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createNewDocument } from '../src/domain/newDocument';
 import { readAutosaveDocument, autosaveSnapshot } from './helpers/autosave';
-import { editorCommand } from './helpers/editorCommands';
+import { editorCommand , openRightTab } from './helpers/editorCommands';
 async function point(page: Page, p: {
     x: number;
     y: number;
@@ -35,7 +35,7 @@ test('reference active viewport canonical Move / Undo and readonly Paper atomic 
 }) => ids.has(e.id) && e.type === 'line' && !d.layers.find((l: {
     id: string;
     locked: boolean;
-}) => l.id === e.layerId)?.locked); }, before); expect(candidate).toBeDefined(); await page.getByLabel('Область поиска', { exact: true }).selectOption('viewport'); await page.getByLabel('Поиск в документе', { exact: true }).fill(candidate!.name); await page.locator('.search-results .query-result').getByRole('button').first().click(); await page.getByLabel('Поиск в документе', { exact: true }).clear(); await editorCommand(page, 'Переместить выбор'); await page.getByLabel('Перемещение ΔX', { exact: true }).fill('2'); await page.getByLabel('Перемещение ΔY', { exact: true }).fill('3'); await page.getByRole('button', { name: 'Применить перемещение', exact: true }).click(); const moved = await readAutosaveDocument(page); if (candidate!.type === 'line') {
+}) => l.id === e.layerId)?.locked); }, before); expect(candidate).toBeDefined(); await openRightTab(page,'search');await page.getByLabel('Область поиска', { exact: true }).selectOption('viewport'); await openRightTab(page,'search');await page.getByLabel('Поиск в документе', { exact: true }).fill(candidate!.name); await page.locator('.search-results .query-result').getByRole('button').first().click(); await openRightTab(page,'search');await page.getByLabel('Поиск в документе', { exact: true }).clear(); await editorCommand(page, 'Переместить выбор'); await page.getByLabel('Перемещение ΔX', { exact: true }).fill('2'); await page.getByLabel('Перемещение ΔY', { exact: true }).fill('3'); await page.getByRole('button', { name: 'Применить перемещение', exact: true }).click(); const moved = await readAutosaveDocument(page); if (candidate!.type === 'line') {
     expect(moved.vertices[candidate!.startVertexId]!.x).toBeCloseTo(before.vertices[candidate!.startVertexId]!.x + 2);
     expect(moved.vertices[candidate!.startVertexId]!.y).toBeCloseTo(before.vertices[candidate!.startVertexId]!.y + 3);
 } expect(moved.dxfLayouts).toEqual(before.dxfLayouts); await page.getByRole('button', { name: 'Выйти в лист', exact: true }).click(); await editorCommand(page, 'Отменить'); expect(await readAutosaveDocument(page)).toEqual(before); root = await views(page); node = root.getByTestId('dxf-paper-node').nth(3); await node.getByRole('button', { name: 'Всё видимое на листе', exact: true }).click(); await expect(page.locator('.selection-summary')).toContainText('Только чтение: 116'); await editorCommand(page, 'Переместить выбор'); await page.getByLabel('Перемещение ΔX', { exact: true }).fill('1'); await page.getByRole('button', { name: 'Применить перемещение', exact: true }).click(); await expect(page.getByTestId('editor-error')).toContainText('Paper Space'); expect(await readAutosaveDocument(page)).toEqual(before); });

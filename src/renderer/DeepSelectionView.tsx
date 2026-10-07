@@ -1,3 +1,4 @@
+import { viewRotation } from '../view/projection';
 import type { GeoDocument, Viewport } from '../domain/model';
 import { worldToScreen, type ViewSize } from '../geometry';
 import { primitiveBounds, transformPoint } from '../vectors/geometry';
@@ -15,7 +16,7 @@ export function DeepSelectionView({document,selection,viewport,size}:{document:G
     return <rect data-testid="deep-selection-highlight" pointerEvents="none" x={Math.min(...xs)} y={Math.min(...ys)} width={Math.max(...xs)-Math.min(...xs)} height={Math.max(...ys)-Math.min(...ys)} fill="none" stroke="#e37b13" strokeWidth={3} />;
   }
   const pp=viewport.pixelsPerUnit,anchor=worldToScreen(transformPoint(prepared.origin,resolved.matrix),viewport,size);
-  return <g data-testid="deep-selection-highlight" pointerEvents="none" color="#e37b13" strokeWidth={3} transform={`translate(${anchor.x} ${anchor.y}) scale(${pp} ${-pp})`}>
+  return <g data-testid="deep-selection-highlight" pointerEvents="none" color="#e37b13" strokeWidth={3} transform={`translate(${anchor.x} ${anchor.y}) rotate(${-viewRotation(viewport)}) scale(${pp} ${-pp})`}>
     <g transform={`matrix(${[...resolved.matrix.slice(0,4),0,0].join(' ')})`}><PrimitiveSet document={document} primitives={prepared.primitives} inheritAll /></g>
   </g>;
 }

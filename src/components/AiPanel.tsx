@@ -1,31 +1,31 @@
-import { AiSettingsPanel } from './AiSettings';
+import { adoptServerAiDefaults, getApiKey, usePreferences } from '../preferences/store';
 import { ProcessPreview } from './ProcessPreview';
 import type { ViewSize } from '../geometry';
 import { DocumentOperationsPreview } from './DocumentOperationsPreview';
-import { lazy, Suspense, memo, useEffect, useMemo, useState, type Dispatch, type FormEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent } from 'react';
 import { AiRequestRunner, HttpAiIntentProvider, providerModeSchema, type AiIntentProvider, type ProviderMode } from '../ai/provider';
 import { AI_LIMITS, readBoundedJson, utf8Bytes } from '../ai/intent';
 import type { AiState, ApplicationAction } from '../ai/workflow';
 import type { ResolvedReference } from '../ai/resolver';
 import { AiPlanMetrics } from './AiPlanMetrics';
 import { formatDistance } from '../geometry/format';
-import type { AiDiagnostic } from '../ai/reliability';
+import { publishAiDiagnostic } from '../ai/diagnosticStore';
 import { anchorLabels, formatAssumption } from '../ai/assumptions';
 import { spatialFrame } from '../geometry/spatialLayout';
 import { MAX_DIMENSION_OFFSET } from '../ai/resolver';
 
-const Diagnostics = import.meta.env.DEV ? lazy(() => import('./AiDiagnostics')) : null;
 const operationLabels = { array:'массив прямоугольников', 'edge-line':'линия вдоль стороны', points: 'создать точки', rectangle: 'создать прямоугольник', 'bulk-dimensions': 'размеры всех сторон границы', boundary: 'создать границу', polyline: 'создать полилинию', dimension: 'поставить размер', measure: 'измерить расстояние' };
 const defaultProvider = new HttpAiIntentProvider();
 const coordinates = (point: ResolvedReference) => `X ${point.position.x} · Y ${point.position.y}${point.position.z === undefined ? '' : ` · Z ${point.position.z}`}`;
-interface Props { size:ViewSize; ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider }
-export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionActive, documentEpoch, provider = defaultProvider }: Props) {
+interface Props { size:ViewSize; ai: AiState; dispatch: Dispatch<ApplicationAction>; transactionActive: boolean; documentEpoch: number; provider?: AiIntentProvider;onSettings?:()=>void }
+export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionActive, documentEpoch, provider = defaultProvider,onSettings }: Props) {
   const [text, setText] = useState('Создай границу по точкам P1, P2, P3 и P4');
-  const [lastDiagnostic, setLastDiagnostic] = useState<AiDiagnostic | null>(null);
   const [clarificationAnswer, setClarificationAnswer] = useState('');
   const [mode, setMode] = useState<ProviderMode>('disabled');
-  const [settingsStatus,setSettingsStatus]=useState<{enabled:boolean;label:string}|null>(null);
+  const preferences=usePreferences(),settingsStatus=preferences.aiCustomized?{enabled:preferences.ai.enabled,label:preferences.ai.enabled?`${preferences.ai.primaryModel.split('/').at(-1)} · ${preferences.ai.provider}`:'AI отключён'}:null;
   const runner = useMemo(() => new AiRequestRunner(provider), [provider]);
+  const previousConfiguration=useRef({ai:JSON.stringify(preferences.ai),key:getApiKey()});
+  useEffect(()=>{const previous=previousConfiguration.current,key=getApiKey();const aiConfiguration=JSON.stringify(preferences.ai);previousConfiguration.current={ai:aiConfiguration,key};if(preferences.aiCustomized&&(previous.ai!==aiConfiguration||previous.key!==key)){runner.cancel();dispatch({type:'ai-cancel'});}},[preferences,runner,dispatch]);
   useEffect(() => () => runner.cancel(), [runner]);
   useEffect(() => { runner.cancel(); }, [runner, documentEpoch]);
   useEffect(() => {
@@ -34,12 +34,12 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
       if (!response.ok) return;
       const raw = await readBoundedJson(response, 1024);
       const parsed = providerModeSchema.safeParse(raw && typeof raw === 'object' && 'mode' in raw ? raw.mode : null);
-      if (parsed.success && !controller.signal.aborted) setMode(parsed.data);
+      if (parsed.success && !controller.signal.aborted){setMode(parsed.data);adoptServerAiDefaults({provider:parsed.data});}
     }).catch(() => {});
     return () => controller.abort();
   }, []);
   const run = (requestText: string) => { void runner.run(requestText, event => {
-    if (import.meta.env.DEV && event.diagnostics) setLastDiagnostic(event.diagnostics);
+    if (import.meta.env.DEV && event.diagnostics) publishAiDiagnostic(event.diagnostics);
     dispatch({ type: 'ai-event', event });
   }); };
   const generate = (event: FormEvent) => { event.preventDefault();
@@ -51,7 +51,7 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
   return <section className="ai-panel" aria-label="AI Assistant">
     <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{settingsStatus?.label ?? (mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? 'AI: Qwen · готов' : 'AI отключён')}</span></div>
-    <AiSettingsPanel key={mode} mode={mode} onStatus={(enabled,label)=>setSettingsStatus({enabled,label})} onChange={()=>{runner.cancel();dispatch({type:'ai-cancel'});}}/>
+    <button className="secondary-action" aria-label="Настройки AI" onClick={onSettings}>⚙ Настройки AI</button>
     <p className="ai-caption">Геометрия · операции над документом · технологические схемы</p>
     <form onSubmit={generate}>
       <label htmlFor="ai-request">Запрос</label>
@@ -116,6 +116,5 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
         </div>
       </div>}
     </div>
-    {Diagnostics && <Suspense fallback={null}><Diagnostics record={lastDiagnostic} ai={ai} /></Suspense>}
   </section>;
 });

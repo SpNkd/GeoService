@@ -1,3 +1,4 @@
+import { usePreferences } from '../preferences/store';
 import { viewRotation, type RenderCamera } from '../view/projection';
 import { viewportDocument } from '../layouts/context';
 import { entityIntersectsViewport, viewportVisibleIds, viewportPoint } from '../layouts/selection';
@@ -15,7 +16,7 @@ import { ConnectorOverlay } from '../renderer/ConnectorOverlay';
 import type { Entity, ConnectorEndpoint } from '../domain/model';
 import { editorViewDocument } from '../store/editor';
 import { DocumentQueryHighlight } from '../renderer/DocumentQueryHighlight';
-import { normalHitStack, createHitStack, hitOwners, resolveDeepSelection, selectedMoveOwner, type HitCandidate } from './deepSelection';
+import { normalHitStack, createHitStack, hitOwners, resolveDeepSelection, selectedMoveOwner, type HitCandidate, type DeepSelection } from './deepSelection';
 import { composeScene, type RendererMode } from '../renderer/hybridScene';
 import { CanvasStratum } from '../renderer/CanvasStratum';
 import { SelectionContours } from '../renderer/SelectionContours';
@@ -56,7 +57,7 @@ interface Props {
   state: EditorState; dispatch: Dispatch<EditorAction>; size: ViewSize; onResize: (size: ViewSize) => void;
   onCursor: (point: ScreenPoint | null) => void; onSnap: (snap: SnapResult | null) => void; onMeasure: (text: string | null) => void; disabled?: boolean; spaceHeld?: boolean; sequenceHint?: string; documentHighlightIds?:readonly string[]|undefined; aiReferenceIds?: readonly string[] | undefined; aiPreview?: { id: string; result: ReadyResolution }[];
 }
-type Drag = {kind:'selection-rotate';pointerId:number;pivot:WorldPoint;startAngle:number} | {kind:'underlay-resize';pointerId:number;entity:RasterUnderlayEntity;corner:number} | {kind:'axon-inspect';pointerId:number;start:ScreenPoint;warned:boolean} | {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode; clickCandidate?:HitCandidate } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
+type Drag = {kind:'selection-rotate';pointerId:number;pivot:WorldPoint;startAngle:number} | {kind:'underlay-resize';pointerId:number;entity:RasterUnderlayEntity;corner:number} | {kind:'axon-inspect';pointerId:number;start:ScreenPoint;warned:boolean} | {kind:'connector-retarget';pointerId:number;candidate:ConnectorEndpoint|null} | { kind: 'marquee'; pointerId: number; start: ScreenPoint; end: ScreenPoint; moved: boolean; mode: SelectionMode; clickCandidate?:HitCandidate } | { kind: 'selection'; pointerId: number; entityId: string; start: WorldPoint; screenStart: ScreenPoint; moved: boolean; toggleOnClick: boolean; clickCandidate?:HitCandidate } | { kind: 'pan'; pointerId: number; last: ScreenPoint } | { kind: 'vertex'; pointerId: number; vertex: Vertex } | { kind: 'text'; pointerId: number; entityId: string; vertexId: string; start: WorldPoint; pointerStart: WorldPoint } | { kind: 'block-attribute'; pointerId: number; entityId: string; tag: string; attributeIndex: number; sourceHandle?: string; start: WorldPoint; pointerStart: WorldPoint; inverseLinear: Matrix } | { kind: 'label'; pointerId: number; entityId: string; start: WorldPoint; dx: number; dy: number } | { kind: 'dimension' | 'dimension-text'; pointerId: number; entityId: string; a: WorldPoint; b: WorldPoint; offset: number; pointerOffset: number } | { kind: 'dimension-retarget'; pointerId: number; entityId: string; endpoint: 'start' | 'end'; excludeVertexId: string; candidateVertexId: string | null };
 type MoveInput = { point: ScreenPoint; pointerId: number; shiftKey: boolean };
 
 /** Keep editor text UI inside the currently visible interaction window. */
@@ -75,9 +76,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const frame = useRef<number | null>(null), pending = useRef<MoveInput | null>(null);
   const [dragging, setDragging] = useState(false);
   const normalCycle=useRef<{document:typeof state.document;camera:typeof viewport;candidates:HitCandidate[];index:number}|null>(null);
-  const [cycleLabel,setCycleLabel]=useState<string|null>(null),[hoverId,setHoverId]=useState<string|null>(null);
+  const [cycleLabel,setCycleLabel]=useState<string|null>(null),[hoverId,setHoverId]=useState<string|null>(null),[hoverPrimitive,setHoverPrimitive]=useState<DeepSelection|null>(null);
   useEffect(()=>{if(!cycleLabel)return;const timer=setTimeout(()=>setCycleLabel(null),2500);return()=>clearTimeout(timer);},[cycleLabel]);
-  const [rendererMode,setRendererMode]=useState<RendererMode>(()=>import.meta.env.DEV&&new URLSearchParams(window.location.search).get('dxfRenderer')==='svg'?'svg':'canvas');
+  const preferences=usePreferences(),rendererMode:RendererMode=import.meta.env.DEV&&new URLSearchParams(window.location.search).get('dxfRenderer')==='svg'?'svg':preferences.renderer;
   const [portHover,setPortHover]=useState<ConnectorEndpoint|null>(null);
   const [draft, setDraft] = useState<GeometryAnchor[]>([]);
   const [drawCursor, setDrawCursor] = useState<WorldPoint | null>(null);
@@ -241,7 +242,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       dispatch({ type: 'transient', command: { type: 'update-entity', entityId: active.entityId, patch: { textPosition: Math.max(0.05, Math.min(0.95, t)) } } }); return;
     }
     if (['point', 'line', 'polyline', 'polygon', 'dimension', 'measure', 'text', 'symbol'].includes(tool)) setDrawCursor(anchorAt(point, undefined, shiftKey).position);
-    else { announceSnap(null); if(tool==='select'&&ref.current){const id=hitOwners(document,screenToWorld(point,viewport,size),7/viewport.pixelsPerUnit,viewport.pixelsPerUnit)[0]??null;ref.current.style.cursor=id?'pointer':'';setHoverId(id);} }
+    else { announceSnap(null); if(tool==='select'&&ref.current){const world=screenToWorld(point,viewport,size),ids=hitOwners(document,world,7/viewport.pixelsPerUnit,viewport.pixelsPerUnit),candidate=normalHitStack(document,ids,world,7/viewport.pixelsPerUnit)[0];ref.current.style.cursor=candidate?'pointer':'';setHoverId(candidate?.selection?null:candidate?.ownerEntityId??null);setHoverPrimitive(candidate?.selection??null);} }
   };
   const flushMove = () => {
     if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
@@ -251,9 +252,9 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
   const local = (event: PointerEvent<SVGSVGElement>): ScreenPoint => { const rect = event.currentTarget.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; };
   const down = (event: PointerEvent<SVGSVGElement>) => {
     if (disabled || ![0, 1, 2].includes(event.button)) return;
-    flushMove(); setHoverId(null); event.preventDefault(); const point = local(event); onCursor(point);
+    flushMove(); setHoverId(null);setHoverPrimitive(null); event.preventDefault(); const point = local(event); onCursor(point);
     let hit = event.target instanceof Element ? event.target.closest('[data-entity-id]') : null;
-    let logicalHitId: string | undefined;
+    let logicalHitId: string | undefined,clickLeaf:HitCandidate|undefined;
     event.currentTarget.focus({preventScroll:true});
     if (tool === 'pan' || spaceHeld || event.button !== 0) {
       drag.current = { kind: 'pan', pointerId: event.pointerId, last: point };
@@ -307,14 +308,25 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
       }
       hitCycle.current=null;
       const normal=normalHitStack(document,owners,pointerWorld,5/viewport.pixelsPerUnit);
+      if((event.metaKey||event.ctrlKey)&&normal[0]?.selection){dispatch({type:'select',entityId:normal[0].ownerEntityId,toggle:event.shiftKey});normalCycle.current={document,camera:viewport,candidates:normal,index:normal.findIndex(c=>!c.selection&&c.ownerEntityId===normal[0]!.ownerEntityId)};return;}
       normalCycle.current={document,camera:viewport,candidates:normal,index:0};setCycleLabel(null);
-      if(normal[0]?.selection&&!state.deepSelection?.attribute&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey){dispatch({type:'deep-select',candidate:normal[0],index:0,count:normal.length});return;}
       if(state.deepSelection?.attribute&&state.deepSelection.attributeTag){
         const active=state.deepSelection,resolved=resolveDeepSelection(document,active),owner=document.entities.find(e=>e.id===active.ownerEntityId),definition=owner?.type==='block_instance'?blockDefinition(document,owner.blockDefinitionId):undefined;
         const exact=createHitStack(document,owners,pointerWorld,5/viewport.pixelsPerUnit).find(candidate=>candidate.selection?.attribute&&candidate.selection.attributeTag===active.attributeTag&&candidate.selection.ownerEntityId===active.ownerEntityId&&candidate.selection.primitivePath.length===active.primitivePath.length&&candidate.selection.primitivePath.every((part,i)=>part===active.primitivePath[i]));
         if(exact&&resolved?.primitive.kind==='text'&&owner?.type==='block_instance'&&definition&&!isLayerLocked(document,owner)&&!isLayerLocked(document,{...owner,layerId:resolved.primitive.layerId})){
           const transform=blockMatrix(owner,definition.basePoint),linear=invertMatrix([transform[0],transform[1],transform[2],transform[3],0,0]),start=blockAttributeLocalPosition(owner,definition,resolved.primitive.position);
           if(linear){dispatch({type:'begin-transaction'});drag.current={kind:'block-attribute',pointerId:event.pointerId,entityId:owner.id,tag:active.attributeTag!,attributeIndex:active.primitivePath[0]!,...(resolved.source?.handle?{sourceHandle:resolved.source.handle}:{}),start,pointerStart:pointerWorld,inverseLinear:linear};event.currentTarget.setPointerCapture(event.pointerId);setDragging(true);return;}
+        }
+      }
+      if(normal[0]?.selection&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey){
+        const candidate=normal[0],owner=document.entities.find(e=>e.id===candidate.ownerEntityId)!;
+        // Explicit parent selection grants a whole-instance drag; a stationary click still inspects the leaf.
+        if(!state.deepSelection&&state.selectedEntityIds.includes(owner.id)&&!isLayerLocked(document,owner))clickLeaf=candidate;
+        else{
+          const painted=hitOwners(document,pointerWorld,7/viewport.pixelsPerUnit,viewport.pixelsPerUnit,true).includes(candidate.ownerEntityId);
+          if(!painted){dispatch({type:'begin-marquee'});drag.current={kind:'marquee',pointerId:event.pointerId,start:point,end:point,moved:false,mode:'replace',clickCandidate:candidate};event.currentTarget.setPointerCapture(event.pointerId);}
+          else dispatch({type:'deep-select',candidate,index:0,count:normal.length});
+          return;
         }
       }
       const id=normal[0]?.ownerEntityId;
@@ -395,7 +407,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
           return;
         }
         dispatch({ type: 'begin-selection-move', entityIds: selection });
-        drag.current = { kind: 'selection', pointerId: event.pointerId, entityId, start: screenToWorld(point, viewport, size), screenStart: point, moved: false, toggleOnClick: event.shiftKey };
+        drag.current = { kind: 'selection', pointerId: event.pointerId, entityId, start: screenToWorld(point, viewport, size), screenStart: point, moved: false, toggleOnClick: event.shiftKey,...(clickLeaf?{clickCandidate:clickLeaf}:{}) };
         event.currentTarget.setPointerCapture(event.pointerId); return;
       }
       if (entity.type === 'text' && !isLayerLocked(document, entity)) {
@@ -442,7 +454,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     flushMove(); const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
     if(active.kind === 'marquee') {
-      if(!active.moved&&active.clickCandidate){dispatch({type:'cancel-marquee'});dispatch({type:'select',entityId:active.clickCandidate.ownerEntityId,...(active.mode==='replace'?{}:{toggle:true})});}
+      if(!active.moved&&active.clickCandidate){dispatch({type:'cancel-marquee'});dispatch(active.clickCandidate.selection&&active.mode==='replace'?{type:'deep-select',candidate:active.clickCandidate,index:0,count:normalCycle.current?.candidates.length??1}:{type:'select',entityId:active.clickCandidate.ownerEntityId,...(active.mode==='replace'?{}:{toggle:true})});}
       else dispatch({type:'finish-marquee',entityIds:active.moved?marqueeEntities(committed,viewport,size,active.start,active.end).filter(id=>!activeViewport||viewportVisibleIds(committed,activeViewport).has(id)):[],mode:active.mode});
       setMarquee(null);
     }
@@ -450,6 +462,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     else if (active.kind === 'dimension-retarget') dispatch({ type: 'finish-dimension-retarget', vertexId: active.candidateVertexId });
     else if (active.kind === 'selection') {
       dispatch({ type: active.moved ? 'finish-selection-move' : 'cancel-transaction' });
+      if(!active.moved&&active.clickCandidate)dispatch({type:'deep-select',candidate:active.clickCandidate,index:0,count:normalCycle.current?.candidates.length??1});
       if (!active.moved && active.toggleOnClick) dispatch({ type: 'select', entityId: active.entityId, toggle: true });
     } else if (active.kind !== 'pan'&&active.kind!=='axon-inspect') dispatch({ type: 'commit-transaction' });
     drag.current = null; setDragging(false); announceSnap(null);
@@ -490,7 +503,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         if(event.key==='Tab'&&event.target===event.currentTarget&&!spaceHeld&&tool==='select'&&!state.transactionBefore&&!state.marqueeActive&&cycle?.document===document&&cycle.camera===viewport&&cycle.candidates.length>1&&state.selectionId===cycle.candidates[cycle.index]?.ownerEntityId){event.preventDefault();event.stopPropagation();cycle.index=(cycle.index+(event.shiftKey?-1:1)+cycle.candidates.length)%cycle.candidates.length;const candidate=cycle.candidates[cycle.index]!,e=document.entities.find(e=>e.id===candidate.ownerEntityId)!;dispatch({type:'deep-select',candidate,index:cycle.index,count:cycle.candidates.length});setCycleLabel(`${cycle.index+1} / ${cycle.candidates.length} · ${candidate.selection?'Атрибут':cadType(e)} · Слой: ${document.layers.find(l=>l.id===e.layerId)?.name??'—'}`);return;}
         if (event.key === 'Enter' && (tool === 'polyline' || tool === 'polygon') && draft.length) { event.preventDefault(); finishPath(); } }}
       onLostPointerCapture={() => { if(drag.current?.kind==='marquee') {dispatch({type:'cancel-marquee'});setMarquee(null);}  if (drag.current && drag.current.kind !== 'pan') dispatch({ type: 'cancel-transaction' }); drag.current = null; setDragging(false); }}
-      onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); setHoverId(null); announceSnap(null); }}
+      onPointerLeave={() => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; pending.current = null; onCursor(null); setHoverId(null);setHoverPrimitive(null); announceSnap(null); }}
       onDoubleClick={event => {
         if (axon || disabled || onPickPoint || state.deepSelection || event.altKey) return;
         const area=event.currentTarget.getBoundingClientRect(),point={x:event.clientX-area.left,y:event.clientY-area.top};
@@ -513,6 +526,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         dimensionRetarget={state.dimensionRetarget?.dimensionId === item.entity.id ? state.dimensionRetarget : null}
         {...(state.orderedPointIds.length > 1 && state.orderedPointIds.includes(item.entity.id) ? { order: state.orderedPointIds.indexOf(item.entity.id) + 1 } : {})}
         pointLabelMode={state.pointLabelMode} showLineLengths={state.showLineLengths} />)}</g>)}
+      {hoverPrimitive&&!dragging&&!spaceHeld&&<g opacity={.5} data-testid="hover-primitive"><DeepSelectionView document={document} selection={hoverPrimitive} viewport={viewport} size={size}/></g>}
       {hoverId&&!dragging&&!spaceHeld&&!state.selectedEntityIds.includes(hoverId)&&<g opacity={.4} data-testid="hover-contour"><SelectionContours document={document} items={items.filter(i=>i.entity.id===hoverId)} viewport={viewport} size={size} ownerMarkers={false}/></g>}
       {/* Keep the cursor overlay mounted: inserting/removing it relayouts the entire SVG on each click. */}
       <rect data-testid="pan-cursor" x={0} y={0} width={size.width} height={size.height} fill="transparent" pointerEvents={dragging || spaceHeld || tool === 'pan' ? 'all' : 'none'} style={{cursor: dragging ? 'grabbing' : 'grab'}} />
@@ -548,7 +562,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         <text x={snapScreen.x + 12} y={snapScreen.y + 25} stroke="none" fill="#8b632f">{snap.metadata.label}</text>
       </g>}
     </svg>
-    {import.meta.env.DEV&&new URLSearchParams(window.location.search).has('diagnostics')&&<label style={{position:'absolute',right:70,top:8,fontSize:10}}>DXF renderer <select aria-label="DXF renderer" value={rendererMode} onChange={event=>setRendererMode(event.target.value as RendererMode)}><option value="svg">SVG</option><option value="canvas">Canvas</option></select>{scene.fallback&&' · SVG fallback: strata limit'}</label>}
+
     {measurement && <div className="measurement-readout" data-testid="measurement-readout"><strong>Measure · {draft.length === 2 ? 'Готово' : 'Выберите вторую точку'}</strong>
       <span>Horizontal: <b>{formatDistance(measurement.horizontal)}</b></span><span>ΔX: {formatDistance(measurement.delta.x)}</span><span>ΔY: {formatDistance(measurement.delta.y)}</span>
       <span>Azimuth: {formatAzimuth(measurement.azimuth)}</span>{measurement.delta.z !== undefined && <><span>ΔZ: {formatDistance(measurement.delta.z)}</span><span>3D: {formatDistance(measurement.spatial!)}</span></>}<small>Esc — очистить · история не изменяется</small></div>}
@@ -560,6 +574,6 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
     </form>}
     <div className="canvas-caption"><span className="live-dot" /> {axon?'АКСОНОМЕТРИЯ':'МОДЕЛЬ'} <span>{axon?'Метры · MODEL X / Y / Z':'Метры · X / Y'}</span></div>
     {!activeViewport&&(axon?<AxonAxes viewport={viewport}/>:<div className="north-arrow" aria-label={surveyAvailable&&!referenceStale ? "Survey North в MODEL viewport" : "Ось MODEL +Y; Survey не задан"} data-testid="north-arrow" data-screen-x={north.screen.x} data-screen-y={north.screen.y} data-stale={referenceStale} data-preview={Boolean(referencePreview)}><b>{surveyAvailable&&!referenceStale ? 'N' : '+Y'}</b><svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true"><g transform={`rotate(${north.rotationDegrees})`}><path d="M0 -18L-7 13l7-5 7 5z" fill="#405d6b" /><path d="M0 -18v26l7 5z" fill="#c7d4dc" /></g></svg></div>)}
-    <div className={`canvas-help${axon?' axon-help':''}`}>{cycleLabel&&<span role="status" data-testid="selection-cycle">{cycleLabel}</span>}{state.hitStackStatus && hitCycle.current && <span data-testid="hit-stack-status">Выбор {state.hitStackStatus.index+1}/{state.hitStackStatus.count} · {state.deepSelection?.blockPath.join(' → ')} · {state.deepSelection?.sourceType} </span>}{axon?'Объекты без Z отображаются на уровне 0.000 · Выбор и точные X/Y/Z · Space + drag — вид. 3D-маршрут не задан; вертикальный переход отображается у конечного порта.':sequenceHint ? `${sequenceHint}…` : tool==='connector'||state.connectorInteraction?.kind==='retarget'?`${state.connectorInteraction?.kind==='retarget'?'Выберите новый порт':state.connectorInteraction?'Выберите конечный порт':'Выберите начальный порт'} · только свободные совместимые порты · Esc отмена`:tool === 'symbol' ? 'Символ: клик — вставить в текущий слой · R — поворот · Esc — отмена' : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Рамка → WINDOW / ← CROSSING · Shift добавляет · Ctrl/Cmd переключает · Drag за тело — перенос · Shift + drag — X/Y · M — Δ или MODEL X/Y · Space + drag — вид`}</div>
+    <div className={`canvas-help${axon?' axon-help':''}`}>{cycleLabel&&<span role="status" data-testid="selection-cycle">{cycleLabel}</span>}{state.hitStackStatus && hitCycle.current && <span data-testid="hit-stack-status">Выбор {state.hitStackStatus.index+1}/{state.hitStackStatus.count} · {state.deepSelection?.blockPath.join(' → ')} · {state.deepSelection?.sourceType} </span>}{state.viewAlign?'Укажите две точки · Esc — отмена':axon?'Объекты без Z отображаются на уровне 0.000 · Выбор и точные X/Y/Z · Space + drag — вид. 3D-маршрут не задан; вертикальный переход отображается у конечного порта.':sequenceHint ? `${sequenceHint}…` : tool==='connector'||state.connectorInteraction?.kind==='retarget'?`${state.connectorInteraction?.kind==='retarget'?'Выберите новый порт':state.connectorInteraction?'Выберите конечный порт':'Выберите начальный порт'} · только свободные совместимые порты · Esc отмена`:tool === 'symbol' ? 'Символ: клик — вставить в текущий слой · R — поворот · Esc — отмена' : tool === 'dimension' ? `Размер: ${draft.length < 2 ? 'выберите две точки' : 'укажите offset размерной линии'} · Esc отмена` : tool === 'measure' ? 'Measure: две точки · Esc очистить' : tool === 'line' && draft.length ? 'Линия: выберите конечную точку · Esc отмена' : tool === 'polygon' || tool === 'polyline' ? `${tool === 'polygon' ? 'Полигон' : 'Полилиния'} · клики добавляют вершины · Enter завершает · Esc отмена` : `Рамка → WINDOW / ← CROSSING · Shift добавляет · Ctrl/Cmd переключает · Drag за тело — перенос · Shift + drag — X/Y · M — Δ или MODEL X/Y · Space + drag — вид`}</div>
   </div>;
 });

@@ -1,4 +1,4 @@
-import { editorCommand } from './helpers/editorCommands';
+import { editorCommand, openRightTab } from './helpers/editorCommands';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createNewDocument } from '../src/domain/newDocument';
@@ -11,7 +11,7 @@ function scene() { const d = createNewDocument(); d.metadata.id = 'transform-sty
 async function frame(page: Page) { await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); }
 async function setup(page: Page, d = scene()) { await page.route('**/api/ai/config', r => r.fulfill({ json: { mode: 'mock' } })); await page.addInitScript(d => localStorage.setItem('geoservice.document.v2', JSON.stringify(d)), d); await page.goto('/'); await expect(page.getByTestId('drawing-canvas')).toBeVisible(); await frame(page); }
 async function command(page:Page,name:string){await editorCommand(page,name);}
-async function select(page: Page, name: string) { await page.getByLabel('Поиск в документе', { exact: true }).fill(name); await page.locator('.search-results').getByRole('button', { name, exact: true }).click(); await page.getByLabel('Поиск в документе', { exact: true }).clear(); }
+async function select(page: Page, name: string) { await openRightTab(page,'search');await page.getByLabel('Поиск в документе', { exact: true }).fill(name); await page.locator('.search-results').getByRole('button', { name, exact: true }).click(); await openRightTab(page,'search');await page.getByLabel('Поиск в документе', { exact: true }).clear(); await openRightTab(page,'properties'); }
 async function screen(page: Page, p: {
     x: number;
     y: number;
@@ -40,7 +40,7 @@ test('browser performance: 100 entities rotate, bulk style, layer style and Matc
     await row.getByLabel('Действия слоя Граница участка').click();
     await row.getByRole('button', { name: 'Выбрать все объекты слоя', exact: true }).click();
     const report: Record<string, number> = {};
-    await page.getByLabel('Угол поворота выделения', { exact: true }).fill('37');
+    await openRightTab(page,'properties');await page.getByLabel('Угол поворота выделения', { exact: true }).fill('37');
     report.rotate100 = await directClick(page, 'Применить поворот');
     expect((await readAutosaveDocument(page)).vertices.a0).not.toEqual(d.vertices.a0);
     await command(page, 'Отменить');
@@ -115,11 +115,11 @@ test('reference DXF hierarchy has 5 Paper Spaces and 2/2/3/6/2 MODEL viewports w
     await page.screenshot({ path: '/private/tmp/geoservice-dxf-views.png' });
     await page.getByTestId('dxf-views').locator('>summary').click();
     const block = before.entities.find(e => e.type === 'block_instance' && !e.attributePrimitives?.length && before.layers.find(l => l.id === e.layerId)?.visible && !before.layers.find(l => l.id === e.layerId)?.locked)!;
-    await page.getByLabel('Поиск в документе', { exact: true }).fill(block.name);
+    await openRightTab(page,'search');await page.getByLabel('Поиск в документе', { exact: true }).fill(block.name);
     const result = page.locator('.query-result').filter({ hasText: 'block_instance' }).first();
     await result.getByRole('button').first().click();
     await result.getByRole('button', { name: 'Fit', exact: true }).click();
-    await page.getByLabel('Поиск в документе', { exact: true }).clear();
+    await openRightTab(page,'search');await page.getByLabel('Поиск в документе', { exact: true }).clear();
     await frame(page);
     const id = (await page.getByTestId('selected-id').textContent())!, owner = before.entities.find(e => e.id === id)!;
     expect(owner.type).toBe('block_instance');
@@ -137,7 +137,7 @@ test('reference DXF hierarchy has 5 Paper Spaces and 2/2/3/6/2 MODEL viewports w
     expect((await metrics(page)).compilations - m.compilations).toBeLessThanOrEqual(1);
     await command(page, 'Отменить');
     expect(await readAutosaveDocument(page)).toEqual(before);
-    await page.getByLabel('Угол поворота выделения', { exact: true }).fill('37');
+    await openRightTab(page,'properties');await page.getByLabel('Угол поворота выделения', { exact: true }).fill('37');
     const baseline = await metrics(page);
     timings.referenceRotate = await directClick(page, 'Применить поворот');
     const rotated = await readAutosaveDocument(page);

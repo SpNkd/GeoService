@@ -1,4 +1,4 @@
-import { aiSettingsHeaders } from './settings';
+import { aiRuntime, aiSettingsHeaders } from './settings';
 import { z } from 'zod';
 import { AI_LIMITS, aiRequestSchema, readBoundedJson, validateParserResult, type ParserResult } from './intent';
 import { AiProviderError, aiErrorCodeSchema, createDiagnostic, diagnosticSchema, httpErrorCode, newTraceId, redact, safeDiagnostic, type AiDiagnostic, type AiErrorCode } from './reliability';
@@ -19,8 +19,9 @@ export class HttpAiIntentProvider implements AiIntentProvider {
   async parseIntent({ text, signal, traceId = newTraceId(), onDiagnostic }: AiIntentRequest): Promise<unknown> {
     const request = aiRequestSchema.parse({ text });
     let response: Response;
-    try { response = await this.transport('/api/ai/intent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AI-Trace-ID': traceId, ...aiSettingsHeaders() },
-      body: JSON.stringify(request), signal }); } catch { throw new AiProviderError(signal.aborted ? 'TIMEOUT' : 'NETWORK_ERROR'); }
+    let attempt=0;
+    while(true){try { response = await this.transport('/api/ai/intent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AI-Trace-ID': traceId, ...aiSettingsHeaders() },
+      body: JSON.stringify(request), signal }); ;break;} catch { if(!signal.aborted&&attempt++<aiRuntime().retryCount)continue;throw new AiProviderError(signal.aborted ? 'TIMEOUT' : 'NETWORK_ERROR'); }}
     let raw: unknown;
     try { raw = await readBoundedJson(response, AI_LIMITS.upstreamBytes * 4); }
     catch { throw new AiProviderError(response.ok ? 'INVALID_STRUCTURED_OUTPUT' : httpErrorCode(response.status)); }
@@ -62,7 +63,7 @@ export class AiRequestRunner {
       const request = aiRequestSchema.safeParse({ text });
       if (!request.success) throw new AiProviderError('BAD_REQUEST');
       const cancelled = new Promise<never>((_, reject) => { abort = () => reject(new AiProviderError('TIMEOUT')); controller.signal.addEventListener('abort', abort, { once: true }); });
-      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { reject(new AiProviderError('TIMEOUT')); controller.abort(); }, this.timeoutMs); });
+      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { reject(new AiProviderError('TIMEOUT')); controller.abort(); }, this.timeoutMs===AI_LIMITS.timeoutMs?aiRuntime().timeoutMs:this.timeoutMs); });
       const raw = await Promise.race([this.provider.parseIntent({ text: request.data.text, signal: controller.signal, traceId: id, onDiagnostic: record => { diagnostics = record; } }), timeout, cancelled]);
       diagnostics.parsedResult = raw;
       if (diagnostics.rawResponse === undefined) diagnostics.rawResponse = JSON.stringify(raw);

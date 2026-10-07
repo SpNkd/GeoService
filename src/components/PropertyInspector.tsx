@@ -1,3 +1,5 @@
+import { paperDocument } from '../layouts/selection';
+import { activeLayout } from '../layouts/context';
 import { SemanticProperties } from './SemanticProperties';
 import { CloseButton } from './IconButton';
 import { RotateSelectionPanel } from './RotateSelectionPanel';
@@ -207,7 +209,8 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
   const entity = state.document.entities.find(item => item.id === state.selectionId);
   const semanticIndex = useMemo(()=>createProvenanceIndex(state.document),[state.document]);
   const summary = useMemo(()=>entity?semanticIndex.getEntitySemanticSummary(entity.id,{includeTexts:false}):undefined,[entity,semanticIndex]);
-  const deep = state.deepSelection ? resolveDeepSelection(state.document,state.deepSelection) : null;
+  const inspectionDocument=state.selectedPaperIds.length&&activeLayout(state)?paperDocument(state.document,activeLayout(state)!):state.document;
+  const deep = state.deepSelection ? resolveDeepSelection(inspectionDocument,state.deepSelection) : null;
   const heading = entity?.type==='block_instance' ? summary?.blockName ?? entity.name : entity?.type==='imported_graphic' ? entity.semanticContent?.primaryText ?? entity.name : entity?.name;
   const subtitle = entity?.type==='imported_graphic' && entity.source?.originalType==='MULTILEADER' ? 'Мультивыноска' : entity?.type==='imported_graphic' && entity.source?.originalType==='DIMENSION' ? 'DXF размер' : entity ? typeNames[entity.type] : '';
   const selectedLayer = state.document.layers.find(layer => layer.id === state.selectedLayerId);
@@ -235,9 +238,11 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
         <details className="property-section" data-testid="property-source"><summary>Источник</summary><dl className="property-facts"><dt>Блок</dt><dd>{summary?.blockName??entity?.name}</dd><dt>ID</dt><dd data-testid="selected-id">{state.deepSelection.ownerEntityId}</dd>
           <dt>Путь</dt><dd>{[...state.deepSelection.blockPath,state.deepSelection.sourceType].join(' → ')} · {state.deepSelection.primitivePath.join('.')}</dd><dt>Тип</dt><dd>{state.deepSelection.sourceType}</dd><dt>Исходный слой</dt><dd>{deep.source?.originalLayer??deep.primitive.layerId}</dd><dt>Source handle</dt><dd>{deep.source?.handle??'—'}</dd>
           {deep.primitive.kind==='text'&&<><dt>Текст</dt><dd>{deep.primitive.content}</dd></>}
-          <dt>MODEL X/Y</dt><dd>{'position' in deep.primitive?(()=>{const p=transformPoint(deep.primitive.position,deep.matrix);return `${formatCoordinate(p.x)} / ${formatCoordinate(p.y)} м`;})():'center' in deep.primitive?`${deep.primitive.center.x} / ${deep.primitive.center.y}`:deep.primitive.points.map(p=>`${p.x} / ${p.y}`).slice(0,4).join('; ')}</dd></dl></details>
+          <dt>MODEL X/Y</dt><dd>{'position' in deep.primitive?(()=>{const p=transformPoint(deep.primitive.position,deep.matrix);return `${formatCoordinate(p.x)} / ${formatCoordinate(p.y)} м`;})():'center' in deep.primitive?(()=>{const p=transformPoint(deep.primitive.center,deep.matrix);return `${formatCoordinate(p.x)} / ${formatCoordinate(p.y)} м`;})():deep.primitive.points.map(p=>{const q=transformPoint(p,deep.matrix);return `${formatCoordinate(q.x)} / ${formatCoordinate(q.y)}`;}).slice(0,4).join('; ')}</dd></dl></details>
         <p className="read-only-banner">{state.deepSelection.sourceType==='ATTDEF'?'ATTDEF — шаблон определения. Его правка затронула бы экземпляры; редактор определения блока пока не поддерживается.':state.deepSelection.sourceType==='TEXT'||state.deepSelection.sourceType==='MTEXT'?'Этот текст входит в определение блока. Изменение затронуло бы все экземпляры блока. Редактор определения блока пока не реализован.':NESTED_MOVE_MESSAGE}</p>
       </>}
+      <button onClick={()=>dispatch(state.selectedPaperIds.length?{type:'select-entities',entityIds:[state.deepSelection!.ownerEntityId]}:{type:'select',entityId:state.deepSelection!.ownerEntityId})}>Выбрать блок</button>
+      {deep.primitive.kind==='path'&&<p>Длина: {formatCoordinate(deep.primitive.points.slice(1).reduce((n,p,i)=>{const a=transformPoint(deep.primitive.kind==='path'?deep.primitive.points[i]!:p,deep.matrix),b=transformPoint(p,deep.matrix);return n+Math.hypot(a.x-b.x,a.y-b.y);},0))} м</p>}
     </div> : entity&&state.selectedEntityIds.length===1 ? <div className="inspector-content">
 
       <details className="property-section" open><summary>Общие</summary><dl className="property-facts"><dt>Название</dt><dd>{entity.name}</dd><dt>Тип</dt><dd>{subtitle}</dd><dt>Видимость</dt><dd>{entity.visible===false||!state.document.layers.some(l=>l.id===entity.layerId&&l.visible)?"Скрыт":"Видимый"}</dd><dt>Редактирование</dt><dd>{locked?"Слой заблокирован":"Доступно"}</dd></dl>
@@ -257,7 +262,7 @@ export const PropertyInspector = memo(function PropertyInspector({ state, dispat
       <SelectionStyle state={state} dispatch={dispatch}/>
       {!locked && <button className="delete-object-button" onClick={() => dispatch({ type: 'execute', command: { type: 'delete-entity', entityId: entity.id } })}><Icon name="trash" size={15} />Удалить объект <span>Del</span></button>}
       <div className="property-note"><span className="live-dot" /> Объект в мировой системе координат</div>
-    </div> : state.selectedPaperIds.length||state.selectedEntityIds.length>1 ? null : <div className="empty-inspector"><div className="empty-symbol"><Icon name="cursor" size={30} /></div><h3>Выберите объект</h3><p>Нажмите на точку, линию, полигон или подпись на схеме.</p><div className="empty-preview"><span>X</span><i /><span>Y</span><i /><span>Z</span><i /></div><small>Свойства и координаты появятся здесь</small></div>}
+    </div> : state.selectedPaperIds.length||state.selectedEntityIds.length>1 ? null : <div className="empty-inspector"><h3>Выберите объект</h3><p>Клик по геометрии откроет свойства. Cmd/Ctrl+клик — выбрать блок целиком.</p></div>}
     <div className="inspector-footer"><span>Изменения сохраняются в этом браузере.</span><small>Save экспортирует полный документ в JSON.</small></div>
   </aside>;
 },(a,b)=>a.onTeach===b.onTeach&&a.dispatch===b.dispatch&&a.size===b.size&&(Object.keys(a.state) as (keyof EditorState)[]).every(key=>['viewport','layoutViewport','planViewport','axonViewport','viewportNavigation'].includes(key)||a.state[key]===b.state[key]));

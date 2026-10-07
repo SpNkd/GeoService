@@ -270,7 +270,7 @@ export function aiDevelopmentEndpoint(config: AiServerConfig): Plugin {
         response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(redact(value, requestSecrets))); };
       if (!sameLocalOrigin(request)) { reply(403, { error: 'Local same-origin access required' }); return; }
       if (request.url === '/api/ai/config' && request.method === 'GET') { reply(200, { mode }); return; }
-      if (request.url === '/api/ai/settings' && request.method === 'GET') { reply(200, { primaryModel: mode === 'openai' ? config.AI_MODEL ?? models.primaryModel : models.primaryModel, fallbackModel: models.fallbackModels[0] ?? '' }); return; }
+      if (request.url === '/api/ai/settings' && request.method === 'GET') { reply(200, { provider:mode,hasApiKey:mode==='openrouter'?!!config.OPENROUTER_API_KEY:mode==='openai'?!!config.OPENAI_API_KEY:false,primaryModel: mode === 'openai' ? config.AI_MODEL ?? models.primaryModel : models.primaryModel, fallbackModel: models.fallbackModels[0] ?? '' }); return; }
       if (request.url === '/api/ai/resolution' && request.method === 'POST') {
         try {
           const result = z.strictObject({ traceId: traceIdSchema, status: z.enum(['ready', 'invalid', 'blocked', 'unresolved']), actionCount: z.number().int().min(0).max(AI_LIMITS.actions) }).parse(JSON.parse(await requestText(request)) as unknown);
