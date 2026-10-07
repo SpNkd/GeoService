@@ -50,3 +50,20 @@ OpenRouter — единственный ожидаемый внешний app re
 Предварительно: typecheck/lint/build PASS; unit 1208 passed / 82 skipped; npm audit 0 vulnerabilities. Относящиеся к публикации Chrome E2E: 47 passed / 3 opt-in skipped; после PDF preview fix повторно 13 passed. Production static smoke и результаты обоих публичных доменов сохраняются в `docs/audit-results/pages-*.json`.
 
 Верификация фактических deployments выполняется после публикации независимо на обоих доменах. Наличие репозитория или успешного встроенного deploy не заменяет browser smoke.
+
+### Проверенная публикация 2026-10-07
+
+Runtime source commit: `2be40f31ac20100f585a90f8ce6e50ae79801d6d`. Последующий commit с этими отчётами меняет только документацию; повторная сборка runtime не требуется.
+
+| Площадка | REAL production smoke | Отчёт |
+| --- | --- | --- |
+| GitHub Pages | PASS, 14 проверок | [GitHub](audit-results/pages-github-production.json) |
+| GitVerse Pages | PASS, 14 проверок | [GitVerse](audit-results/pages-gitverse-production.json) |
+
+На обоих доменах проверены no-key UI, реальный Test connection, структурированный план прямоугольника 2×3 м (`qwen/qwen3.5-27b`), Remember OFF/ON/отключение, Preferences, Point/Line/Move/Undo/Redo, IndexedDB/autosave/reload, синтетический DXF, native и scanned PDF/вторая страница, image geometry, OCR RU/EN и topology Apply. Неожиданные console/page errors, runtime 404, backend calls и внешние запросы: 0. AI отправлен напрямую только в OpenRouter.
+
+Fresh public GitHub clone без `.env.local`: `npm ci`, production build и static startup/IndexedDB/no-key UI — PASS. README отрендерен на обеих площадках; три синтетических PNG доступны, на GitVerse проверена фактическая загрузка всех изображений.
+
+Публичная история проверена на реальный локальный ключ, шаблоны credentials и исходные приватные reference-координаты: 1137 исторических blobs и 893 source/build files, совпадений нет. Эти числа относятся к runtime release до добавления итоговых отчётов.
+
+В обычном пользовательском профиле Chrome при открытии GitVerse Pages наблюдался `ERR_BLOCKED_BY_CLIENT`. Изолированный Chrome на том же публичном URL прошёл полный smoke; ограничения/расширения пользовательского профиля не менялись.
