@@ -6,7 +6,7 @@ export type VertexRegistry = Record<string, Vertex>;
 export interface Viewport { center: WorldPoint; pixelsPerUnit: number }
 export interface Layer { id: string; name: string; visible: boolean; locked: boolean; order: number; styleId: string; style?: import('../styles/model').LayerStyle; source?: SourceProvenance }
 export interface EntityStyle { id: string; stroke: string; fill: string; lineWeight: number; dash?: string | undefined; opacity?:number;fillOpacity?:number;textColor?:string;textSize?:number | undefined }
-interface EntityBase { id: string; name: string; layerId: string; styleId?: string; style?: import('../styles/model').StyleOverrides; visible?: boolean; source?: SourceProvenance }
+interface EntityBase { imageSource?: import('../image/types').ImageProvenance; id: string; name: string; layerId: string; styleId?: string; style?: import('../styles/model').StyleOverrides; visible?: boolean; source?: SourceProvenance }
 export interface PointEntity extends EntityBase { type: 'point'; vertexId: string }
 export interface LineEntity extends EntityBase { type: 'line'; startVertexId: string; endVertexId: string }
 export interface PolylineEntity extends EntityBase { type: 'polyline'; vertexIds: [string, string, ...string[]] }
@@ -21,7 +21,7 @@ export interface BlockInstanceEntity extends EntityBase, BlockTransform { type: 
 export interface ImportedGraphicEntity extends EntityBase { type: 'imported_graphic'; position: WorldPoint; primitives: VectorPrimitive[]; semanticContent?: ImportedSemanticContent }
 export interface ConnectorEndpoint { kind: 'symbol_port'; symbolEntityId: string; portId: string }
 export interface ConnectorEntity extends EntityBase { type: 'connector'; start: ConnectorEndpoint; end: ConnectorEndpoint; routing: 'direct' | 'orthogonal'; waypoints?: {x:number;y:number}[] }
-export interface RasterUnderlayEntity extends EntityBase { type: 'raster_underlay'; assetId:string; position:{x:number;y:number}; width:number; height:number; rotationDeg:number; opacity:number; locked:boolean; assetMetadata?: { mimeType:string; originalName:string; byteSize:number; widthPx:number; heightPx:number } }
+export interface RasterUnderlayEntity extends EntityBase { type: 'raster_underlay'; imageCalibration?: import('../image/types').ImageCalibration; assetId:string; position:{x:number;y:number}; width:number; height:number; rotationDeg:number; opacity:number; locked:boolean; assetMetadata?: { mimeType:string; originalName:string; byteSize:number; widthPx:number; heightPx:number } }
 export type Entity = RasterUnderlayEntity | ConnectorEntity | PointEntity | LineEntity | PolylineEntity | PolygonEntity | TextEntity | LabelEntity | DimensionEntity | SymbolEntity | ArcEntity | CircleEntity | BlockInstanceEntity | ImportedGraphicEntity;
 export interface SurveyXY { e: number; n: number }
 export interface RigidTransform2D { rotation: number; translation: SurveyXY; scale: 1 }

@@ -6,7 +6,7 @@ import { expect, it, vi } from 'vitest';
 import { aiDevelopmentEndpoint } from '../../server/ai';
 
 type Middleware = (request: IncomingMessage, response: ServerResponse, next: () => void) => void | Promise<void>;
-async function request(body: unknown, options: { mode?: string; host?: string; origin?: string; path?: string; method?: string; contentType?: string; raw?: string; traceId?: string } = {}) {
+async function request(body: unknown, options: { mode?: string; host?: string; origin?: string; path?: string; method?: string; contentType?: string; raw?: string; traceId?: string; headers?: Record<string,string> } = {}) {
   let handle!: Middleware;
   const server = { middlewares: { use: (callback: Middleware) => { handle = callback; } } };
   const hook = aiDevelopmentEndpoint({ AI_PROVIDER: options.mode ?? 'mock', OPENAI_API_KEY: 'never-exposed-test-secret', OPENROUTER_API_KEY: 'never-exposed-test-secret', AI_MODEL: 'test-model' }).configureServer;
@@ -14,7 +14,7 @@ async function request(body: unknown, options: { mode?: string; host?: string; o
   await hook.call({} as never, server as ViteDevServer);
   const req = Readable.from([options.raw ?? JSON.stringify(body)]) as unknown as IncomingMessage;
   req.url = options.path ?? '/api/ai/intent'; req.method = options.method ?? 'POST';
-  req.headers = { ...(options.traceId ? { 'x-ai-trace-id': options.traceId } : {}), host: options.host ?? '127.0.0.1:5173', 'content-type': options.contentType ?? 'application/json', ...(options.origin ? { origin: options.origin } : {}) };
+  req.headers = { ...(options.traceId ? { 'x-ai-trace-id': options.traceId } : {}), host: options.host ?? '127.0.0.1:5173', 'content-type': options.contentType ?? 'application/json', ...(options.origin ? { origin: options.origin } : {}), ...options.headers };
   const emitter = new EventEmitter(); let status = 0, result = '', next = false;
   const res = Object.assign(emitter, { destroyed: false, writableEnded: false,
     setHeader: () => {}, writeHead: (code: number) => { status = code; }, end: (value: string) => { result = value; } }) as unknown as ServerResponse;
@@ -72,4 +72,11 @@ it('endpoint diagnostics redact environment credentials, raw response and user t
 it('resolver logging endpoint accepts only status/count/trace, never document data', async () => {
   expect((await request({ traceId: 'ai-report', status: 'ready', actionCount: 3 }, { path: '/api/ai/resolution' })).status).toBe(200);
   expect((await request({ traceId: 'ai-report', status: 'ready', actionCount: 3, document: {} }, { path: '/api/ai/resolution' })).status).toBe(400);
+});
+it('settings metadata contains no key; per-request provider choices are validated and remain local-origin only', async () => {
+  const settings=await request({}, {method:'GET',path:'/api/ai/settings',mode:'openrouter'});expect(settings.status).toBe(200);expect(settings.result).not.toContain('secret');expect(JSON.parse(settings.result).primaryModel).toBe('test-model');
+  const headers={'x-ai-provider':'mock','x-ai-primary-model':'qwen/test','x-ai-fallback-model':'','x-ai-api-key':'session-only-secret'};
+  expect((await request({text},{mode:'disabled',headers})).status).toBe(200);
+  const invalid=await request({text},{headers:{...headers,'x-ai-primary-model':'bad model\n'}});expect(invalid.status).toBe(400);expect(invalid.result).not.toContain('session-only-secret');
+  expect((await request({text},{headers,origin:'https://other.example'})).status).toBe(403);
 });

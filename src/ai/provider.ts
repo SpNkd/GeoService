@@ -1,3 +1,4 @@
+import { aiSettingsHeaders } from './settings';
 import { z } from 'zod';
 import { AI_LIMITS, aiRequestSchema, readBoundedJson, validateParserResult, type ParserResult } from './intent';
 import { AiProviderError, aiErrorCodeSchema, createDiagnostic, diagnosticSchema, httpErrorCode, newTraceId, redact, safeDiagnostic, type AiDiagnostic, type AiErrorCode } from './reliability';
@@ -18,7 +19,7 @@ export class HttpAiIntentProvider implements AiIntentProvider {
   async parseIntent({ text, signal, traceId = newTraceId(), onDiagnostic }: AiIntentRequest): Promise<unknown> {
     const request = aiRequestSchema.parse({ text });
     let response: Response;
-    try { response = await this.transport('/api/ai/intent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AI-Trace-ID': traceId },
+    try { response = await this.transport('/api/ai/intent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AI-Trace-ID': traceId, ...aiSettingsHeaders() },
       body: JSON.stringify(request), signal }); } catch { throw new AiProviderError(signal.aborted ? 'TIMEOUT' : 'NETWORK_ERROR'); }
     let raw: unknown;
     try { raw = await readBoundedJson(response, AI_LIMITS.upstreamBytes * 4); }

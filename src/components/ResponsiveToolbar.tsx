@@ -20,7 +20,7 @@ export function ResponsiveToolbar({ children, inert = false }: {
     const group = (name: string, entries: ReactElement<NodeProps>[], active = false) => <details className={`toolbar-menu ${name === 'Ещё' ? 'toolbar-overflow' : ''}`} data-popup key={name}><summary aria-label={name === 'Ещё' ? 'Ещё инструменты' : undefined} className={active ? 'active' : ''}>{name} ▾</summary><div>{entries.map((n, i) => <span key={i}>{render(n)}</span>)}</div></details>;
     const lines = take(/^Инструмент: (Линия|Полилиния)$/), polyline = lines.find(n => label(n).endsWith('Полилиния'))?.props['aria-pressed'];
     return <nav inert={inert} className="toolbar semantic-toolbar" aria-label="Инструменты редактора">
- {group('Файл / данные', take(/Новый документ|Открыть JSON|Сохранить JSON|^DXF$|[Пп]одложк|Импорт координат/))}
+ {group('Файл / данные', take(/Новый документ|Открыть JSON|Сохранить JSON|^DXF$|[Пп]одложк|Импорт координат|Векторизация изображения/))}
  {group('Правка', take(/Повернуть выделенное|Переместить выбор/))}
  <div className="semantic-draw" role="group" aria-label="Рисование">{take(/^Инструмент: (Выбор|Точка)$/).map(render)}{group(polyline ? 'Полилиния' : 'Линия', lines, lines.some(n => n.props['aria-pressed']))}{take(/^Инструмент: (Полигон|Текст|Соединение)$/).map(render)}{take(/^Символы$/).map(render)}</div>
  {group('Инженерия', take(/^Инструмент: (Размер|Измерение|Панорама)$/))}

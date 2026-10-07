@@ -1,3 +1,4 @@
+import { AiSettingsPanel } from './AiSettings';
 import { ProcessPreview } from './ProcessPreview';
 import type { ViewSize } from '../geometry';
 import { DocumentOperationsPreview } from './DocumentOperationsPreview';
@@ -23,6 +24,7 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
   const [lastDiagnostic, setLastDiagnostic] = useState<AiDiagnostic | null>(null);
   const [clarificationAnswer, setClarificationAnswer] = useState('');
   const [mode, setMode] = useState<ProviderMode>('disabled');
+  const [settingsStatus,setSettingsStatus]=useState<{enabled:boolean;label:string}|null>(null);
   const runner = useMemo(() => new AiRequestRunner(provider), [provider]);
   useEffect(() => () => runner.cancel(), [runner]);
   useEffect(() => { runner.cancel(); }, [runner, documentEpoch]);
@@ -48,13 +50,14 @@ export const AiPanel = memo(function AiPanel({ size, ai, dispatch, transactionAc
   const resolution = preview?.plan.resolution;
   const cancel = () => { runner.cancel(); dispatch({ type: 'ai-cancel' }); };
   return <section className="ai-panel" aria-label="AI Assistant">
-    <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? 'OpenRouter' : 'Не подключён'}</span></div>
+    <div className="ai-heading"><h2>AI Assistant</h2><span className="ai-mode">{settingsStatus?.label ?? (mode === 'mock' ? 'MOCK · демо' : mode === 'openai' ? 'OpenAI' : mode === 'openrouter' ? 'AI: Qwen · готов' : 'AI отключён')}</span></div>
+    <AiSettingsPanel key={mode} mode={mode} onStatus={(enabled,label)=>setSettingsStatus({enabled,label})} onChange={()=>{runner.cancel();dispatch({type:'ai-cancel'});}}/>
     <p className="ai-caption">Геометрия · операции над документом · технологические схемы</p>
     <form onSubmit={generate}>
       <label htmlFor="ai-request">Запрос</label>
       <textarea id="ai-request" value={text} maxLength={AI_LIMITS.requestBytes} onChange={event => setText(event.target.value)} rows={3} />
       {ai.status === 'needs_clarification' && <div className="ai-clarification" data-testid="ai-clarification"><strong>Нужно уточнение</strong><ul>{ai.questions.map((question, index) => <li key={index}>{question}</li>)}</ul><label>Ответ на уточнение<textarea aria-label="Ответ на уточнение" value={clarificationAnswer} onChange={event => setClarificationAnswer(event.target.value)} rows={2} /></label></div>}
-      <div className="ai-actions"><button className="primary-button" type="submit" disabled={mode === 'disabled' || !(ai.status === 'needs_clarification' ? clarificationAnswer.trim() : text.trim()) || utf8Bytes(text) > AI_LIMITS.requestBytes}>Generate plan</button>
+      <div className="ai-actions"><button className="primary-button" type="submit" disabled={(settingsStatus ? !settingsStatus.enabled : mode === 'disabled') || !(ai.status === 'needs_clarification' ? clarificationAnswer.trim() : text.trim()) || utf8Bytes(text) > AI_LIMITS.requestBytes}>Generate plan</button>
         <button type="button" className="tool-button compact" onClick={cancel}>Cancel</button></div>
     </form>
     <p className="ai-privacy">{mode === 'mock' ? 'Демо: фиксированные ответы, без LLM. ' : ''}Отправляется только текст запроса. Точки и объекты разрешаются локально; слои и выделение не отправляются.</p>

@@ -1,3 +1,4 @@
+import { imageCalibrationSchema, imageProvenanceSchema } from '../image/schema';
 import { layerStyleSchema, styleOverridesSchema } from '../styles/schema';
 import { dxfLayoutsSchema } from '../layouts/schema';
 import { validateConnectivity } from '../connectors/model';
@@ -15,10 +16,10 @@ export const finiteNumber = z.number().finite();
 export const worldPointSchema = z.object({ x: finiteNumber, y: finiteNumber, z: finiteNumber.optional() });
 // Literal paint colours only: the layer swatch also uses this value in CSS background.
 const paintColour = z.string().max(100).refine(value => /^(?:[a-z]*|#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})|(?:rgb|hsl)a?\([\d\s.,%+\-/]+\))$/i.test(value.trim()), 'Ожидается цвет без URL, CSS variables или внешних ресурсов');
-const base = { id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional(), style: styleOverridesSchema.optional(), visible: z.boolean().optional(), source: sourceSchema.optional() };
+const base = { imageSource: imageProvenanceSchema.optional(), id, name: z.string().min(1).max(1000), layerId: id, styleId: id.optional(), style: styleOverridesSchema.optional(), visible: z.boolean().optional(), source: sourceSchema.optional() };
 export const symbolEntitySchema = z.object({ ...base, type: z.literal('symbol'), libraryId: id, libraryVersion: id.optional(), symbolId: id, position: worldPointSchema, rotationDeg: finiteNumber.min(0).lt(360), scale: symbolScaleSchema, properties: symbolPropertiesSchema.optional() });
 const rasterMetadataSchema=z.object({mimeType:z.enum(['image/png','image/jpeg','image/webp']),originalName:z.string().max(1000),byteSize:finiteNumber.int().min(1).max(40*1024*1024),widthPx:finiteNumber.int().positive().max(16384),heightPx:finiteNumber.int().positive().max(16384)});
-export const rasterPatchSchema = z.strictObject({ position:z.strictObject({x:finiteNumber,y:finiteNumber}).optional(), width:finiteNumber.positive().max(1e9).optional(), height:finiteNumber.positive().max(1e9).optional(), rotationDeg:finiteNumber.optional(), opacity:finiteNumber.min(0).max(1).optional(), locked:z.boolean().optional(), assetId:id.optional(), assetMetadata:rasterMetadataSchema.optional() });
+export const rasterPatchSchema = z.strictObject({ position:z.strictObject({x:finiteNumber,y:finiteNumber}).optional(), width:finiteNumber.positive().max(1e9).optional(), height:finiteNumber.positive().max(1e9).optional(), rotationDeg:finiteNumber.optional(), opacity:finiteNumber.min(0).max(1).optional(), locked:z.boolean().optional(), assetId:id.optional(), assetMetadata:rasterMetadataSchema.optional(),imageCalibration:imageCalibrationSchema.optional() });
 export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('point'), vertexId: id }),
   z.object({ ...base, type: z.literal('line'), startVertexId: id, endVertexId: id }),
@@ -28,7 +29,7 @@ export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('text'), vertexId: id, content: z.string().min(1).max(10000), fontSize: finiteNumber.positive().max(1000), rotationDeg: finiteNumber.optional(), height: finiteNumber.positive().optional() }),
   z.object({ ...base, type: z.literal('label'), targetId: id, template: z.string().max(10000), dx: finiteNumber, dy: finiteNumber }),
   symbolEntitySchema,
-  z.object({...base,type:z.literal('raster_underlay'),assetId:id,position:z.strictObject({x:finiteNumber,y:finiteNumber}),width:finiteNumber.positive().max(1e9),height:finiteNumber.positive().max(1e9),rotationDeg:finiteNumber,opacity:finiteNumber.min(0).max(1),locked:z.boolean(),assetMetadata:rasterMetadataSchema.optional()}),
+  z.object({...base,type:z.literal('raster_underlay'),assetId:id,position:z.strictObject({x:finiteNumber,y:finiteNumber}),width:finiteNumber.positive().max(1e9),height:finiteNumber.positive().max(1e9),rotationDeg:finiteNumber,opacity:finiteNumber.min(0).max(1),locked:z.boolean(),assetMetadata:rasterMetadataSchema.optional(),imageCalibration:imageCalibrationSchema.optional()}),
   z.object({ ...base, type:z.literal('connector'), start:connectorEndpointSchema, end:connectorEndpointSchema, routing:z.enum(['direct','orthogonal']), waypoints:z.array(symbolPositionSchema).max(100).optional() }),
   z.object({ ...base, type: z.literal('arc'), center: worldPointSchema, radius: finiteNumber.positive(), startAngle: finiteNumber, endAngle: finiteNumber }),
   z.object({ ...base, type: z.literal('circle'), center: worldPointSchema, radius: finiteNumber.positive() }),
@@ -88,6 +89,7 @@ export function validateDocumentSemantics(document: GeoDocument): void {
   for (const [key, vertex] of Object.entries(document.vertices)) if (key !== vertex.id) throw new Error(`Vertex key ${key} does not match ID ${vertex.id}`);
   for (const layer of document.layers) if (!styles.has(layer.styleId)) throw new Error(`Layer ${layer.id} references missing style ${layer.styleId}`);
   for (const entity of document.entities) {
+    if(entity.type==='raster_underlay'&&entity.imageCalibration&&entity.assetMetadata&&entity.imageCalibration.quad.some(p=>p.x>entity.assetMetadata!.widthPx||p.y>entity.assetMetadata!.heightPx))throw new Error('Углы перспективы выходят за пределы исходного изображения');
     if (entity.type === 'symbol') { const definition = requireSymbol(entity.libraryId, entity.symbolId, entity.libraryVersion); if (definition.allowedRotations && !definition.allowedRotations.includes(entity.rotationDeg)) throw new Error(`Поворот символа ${entity.id} не разрешён определением`); }
     if (!layers.has(entity.layerId)) throw new Error(`Entity ${entity.id} references missing layer ${entity.layerId}`);
     if (entity.styleId && !styles.has(entity.styleId)) throw new Error(`Entity ${entity.id} references missing style ${entity.styleId}`);

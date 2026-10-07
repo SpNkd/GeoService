@@ -22,7 +22,7 @@ export type DocumentCommand =
   | {type:'set-entity-style';entityIds:string[];patch:import('../styles/model').StyleOverrides}
   | {type:'set-layer-style';layerId:string;patch:import('../styles/model').LayerStyle}
 
-  | {type:'update-underlay';entityId:string;patch:Partial<Pick<import('./model').RasterUnderlayEntity,'position'|'width'|'height'|'rotationDeg'|'opacity'|'locked'|'assetId'|'assetMetadata'>>}
+  | {type:'update-underlay';entityId:string;patch:Partial<Pick<import('./model').RasterUnderlayEntity,'position'|'width'|'height'|'rotationDeg'|'opacity'|'locked'|'assetId'|'assetMetadata'|'imageCalibration'>>}
   | {type:'set-symbol-position';entityId:string;position:WorldPoint}
   | {type:'retarget-connector';entityId:string;endpoint:'start'|'end';target:ConnectorEndpoint}
   | {type:'set-connector-routing';entityId:string;routing:'direct'|'orthogonal'}
@@ -125,7 +125,8 @@ export function applyCommand(document: GeoDocument, raw: unknown): GeoDocument {
       if(document.layers.find(l=>l.id===entity.layerId)?.locked)throw new Error('Слой заблокирован');
       if(entity.locked&&Object.keys(command.patch).some(k=>k!=='locked'))throw new Error('Подложка заблокирована');
       if(Object.entries(command.patch).every(([key,value])=>JSON.stringify(entity[key as keyof typeof entity])===JSON.stringify(value)))return document;
-      return {...document,entities:document.entities.map(e=>e.id===entity.id?{...entity,...command.patch}:e)};
+      const updated={...entity,...command.patch};if(command.patch.assetId&&command.patch.assetId!==entity.assetId)delete updated.imageCalibration;
+      return {...document,entities:document.entities.map(e=>e.id===entity.id?updated:e)};
     }
   if(command.type==='retarget-connector'||command.type==='set-connector-routing'){
     const entity=document.entities.find(e=>e.id===command.entityId);
