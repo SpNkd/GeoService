@@ -31,7 +31,7 @@ export const entitySchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('label'), targetId: id, template: z.string().max(10000), dx: finiteNumber, dy: finiteNumber }),
   symbolEntitySchema,
   z.object({...base,type:z.literal('raster_underlay'),assetId:id,position:z.strictObject({x:finiteNumber,y:finiteNumber}),width:finiteNumber.positive().max(1e9),height:finiteNumber.positive().max(1e9),rotationDeg:finiteNumber,opacity:finiteNumber.min(0).max(1),locked:z.boolean(),assetMetadata:rasterMetadataSchema.optional(),imageCalibration:imageCalibrationSchema.optional()}),
-  z.object({ ...base, type:z.literal('connector'), start:connectorEndpointSchema, end:connectorEndpointSchema, routing:z.enum(['direct','orthogonal']), waypoints:z.array(symbolPositionSchema).max(100).optional() }),
+  z.object({ ...base, type:z.literal('connector'), start:connectorEndpointSchema, end:connectorEndpointSchema, routing:z.enum(['direct','orthogonal']), waypoints:z.array(symbolPositionSchema).max(100).optional(), topologySource:z.strictObject({source:z.literal('topology-reconstruction'),sourceGeometryIds:z.array(id).min(1).max(2000),sourceImageRunId:id.optional(),resolution:z.literal('user-confirmed')}).optional() }),
   z.object({ ...base, type: z.literal('arc'), center: worldPointSchema, radius: finiteNumber.positive(), startAngle: finiteNumber, endAngle: finiteNumber }),
   z.object({ ...base, type: z.literal('circle'), center: worldPointSchema, radius: finiteNumber.positive() }),
   z.object({ ...base, type: z.literal('block_instance'), blockDefinitionId: id, ...blockTransformSchema, attributes: attributesSchema.optional(), attributePrimitives: primitivesSchema.optional(), attributeCoordinateSpace: z.literal('block-local').optional() }),

@@ -11,6 +11,8 @@ export interface ImageCalibration {
   reference?: { a: PixelPoint; b: PixelPoint; distanceMeters: number };
 }
 export interface ImageProvenance {
+  /** Frozen metric resolution of the accepted analysis, independent of later underlay edits. */
+  modelUnitsPerPixel?:number;
   source: 'image-vectorization' | 'image-ocr' | 'image-symbol-match' | 'pdf-vector'; sourceAssetId: string; vectorizationRunId: string;
   candidateType: Candidate['type']; confidence?: number; originalText?:string; candidateGroupId?:string; libraryId?:string; symbolId?:string; matchClass?:'strong'|'possible';
 }

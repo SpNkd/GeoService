@@ -1,3 +1,4 @@
+import { TopologyOverlay, type TopologyPreview } from '../renderer/TopologyOverlay';
 import { usePreferences } from '../preferences/store';
 import { viewRotation, type RenderCamera } from '../view/projection';
 import { viewportDocument } from '../layouts/context';
@@ -51,6 +52,7 @@ import { Grid } from '../renderer/Grid';
 import type { EditorAction, EditorState } from '../store/editor';
 
 interface Props {
+  topologyPreview?:TopologyPreview|null;
   cameraOverride?:RenderCamera; activeViewport?:DxfViewport;
   processPreview?:ProcessPlan|undefined;
   onPickPoint?: ((id: string) => void) | undefined; referencePreview?: HorizontalReference | undefined;
@@ -68,7 +70,7 @@ function textEntryStyle(point: ScreenPoint, camera: RenderCamera, size: ViewSize
   return { width, left: Math.max(left + 8, Math.min(point.x + 8, right - width - 8)), top: Math.max(top + 8, Math.min(point.y + 8, bottom - 70)) };
 }
 const cadType=(e:Entity)=>({point:'Точка',line:'Линия',polyline:'Полилиния',polygon:'Полигон',text:'Текст',label:'Подпись',dimension:'Размер',symbol:'Символ',connector:'Соединение',arc:'Дуга',circle:'Окружность',block_instance:'Блок',imported_graphic:'Графика',raster_underlay:'Подложка'})[e.type];
-export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], processPreview, cameraOverride, activeViewport, aiReferenceIds = [], documentHighlightIds = [], onPickPoint, referencePreview }: Props) {
+export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, onCursor, onSnap, onMeasure, disabled = false, spaceHeld = false, sequenceHint = '', aiPreview = [], processPreview, cameraOverride, activeViewport, topologyPreview=null, aiReferenceIds = [], documentHighlightIds = [], onPickPoint, referencePreview }: Props) {
   const ref = useRef<SVGSVGElement>(null), drag = useRef<Drag | null>(null);
   const hitCycle = useRef<{document: typeof state.document; point: ScreenPoint; candidates: HitCandidate[]; index: number; zoom:number; center:WorldPoint} | null>(null);
   const lastTextClick = useRef<{ entityId: string; at: number; point: ScreenPoint } | null>(null);
@@ -537,6 +539,7 @@ export const Canvas = memo(function Canvas({ state, dispatch, size, onResize, on
         const vertex = document.vertices[control.vertexId]!, p = worldToScreen(vertex, viewport, size), survey = modelToSurveyXY(vertex, reference.transform);
         return <g key={control.pointEntityId}><circle cx={p.x} cy={p.y} r={11} fill="none" stroke="#b77922" strokeWidth={2} strokeDasharray={referencePreview ? '3 3' : undefined} /><text x={p.x + 15} y={p.y - 12}>{i === 0 ? 'A' : 'B'} · E {survey.e.toFixed(3)} · N {survey.n.toFixed(3)}</text></g>;
       })}</g>}
+      <TopologyOverlay preview={topologyPreview} viewport={viewport} size={size}/>
       <DocumentQueryHighlight document={state.document} entityIds={documentHighlightIds} viewport={viewport} size={size}/>
       {aiReferenceIds.map(id=>{const entity=document.entities.find(e=>e.id===id);if(!entity)return null;const points=entityPoints(entity,document.vertices).map(p=>worldToScreen(p,viewport,size));return <g key={id} data-testid="ai-reference-highlight" pointerEvents="none" stroke="#b77922" strokeWidth={3} strokeDasharray="7 4" fill="#b7792210"><GeometryPath points={points} closed={entity.type==='polygon'}/></g>;})}
       {processPreview&&<ProcessGhost plan={processPreview} viewport={viewport} size={size}/>}

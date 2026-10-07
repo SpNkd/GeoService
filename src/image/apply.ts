@@ -23,7 +23,7 @@ export function candidateCommands(document:GeoDocument,original:Pick<RasterUnder
   else { const layer = document.layers.find(l => l.id === layerId); if (!layer || layer.locked || !layer.visible) throw new Error('Выберите видимый незаблокированный слой.'); }
   const registry = new Map<string, string>(), annotations:import('../semantics/model').SemanticAnnotation[]=[];
   for (const [index, candidate] of accepted.entries()) {
-    const source: ImageProvenance = { source: sourceKind??(candidate.type==='text'?'image-ocr':candidate.type==='symbol'?'image-symbol-match':'image-vectorization'), sourceAssetId: original.assetId, vectorizationRunId: runId, candidateType: candidate.type, ...(candidate.confidence !== undefined ? { confidence: candidate.confidence } : {}) };
+    const source: ImageProvenance = { source: sourceKind??(candidate.type==='text'?'image-ocr':candidate.type==='symbol'?'image-symbol-match':'image-vectorization'), sourceAssetId: original.assetId, ...(sourceKind?{}:{modelUnitsPerPixel:Math.max(placed.width/calibration.rectifiedWidth,placed.height/calibration.rectifiedHeight)}), vectorizationRunId: runId, candidateType: candidate.type, ...(candidate.confidence !== undefined ? { confidence: candidate.confidence } : {}) };
     const base = { id: newGeometryId('image-geometry'), name: `Изображение · ${index + 1}`, layerId, imageSource: source };
     const vertices: Vertex[] = [];
     const vertex = (p: PixelPoint) => { const world = pixelToModel(p, placed, calibration), key = `${world.x.toFixed(8)}:${world.y.toFixed(8)}`; let id = registry.get(key); if (!id) { id = newGeometryId('vertex'); registry.set(key, id); vertices.push({ id, ...world }); } return id; };
