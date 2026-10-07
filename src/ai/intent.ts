@@ -5,6 +5,7 @@ import { documentActionSchema, isDocumentAction } from '../documentOperations/sc
 import { normalizeQuery } from '../documentOperations/aliases';
 import { SPATIAL_ANCHORS } from '../geometry/autoPlacement';
 import { AiProviderError } from './reliability';
+import { explicitNumericLiterals } from './numericLiterals';
 
 export const AI_LIMITS = Object.freeze({ requestBytes: 8192, responseBytes: 96 * 1024, upstreamBytes: 256 * 1024,
   actions: 8, pointsPerAction: 500, clarificationQuestions: 3, clarificationQuestionLength: 240, totalReferences: 1000, generatedCommands: 128, bulkDimensions: 100, pointNames: 500, nameLength: 128, timeoutMs: 30000 });
@@ -111,7 +112,7 @@ export function validateParserResult(raw: unknown, text: string): ParserResult {
   const created = new Set<string>();
   let cursor = 0;
   const nameCharacter = /[\p{L}\p{N}_-]/u;
-  const literals=new Set([...text.matchAll(/[+-]?(?:\d+(?:[.,]\d+)?)/g)].map(m=>Number(m[0].replace(',','.'))));
+  const literals=explicitNumericLiterals(text);
   for (const action of parsed.data.actions) {
     const placement='placement'in action?action.placement:null;
     const distances=placement?.type==='inside_boundary'?[...Object.values(placement.inset),placement.minimumClearance,placement.offsetAlongSide??0]:placement?.type==='relative_to'?[placement.distance]:action.type==='create_route'?[action.boundaryOffset]:[];
